@@ -1,6 +1,6 @@
 "use client";
 
-import { Repeat2, Settings2 } from "lucide-react";
+import { Repeat2, Settings2, ShieldAlert } from "lucide-react";
 import { Field, Panel, PrimaryButton, Select } from "@/components/ui/Primitives";
 import { NETWORK_OPTIONS, type NetworkKey } from "@/lib/networks";
 
@@ -27,10 +27,13 @@ export function TradePage({ network, onNetworkChange }: { network: NetworkKey; o
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field defaultValue="0.5" aria-label="Slippage percent" />
-        <div className="rounded-2xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm text-slate-300">Route provider: coming soon</div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm text-slate-300">Best route</div>
       </div>
-      <div className="rounded-2xl border border-accent/30 bg-accent/10 p-4 text-sm text-yellow-100">Live swap aggregator integration coming soon. Quotes and swaps are disabled until provider routing is connected.</div>
-      <PrimaryButton disabled className="w-full">Swap Coming Soon</PrimaryButton>
+      <div className="flex items-start gap-3 rounded-2xl border border-accent/30 bg-accent/10 p-4 text-sm leading-5 text-yellow-100">
+        <ShieldAlert className="mt-0.5 shrink-0" size={18} />
+        Swaps are paused until quotes can be checked safely before signing.
+      </div>
+      <PrimaryButton disabled className="w-full">Swaps Paused</PrimaryButton>
     </Panel>
   );
 }

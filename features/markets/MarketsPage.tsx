@@ -2,6 +2,7 @@
 
 import { Search, TrendingUp } from "lucide-react";
 import { Panel } from "@/components/ui/Primitives";
+import { TokenIcon } from "@/components/TokenIcon";
 import { formatCurrency } from "@/utils/format";
 
 const markets = [
@@ -42,7 +43,7 @@ export function MarketsPage() {
           {markets.map((coin) => (
             <div key={coin.symbol} className="flex items-center justify-between gap-3 rounded-2xl bg-white/[0.045] p-3" data-testid="market-row">
               <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl font-bold text-black" style={{ backgroundColor: coin.color }}>{coin.symbol[0]}</span>
+                <TokenIcon token={{ ...coin, balance: "0", fiatValue: 0, price: coin.price, change24h: coin.change, color: coin.color }} />
                 <span className="min-w-0">
                   <span className="block font-semibold">{coin.symbol}</span>
                   <span className="block truncate text-xs text-slate-400">{coin.name} | MCap {coin.marketCap}</span>

@@ -1,8 +1,8 @@
 "use client";
 
-import { CheckCircle2, Smartphone, XCircle } from "lucide-react";
+import { CheckCircle2, Smartphone } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Panel, PrimaryButton, Select, Field } from "@/components/ui/Primitives";
+import { EmptyState, ErrorCard, Panel, PrimaryButton, Select, Field } from "@/components/ui/Primitives";
 import { BrandLogo } from "@/components/BrandLogo";
 import { rechargeCountries, quoteRecharge, submitRecharge, supportedCountryCount } from "@/services/rechargeProvider";
 import { useRechargeStore } from "@/store/rechargeStore";
@@ -67,7 +67,7 @@ export function RechargeModule() {
           <BrandLogo size="sm" />
           <div>
             <h1 className="text-2xl font-semibold">Global Recharge</h1>
-            <p className="text-sm text-slate-400">{supportedCountryCount} countries ready for provider integration</p>
+            <p className="text-sm text-slate-400">{supportedCountryCount} countries supported</p>
           </div>
           <div className="ml-auto rounded-2xl bg-accent p-3 text-black"><Smartphone size={22} /></div>
         </div>
@@ -100,7 +100,7 @@ export function RechargeModule() {
             </div>
           </div>
         ) : null}
-        {error ? <div className="mt-4 flex items-center gap-2 rounded-2xl border border-danger/30 bg-danger/10 p-4 text-sm text-danger"><XCircle size={18} /> {error}</div> : null}
+        {error ? <ErrorCard message={error} onRetry={preview} className="mt-4" /> : null}
         {status === "success" ? (
           <div className="mt-4 flex items-center gap-2 rounded-2xl border border-mint/30 bg-mint/10 p-4 text-mint"><CheckCircle2 size={18} /> Recharge successful</div>
         ) : null}
@@ -112,7 +112,7 @@ export function RechargeModule() {
       <Panel>
         <h2 className="mb-4 text-lg font-semibold">History</h2>
         <div className="space-y-2">
-          {store.history.length === 0 ? <p className="text-sm text-slate-400">No recharge orders yet.</p> : null}
+          {store.history.length === 0 ? <EmptyState title="No recharge orders" detail="Completed top-ups will be saved here." /> : null}
           {store.history.map((order) => (
             <div key={order.id} className="rounded-2xl bg-white/[0.045] p-3 text-sm">
               <div className="flex justify-between"><span>{order.operator}</span><span className="text-mint">{order.status}</span></div>

@@ -62,7 +62,7 @@ export function StaticInfoPage({ title }: { title: string }) {
     <Panel>
       <h1 className="text-2xl font-semibold">{title}</h1>
       <p className="mt-3 text-sm leading-6 text-slate-400">
-        This production-ready placeholder keeps routing and UI structure ready for final legal, support, and product content.
+        BitzenX keeps wallet keys local on your device. Review each transaction carefully before signing.
       </p>
     </Panel>
   );

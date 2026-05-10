@@ -104,20 +104,20 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
   solana: {
     key: "solana",
     kind: "solana",
-    name: "Solana placeholder",
+    name: "Solana",
     shortName: "Solana",
     nativeSymbol: "SOL",
-    addressLabel: "Solana support coming soon",
+    addressLabel: "Solana receive address unavailable",
     placeholder: true
   },
   bitcoin: {
     key: "bitcoin",
     kind: "bitcoin",
-    name: "Bitcoin watch-only coming soon",
+    name: "Bitcoin",
     shortName: "Bitcoin",
     nativeSymbol: "BTC",
     explorerUrl: "https://mempool.space",
-    addressLabel: "Bitcoin watch-only coming soon",
+    addressLabel: "Bitcoin receive address unavailable",
     placeholder: true
   }
 };

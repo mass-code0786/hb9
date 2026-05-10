@@ -77,7 +77,7 @@ export function SecurityCenter({
           <div className="rounded-2xl bg-accent/10 p-3 text-accent"><ShieldCheck size={22} /></div>
           <div>
             <h1 className="text-2xl font-semibold">Security Center</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-400">Wallet recovery material stays encrypted locally and is rejected by the backend API boundary.</p>
+            <p className="mt-2 text-sm leading-6 text-slate-400">Manage local wallet protections, backup status, and recovery access.</p>
             <p className="mt-2 font-mono text-xs text-slate-500">{address ? shortAddress(address) : "Locked wallet"}</p>
           </div>
         </div>

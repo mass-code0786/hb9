@@ -1,10 +1,10 @@
 "use client";
 
 import { ethers } from "ethers";
-import { CheckCircle2, Eye, EyeOff, Loader2, Plus, Search, Star, X } from "lucide-react";
+import { CheckCircle2, ExternalLink, Eye, EyeOff, Loader2, Plus, Search, Star, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { ErrorText, Field, Panel, PrimaryButton, Select } from "@/components/ui/Primitives";
-import { getNetworkConfig, NETWORK_OPTIONS, type NetworkKey } from "@/lib/networks";
+import { EmptyState, ErrorText, Field, Panel, PrimaryButton, Select } from "@/components/ui/Primitives";
+import { explorerAddressUrl, getNetworkConfig, NETWORK_OPTIONS, type NetworkKey } from "@/lib/networks";
 import { DEFAULT_TOKENS } from "@/lib/tokens";
 import { getEvmTokenMetadata } from "@/services/evmService";
 import { useTokenStore } from "@/store/tokenStore";
@@ -41,6 +41,7 @@ export function TokenDetails({ token, onReceive, onSend }: { token: WalletToken 
   const toggleFavorite = useTokenStore((state) => state.toggleFavorite);
   const toggleHidden = useTokenStore((state) => state.toggleHidden);
   if (!token) return <Panel>Select a token from the home asset list.</Panel>;
+  const explorerUrl = token.network && token.address ? explorerAddressUrl(token.network, token.address) : "";
   return (
     <div className="space-y-4">
       <Panel>
@@ -71,6 +72,18 @@ export function TokenDetails({ token, onReceive, onSend }: { token: WalletToken 
           <PrimaryButton className="py-3 text-sm" onClick={() => onReceive(token)} type="button">Receive</PrimaryButton>
           <PrimaryButton className="py-3 text-sm" onClick={() => onSend(token)} type="button">Send</PrimaryButton>
         </div>
+      </Panel>
+      <Panel>
+        <h2 className="mb-4 text-lg font-semibold">Token info</h2>
+        <InfoRow label="Network" value={token.networkName || (token.network ? getNetworkConfig(token.network).name : "Unknown")} />
+        <InfoRow label="Contract" value={token.address || "Native asset"} mono />
+        <InfoRow label="Balance" value={trimAmount(token.balance)} />
+        <InfoRow label="USD value" value={formatCurrency(token.fiatValue)} />
+        {explorerUrl ? (
+          <a className="mt-4 flex items-center justify-center gap-2 rounded-2xl border border-accent/25 bg-accent/10 px-4 py-3 text-sm font-semibold text-accent" href={explorerUrl} target="_blank" rel="noreferrer">
+            View on explorer <ExternalLink size={15} />
+          </a>
+        ) : null}
       </Panel>
     </div>
   );
@@ -106,7 +119,7 @@ export function AddCustomToken({ defaultNetwork = "bsc" }: { defaultNetwork?: Ne
     setFetched(false);
     if (!address.trim()) return;
     if (selectedNetwork.kind !== "evm") {
-      setError(`${selectedNetwork.shortName} token import is coming soon.`);
+      setError(`${selectedNetwork.shortName} token import is unavailable.`);
       return;
     }
     if (!ethers.isAddress(address.trim())) {
@@ -144,7 +157,7 @@ export function AddCustomToken({ defaultNetwork = "bsc" }: { defaultNetwork?: Ne
   function submit() {
     setError("");
     if (selectedNetwork.kind !== "evm") {
-      setError(`${selectedNetwork.shortName} token import is coming soon.`);
+      setError(`${selectedNetwork.shortName} token import is unavailable.`);
       return;
     }
     if (!ethers.isAddress(address.trim())) {
@@ -262,7 +275,7 @@ export function ManageTokensPage({ network, importOpen = false, onImportOpenChan
       <Panel>
         <h2 className="mb-4 text-lg font-semibold">Imported tokens</h2>
         <div className="space-y-2">
-          {filteredImported.length === 0 ? <div className="rounded-2xl bg-white/[0.045] p-4 text-sm text-slate-400">No imported tokens match your search.</div> : null}
+          {filteredImported.length === 0 ? <EmptyState title="No imported tokens" detail="Imported tokens you add will appear here." /> : null}
           {filteredImported.map((token) => <ManageTokenRow key={tokenKey(token)} token={token} favorites={favorites} hiddenSymbols={hiddenSymbols} onFavorite={toggleFavorite} onHidden={toggleHidden} />)}
         </div>
       </Panel>
@@ -270,10 +283,19 @@ export function ManageTokensPage({ network, importOpen = false, onImportOpenChan
       <Panel>
         <h2 className="mb-4 text-lg font-semibold">Hidden tokens</h2>
         <div className="space-y-2">
-          {hiddenTokens.length === 0 ? <div className="rounded-2xl bg-white/[0.045] p-4 text-sm text-slate-400">No hidden tokens match your search.</div> : null}
+          {hiddenTokens.length === 0 ? <EmptyState title="No hidden tokens" detail="Hidden assets can be restored from this list." /> : null}
           {hiddenTokens.map((token) => <ManageTokenRow key={tokenKey(token)} token={token} favorites={favorites} hiddenSymbols={hiddenSymbols} onFavorite={toggleFavorite} onHidden={toggleHidden} />)}
         </div>
       </Panel>
+    </div>
+  );
+}
+
+function InfoRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-white/10 py-3 last:border-b-0">
+      <span className="text-sm text-slate-400">{label}</span>
+      <span className={`max-w-[13rem] truncate text-right text-sm font-medium text-slate-100 ${mono ? "font-mono text-xs" : ""}`}>{value}</span>
     </div>
   );
 }

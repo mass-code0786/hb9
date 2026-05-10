@@ -1,7 +1,7 @@
 "use client";
 
 import { CalendarCheck, Gift, ReceiptText, Users } from "lucide-react";
-import { Panel, PrimaryButton } from "@/components/ui/Primitives";
+import { EmptyState, Panel, PrimaryButton } from "@/components/ui/Primitives";
 
 export function RewardsPage() {
   return (
@@ -11,17 +11,17 @@ export function RewardsPage() {
         <p className="mt-2 text-sm text-slate-400">Earn tracked rewards from referrals, recharge cashback, and daily activity.</p>
       </Panel>
       <RewardCard icon={Users} title="Referral rewards" value="$0.00" detail="Invite friends and track pending referral bonuses." />
-      <RewardCard icon={ReceiptText} title="Recharge cashback" value="0.0%" detail="Cashback campaigns will appear here after provider activation." />
+      <RewardCard icon={ReceiptText} title="Recharge cashback" value="0.0%" detail="Eligible mobile top-ups will add cashback here." />
       <Panel>
         <div className="flex items-center gap-3"><CalendarCheck className="text-accent" /><h2 className="text-lg font-semibold">Daily check-in</h2></div>
         <div className="mt-4 grid grid-cols-7 gap-2">
           {Array.from({ length: 7 }, (_, index) => <div key={index} className="rounded-xl bg-white/[0.045] py-3 text-center text-xs text-slate-300">D{index + 1}</div>)}
         </div>
-        <PrimaryButton className="mt-4 w-full" disabled>Check-in Coming Soon</PrimaryButton>
+        <PrimaryButton className="mt-4 w-full" disabled>Check-in Locked</PrimaryButton>
       </Panel>
       <Panel>
         <div className="flex items-center gap-3"><Gift className="text-accent" /><h2 className="text-lg font-semibold">Reward history</h2></div>
-        <div className="mt-4 rounded-2xl bg-white/[0.045] p-4 text-sm text-slate-400">No rewards yet.</div>
+        <div className="mt-4"><EmptyState title="No rewards yet" detail="Cashback and referral bonuses will appear after activity." /></div>
       </Panel>
     </div>
   );

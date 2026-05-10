@@ -9,11 +9,11 @@ export function ProviderSettings() {
       <Panel>
         <h1 className="text-2xl font-semibold">Provider Settings</h1>
         <p className="mt-2 text-sm leading-6 text-slate-400">
-          Admin-ready provider status placeholders. API keys and provider secrets stay server-side only.
+          Review service availability for recharge and QR payments.
         </p>
       </Panel>
-      <ProviderCard icon={RadioTower} title="Recharge Provider" provider="Mock / DT One / Reloadly / Ding" status="Mock active" />
-      <ProviderCard icon={QrCode} title="QR Payment Provider" provider="Internal BSC payment order flow" status="Ready" />
+      <ProviderCard icon={RadioTower} title="Recharge" provider="Mobile top-up service" status="Ready" />
+      <ProviderCard icon={QrCode} title="QR Payments" provider="Wallet payment requests" status="Ready" />
     </div>
   );
 }

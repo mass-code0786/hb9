@@ -1,6 +1,7 @@
 "use client";
 
-import { Download } from "lucide-react";
+import { Download, ShieldCheck, Smartphone, Zap, X } from "lucide-react";
+import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { useSettingsStore } from "@/store/settingsStore";
 
@@ -26,16 +27,27 @@ export function PwaInstallPrompt() {
   if (!visible || !prompt) return null;
 
   return (
-    <div className="fixed inset-x-4 bottom-24 z-50 mx-auto max-w-md rounded-[1.4rem] border border-white/10 bg-panel/95 p-4 shadow-wallet backdrop-blur">
-      <div className="flex items-center gap-3">
+    <motion.div
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="fixed inset-x-4 bottom-24 z-50 mx-auto max-w-md rounded-[1.35rem] border border-white/10 bg-[#111722]/95 p-4 shadow-wallet backdrop-blur-xl"
+    >
+      <div className="flex items-start gap-3">
         <div className="rounded-2xl bg-accent p-3 text-black"><Download size={18} /></div>
         <div className="min-w-0 flex-1">
-          <div className="font-semibold">Install BitzenX</div>
-          <div className="text-xs text-slate-400">Add the wallet to your home screen.</div>
+          <div className="font-semibold">Install BitzenX Wallet</div>
+          <div className="mt-3 grid gap-2 text-xs leading-5 text-slate-300">
+            <span className="flex items-center gap-2"><Zap size={14} className="text-accent" /> Faster access</span>
+            <span className="flex items-center gap-2"><ShieldCheck size={14} className="text-accent" /> Secure local wallet</span>
+            <span className="flex items-center gap-2"><Smartphone size={14} className="text-accent" /> Mobile app-like experience</span>
+          </div>
         </div>
-        <button className="rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-black" onClick={async () => { await prompt.prompt(); dismiss(); }} type="button">Install</button>
-        <button className="rounded-xl bg-white/10 px-3 py-2 text-sm" onClick={dismiss} type="button">Later</button>
+        <button className="rounded-xl bg-white/10 p-2 text-slate-300" onClick={dismiss} type="button" aria-label="Dismiss install prompt"><X size={16} /></button>
       </div>
-    </div>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <button className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-semibold text-slate-100" onClick={dismiss} type="button">Dismiss</button>
+        <button className="rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-black" onClick={async () => { await prompt.prompt(); dismiss(); }} type="button">Install</button>
+      </div>
+    </motion.div>
   );
 }

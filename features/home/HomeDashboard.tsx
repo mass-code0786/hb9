@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Copy, Eye, EyeOff, QrCode, RefreshCcw, Search, Send, Smartphone, Star, WalletCards } from "lucide-react";
+import { Copy, Eye, EyeOff, Plus, QrCode, RefreshCcw, Search, Send, Smartphone, Star, WalletCards } from "lucide-react";
 import { useWalletTokens } from "@/hooks/useWalletTokens";
 import { explorerAddressUrl, type NetworkKey } from "@/lib/networks";
 import { shortAddress } from "@/lib/wallet";
@@ -9,7 +9,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useTokenStore } from "@/store/tokenStore";
 import type { WalletToken } from "@/types/wallet";
 import { formatCurrency, timeAgo, trimAmount } from "@/utils/format";
-import { Panel, Skeleton } from "@/components/ui/Primitives";
+import { EmptyState, Panel, Skeleton } from "@/components/ui/Primitives";
 import { BrandLogo } from "@/components/BrandLogo";
 import { TokenIcon } from "@/components/TokenIcon";
 import type { TokenBalance } from "@/lib/types";
@@ -53,9 +53,9 @@ export function HomeDashboard({
   const addressExplorer = explorerAddressUrl(network, address);
 
   return (
-    <div className="space-y-4 md:grid md:grid-cols-[1fr_360px] md:gap-5 md:space-y-0" data-testid="home-screen">
+    <div className="space-y-4 pb-4 md:grid md:grid-cols-[1fr_360px] md:gap-5 md:space-y-0" data-testid="home-screen">
       <div className="space-y-4">
-        <div className="flex items-center gap-3 rounded-[1.4rem] border border-white/10 bg-white/[0.055] px-4 py-3">
+        <div className="flex items-center gap-3 rounded-[1.15rem] border border-white/10 bg-white/[0.055] px-4 py-3">
           <Search size={18} className="text-slate-400" />
           <input
             className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
@@ -64,7 +64,7 @@ export function HomeDashboard({
           />
         </div>
         <motion.div
-          className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-[radial-gradient(circle_at_10%_8%,rgba(5,196,107,0.2),transparent_10rem),linear-gradient(135deg,#1c2231,#0d111a)] p-4 shadow-wallet"
+          className="overflow-hidden rounded-[1.35rem] border border-white/10 bg-[radial-gradient(circle_at_10%_8%,rgba(5,196,107,0.18),transparent_9rem),linear-gradient(135deg,#171d2a,#0b0f17)] p-4 shadow-wallet"
           drag="y"
           dragConstraints={{ top: 0, bottom: 0 }}
           onDragEnd={(_, info) => {
@@ -72,21 +72,21 @@ export function HomeDashboard({
           }}
         >
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm text-slate-300"><BrandLogo size="sm" /> Total Balance</div>
+            <BrandLogo size="sm" />
             <button className="rounded-2xl bg-white/10 p-2.5 text-slate-100" onClick={onToggleBalance} type="button" aria-label={balanceVisible ? "Hide balance" : "Show balance"}>
               {balanceVisible ? <Eye size={19} /> : <EyeOff size={19} />}
             </button>
           </div>
-          <div className="mt-1 text-4xl font-semibold leading-tight">{balanceVisible ? formatCurrency(total, currency) : "******"}</div>
-          <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-black/20 px-3 py-2.5">
+          <div className="mt-2 text-4xl font-semibold leading-tight">{balanceVisible ? formatCurrency(total, currency) : "******"}</div>
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-black/20 px-3 py-2.5">
             <span className="min-w-0 truncate text-sm text-slate-300">{shortAddress(address)}</span>
             <button className="flex shrink-0 items-center gap-2 text-sm text-accent" onClick={onCopyAddress} type="button">
               <Copy size={16} /> Copy
             </button>
           </div>
-          {addressExplorer ? <a className="mt-2 block text-center text-xs text-accent" href={addressExplorer} target="_blank" rel="noreferrer">Open explorer</a> : null}
+          {addressExplorer ? <a className="sr-only" href={addressExplorer} target="_blank" rel="noreferrer">Open explorer</a> : null}
           {clipboardNotice ? <div className="mt-3 rounded-2xl border border-mint/30 bg-mint/10 p-3 text-xs leading-5 text-mint">{clipboardNotice}</div> : null}
-          <div className="mt-4 grid grid-cols-5 gap-2">
+          <div className="mt-4 grid grid-cols-5 gap-2.5">
             <Action icon={Send} label="Send" onClick={() => onScreen("send")} />
             <Action icon={WalletCards} label="Receive" onClick={() => onScreen("receive")} />
             <Action icon={RefreshCcw} label="Swap" onClick={() => onScreen("send")} />
@@ -111,8 +111,14 @@ export function HomeDashboard({
             </div>
           </div>
           <div className="space-y-2">
-            {(loading || isFetching) && <Skeleton className="h-16" />}
-            {tokens.length === 0 && !(loading || isFetching) ? <div className="rounded-2xl bg-white/[0.045] p-4 text-sm text-slate-400">No tokens match your search.</div> : null}
+            {(loading || isFetching) ? (
+              <>
+                <Skeleton className="h-16" />
+                <Skeleton className="h-16" />
+                <Skeleton className="h-16" />
+              </>
+            ) : null}
+            {tokens.length === 0 && !(loading || isFetching) ? <EmptyState title="No assets found" detail="Refresh balances or import a token to add it to your wallet." /> : null}
             {tokens.map((token) => (
               <div key={token.id || token.symbol} className="flex w-full items-center justify-between gap-3 rounded-2xl bg-white/[0.045] p-3 text-left" data-testid="asset-row">
                 <span className="flex min-w-0 items-center gap-3">
@@ -133,9 +139,9 @@ export function HomeDashboard({
                 </span>
               </div>
             ))}
-            <button className="flex w-full items-center justify-center gap-2 rounded-2xl border border-accent/25 bg-accent/10 px-4 py-3 text-sm font-medium text-accent" onClick={onImportToken} type="button">
-              + Import Token
-            </button>
+            <motion.button whileTap={{ scale: 0.97 }} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-accent/25 bg-accent/10 px-4 py-3 text-sm font-medium text-accent" onClick={onImportToken} type="button">
+              <Plus size={16} /> Import Token
+            </motion.button>
           </div>
         </Panel>
       </div>
@@ -159,7 +165,7 @@ export function HomeDashboard({
                 </div>
               </div>
             ))}
-            {transactions.length === 0 ? <div className="rounded-2xl bg-white/[0.045] p-4 text-sm text-slate-400">No recent activity yet.</div> : null}
+            {transactions.length === 0 ? <EmptyState title="No activity yet" detail="Your sends, receives, and recharge orders will appear here." /> : null}
           </div>
         </Panel>
       </div>
@@ -169,9 +175,9 @@ export function HomeDashboard({
 
 function Action({ icon: Icon, label, onClick }: { icon: React.ElementType; label: string; onClick: () => void }) {
   return (
-    <button className="flex h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-2xl bg-white/10 px-1 text-[10px] leading-none sm:text-[11px]" onClick={onClick} type="button" data-testid={`action-${label.toLowerCase().replace(" ", "-")}`}>
+    <motion.button whileTap={{ scale: 0.95 }} className="flex h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-2xl bg-white/10 px-1 text-[10px] leading-none shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:text-[11px]" onClick={onClick} type="button" data-testid={`action-${label.toLowerCase().replace(" ", "-")}`}>
       <Icon size={18} />
       <span className="truncate">{label}</span>
-    </button>
+    </motion.button>
   );
 }

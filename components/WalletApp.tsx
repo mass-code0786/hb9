@@ -820,7 +820,7 @@ function SendView(props: {
       <Select value={props.tokenId} onChange={(event) => props.setTokenId(event.target.value)} disabled={props.tokens.length === 0}>
         {props.tokens.map((token) => <option key={token.id} value={token.id}>{token.symbol} - {token.name}</option>)}
       </Select>
-      {unsupported ? <div className="mt-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-4 text-sm text-yellow-100">{config.addressLabel}. No fake successful sends are shown for unsupported networks.</div> : null}
+      {unsupported ? <div className="mt-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-4 text-sm text-yellow-100">{config.addressLabel || `${config.name} sends are unavailable in this wallet.`}</div> : null}
       {networkMismatch ? <div className="mt-4 rounded-2xl border border-danger/30 bg-danger/10 p-4 text-sm text-red-100">Selected token network does not match the active wallet network. Switch network before sending.</div> : null}
       {suspiciousWarning ? <div className="mt-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-4 text-sm text-yellow-100">{suspiciousWarning}</div> : null}
       <Field className="mt-3" value={props.to} onChange={(e) => props.setTo(e.target.value)} placeholder={`Recipient ${config.shortName} address`} disabled={unsupported} />
