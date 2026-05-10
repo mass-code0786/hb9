@@ -32,6 +32,7 @@ function defaultWalletTokens(): WalletToken[] {
     network: token.network,
     networkName: getNetworkConfig(token.network).shortName,
     placeholder: token.placeholder,
+    metadataVerified: true,
     color: token.color
   }));
 }
@@ -94,6 +95,11 @@ export function AddCustomToken({ defaultNetwork = "bsc" }: { defaultNetwork?: Ne
     const customDuplicate = customTokens.some((token) => token.network === network && token.address?.toLowerCase() === normalizedAddress);
     return defaultDuplicate || customDuplicate;
   }, [customTokens, network, normalizedAddress]);
+  const duplicateSymbol = useMemo(() => {
+    const normalizedSymbol = symbol.trim().toUpperCase();
+    if (!normalizedSymbol) return false;
+    return [...DEFAULT_TOKENS, ...customTokens].some((token) => token.network === network && token.symbol.toUpperCase() === normalizedSymbol);
+  }, [customTokens, network, symbol]);
 
   useEffect(() => {
     setError("");
@@ -171,6 +177,7 @@ export function AddCustomToken({ defaultNetwork = "bsc" }: { defaultNetwork?: Ne
       price: 0,
       fiatValue: 0,
       change24h: 0,
+      metadataVerified: fetched,
       color: TOKEN_COLORS[Math.abs(id.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0)) % TOKEN_COLORS.length]
     });
     setSymbol("");
@@ -196,6 +203,11 @@ export function AddCustomToken({ defaultNetwork = "bsc" }: { defaultNetwork?: Ne
           <Field placeholder="Token decimals" inputMode="numeric" value={decimals} onChange={(event) => setDecimals(event.target.value)} disabled={loading || selectedNetwork.kind !== "evm"} />
         </div>
         <Field placeholder="Token name" value={name} onChange={(event) => setName(event.target.value)} disabled={loading || selectedNetwork.kind !== "evm"} />
+      </div>
+      <div className="mt-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-xs leading-5 text-yellow-100">
+        Custom tokens can be risky. Verify contract before interacting.
+        {!fetched && address.trim() ? <span className="block">Token metadata is not verified yet.</span> : null}
+        {duplicateSymbol ? <span className="block">A token with this symbol already exists on this network.</span> : null}
       </div>
       {selectedNetwork.kind !== "evm" ? <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.045] p-3 text-sm text-slate-300">{selectedNetwork.addressLabel}</div> : null}
       <ErrorText error={error} />

@@ -29,6 +29,16 @@ export function SettingsModule({ onNavigate }: { onNavigate: (screen: "security"
           </Select>
         </div>
         <div>
+          <div className="mb-2 text-sm text-slate-400">Auto-lock</div>
+          <Select value={settings.autoLockMinutes} onChange={(event) => settings.setAutoLockMinutes(Number(event.target.value))}>
+            <option value={1}>1 minute</option>
+            <option value={5}>5 minutes</option>
+            <option value={15}>15 minutes</option>
+            <option value={30}>30 minutes</option>
+            <option value={0}>Never</option>
+          </Select>
+        </div>
+        <div>
           <div className="mb-2 text-sm text-slate-400">Language</div>
           <Select value={settings.language} onChange={(event) => settings.setLanguage(event.target.value)}>
             <option>English</option>

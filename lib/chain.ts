@@ -39,12 +39,15 @@ export async function estimateUsdtGas(from: string, to: string, amount: string) 
 }
 
 export async function sendBnb(mnemonic: string, to: string, amount: string) {
+  // Self-custody boundary: signing happens in-browser from the decrypted mnemonic.
+  // The mnemonic must never leave the client or be logged.
   const wallet = ethers.HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0").connect(getProvider());
   const tx = await wallet.sendTransaction({ to, value: ethers.parseEther(amount) });
   return tx.wait();
 }
 
 export async function sendUsdt(mnemonic: string, to: string, amount: string) {
+  // Self-custody boundary: token transfers are signed locally with ethers.js.
   const provider = getProvider();
   const wallet = ethers.HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0").connect(provider);
   const contract = new ethers.Contract(USDT_CONTRACT, USDT_ABI, wallet);

@@ -50,6 +50,8 @@ export async function encryptMnemonic(mnemonic: string, password: string, addres
 }
 
 export async function decryptMnemonic(vault: EncryptedVault, password: string) {
+  // Sensitive boundary: decrypted mnemonic is returned only to the client runtime for local signing.
+  // Do not send this value to APIs, logs, analytics, or persistent plaintext storage.
   const key = await deriveKey(password, fromBase64(vault.salt));
   const plain = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: toArrayBuffer(fromBase64(vault.iv)) },

@@ -18,6 +18,7 @@ import { TradePage } from "@/features/trade/TradePage";
 import { TransactionHistory } from "@/features/transactions/TransactionHistory";
 import { clearVault, getStoredVault, saveVault } from "@/lib/storage";
 import { decryptMnemonic, encryptMnemonic } from "@/lib/crypto";
+import { clearSecurityMetadata, createPinRecord, getBackupStatus, getStoredPin, isValidPin, saveBackupStatus, savePin, verifyPin, type BackupStatus, type PinRecord } from "@/lib/security";
 import { generateMnemonic, normalizeMnemonic, shortAddress, validateMnemonic, walletFromMnemonic } from "@/lib/wallet";
 import { explorerTxUrl, getNetworkConfig, NETWORK_OPTIONS, type NetworkKey } from "@/lib/networks";
 import { DEFAULT_TOKENS, type TokenConfig } from "@/lib/tokens";
@@ -84,6 +85,14 @@ export function WalletApp() {
   const [deleteConfirming, setDeleteConfirming] = useState(false);
   const [clipboardNotice, setClipboardNotice] = useState("");
   const [importTokenOpen, setImportTokenOpen] = useState(false);
+  const [pinRecord, setPinRecord] = useState<PinRecord | null>(null);
+  const [pin, setPin] = useState("");
+  const [pinConfirm, setPinConfirm] = useState("");
+  const [pinUnlock, setPinUnlock] = useState("");
+  const [pinLockedMnemonic, setPinLockedMnemonic] = useState("");
+  const [backupStatus, setBackupStatus] = useState<BackupStatus>("not-backed-up");
+  const [backupVerifyText, setBackupVerifyText] = useState("");
+  const [sendConfirmVisible, setSendConfirmVisible] = useState(false);
 
   const mnemonicWords = useMemo(() => pendingMnemonic.split(" ").filter(Boolean), [pendingMnemonic]);
   const authenticated = Boolean(sessionMnemonic);
@@ -100,7 +109,8 @@ export function WalletApp() {
       contractAddress: token.address,
       color: token.color,
       price: token.price,
-      change24h: token.change24h
+      change24h: token.change24h,
+      metadataVerified: token.metadataVerified
     })),
     [customTokens]
   );
@@ -131,6 +141,8 @@ export function WalletApp() {
 
   useEffect(() => {
     const stored = getStoredVault();
+    setPinRecord(getStoredPin());
+    setBackupStatus(getBackupStatus());
     if (stored) {
       setVault(stored);
       setActiveAddress(stored.address);
@@ -154,6 +166,7 @@ export function WalletApp() {
 
   useEffect(() => {
     if (!sessionMnemonic) return;
+    if (autoLockMinutes <= 0) return;
     let timer: number | undefined;
     const resetTimer = () => {
       window.clearTimeout(timer);
@@ -176,6 +189,11 @@ export function WalletApp() {
     setImportText("");
     setError("");
     setGasFee("");
+    setPin("");
+    setPinConfirm("");
+    setPinUnlock("");
+    setBackupVerifyText("");
+    setSendConfirmVisible(false);
     setTx(initialTx);
   }
 
@@ -259,7 +277,9 @@ export function WalletApp() {
       setActiveAddress(wallet.address);
       setPendingMnemonic("");
       resetForms();
-      setScreen("dashboard");
+      saveBackupStatus("not-backed-up");
+      setBackupStatus("not-backed-up");
+      setScreen("pin-setup");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not encrypt wallet.");
     }
@@ -282,6 +302,7 @@ export function WalletApp() {
   }
 
   function lock() {
+    if (pinRecord && sessionMnemonic) setPinLockedMnemonic(sessionMnemonic);
     setSessionMnemonic("");
     resetForms();
     setScreen(vault ? "unlock" : "landing");
@@ -293,6 +314,10 @@ export function WalletApp() {
       return;
     }
     clearVault();
+    clearSecurityMetadata();
+    setPinRecord(null);
+    setBackupStatus("not-backed-up");
+    setPinLockedMnemonic("");
     setVault(null);
     setSessionMnemonic("");
     setActiveAddress("");
@@ -300,6 +325,61 @@ export function WalletApp() {
     resetForms();
     setDeleteConfirming(false);
     setScreen("landing");
+  }
+
+  async function setupPin(skip = false) {
+    setError("");
+    if (skip) {
+      setScreen("dashboard");
+      return;
+    }
+    if (!isValidPin(pin)) {
+      setError("Use a 4 to 6 digit PIN.");
+      return;
+    }
+    if (pin !== pinConfirm) {
+      setError("PIN entries do not match.");
+      return;
+    }
+    const next = await createPinRecord(pin);
+    savePin(next);
+    setPinRecord(next);
+    setPin("");
+    setPinConfirm("");
+    setScreen("dashboard");
+  }
+
+  async function unlockWithPin() {
+    setError("");
+    if (!pinRecord || !pinLockedMnemonic) {
+      setError("PIN unlock is available after this browser session has been password-unlocked once.");
+      return;
+    }
+    if (!(await verifyPin(pinUnlock, pinRecord))) {
+      setError("Incorrect PIN.");
+      return;
+    }
+    setSessionMnemonic(pinLockedMnemonic);
+    setPinUnlock("");
+    setScreen("dashboard");
+  }
+
+  function verifyBackupPhrase() {
+    if (!sessionMnemonic) return;
+    if (normalizeMnemonic(backupVerifyText) !== sessionMnemonic) {
+      setError("The phrase does not match this wallet.");
+      return;
+    }
+    saveBackupStatus("backed-up");
+    setBackupStatus("backed-up");
+    setBackupVerifyText("");
+    setError("");
+    setScreen("security");
+  }
+
+  async function revealSeedWithPassword(passwordValue: string) {
+    if (!vault) throw new Error("No encrypted wallet is stored.");
+    return decryptMnemonic(vault, passwordValue);
   }
 
   async function copyAddress() {
@@ -315,6 +395,7 @@ export function WalletApp() {
     try {
       if (!amount || Number(amount) <= 0) throw new Error("Enter a valid amount.");
       if (!selectedSendToken) throw new Error("Select a token to send.");
+      if (selectedSendToken.network !== network) throw new Error("Selected token does not match the active network.");
       if (networkConfig.kind === "tron") {
         if (!isTronAddress(to)) throw new Error("Enter a valid TRON recipient address.");
         setGasFee(estimateTronTransfer(selectedSendToken));
@@ -333,11 +414,21 @@ export function WalletApp() {
 
   async function submitTx() {
     setError("");
+    if (!sendConfirmVisible) {
+      try {
+        validateSendRequest(network, selectedSendToken, to, amount);
+        setSendConfirmVisible(true);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Review send details before continuing.");
+      }
+      return;
+    }
     setTx({ state: "signing", message: "Signing locally in this browser..." });
     try {
       // Sensitive boundary: sessionMnemonic remains in client memory and is used only for local signing.
       if (!sessionMnemonic) throw new Error("Unlock the wallet first.");
       if (!selectedSendToken) throw new Error("Select a token to send.");
+      validateSendRequest(network, selectedSendToken, to, amount);
       setTx({ state: "submitted", message: "Broadcasting transaction..." });
       const receipt = networkConfig.kind === "tron"
         ? await sendTronTransfer(sessionMnemonic, to, amount, selectedSendToken)
@@ -359,6 +450,7 @@ export function WalletApp() {
       setAmount("");
       setTo("");
       setGasFee("");
+      setSendConfirmVisible(false);
       await refreshBalances();
     } catch (err) {
       setTx({ state: "failed", message: "" });
@@ -426,6 +518,9 @@ export function WalletApp() {
           unlockPassword,
           unlockPasswordVisible,
           unlocking,
+          pinEnabled: Boolean(pinRecord),
+          pinUnlock,
+          pinUnlockAvailable: Boolean(pinLockedMnemonic),
           error,
           setConfirmText,
           setImportText,
@@ -433,6 +528,7 @@ export function WalletApp() {
           setPasswordConfirm,
           setUnlockPassword,
           setUnlockPasswordVisible,
+          setPinUnlock,
           startCreate,
           revealSeedPhrase,
           startImport,
@@ -440,6 +536,7 @@ export function WalletApp() {
           acceptImport,
           createVault,
           unlock,
+          unlockWithPin,
           removeWallet,
           deleteConfirming,
           go
@@ -482,15 +579,23 @@ export function WalletApp() {
         />
       ) : null}
       {screen === "receive" ? <ReceiveView address={currentAddress} network={network} clipboardNotice={clipboardNotice} onCopy={copyAddress} /> : null}
-      {screen === "send" ? <SendView network={network} tokenId={selectedSendToken?.id || ""} tokens={sendTokens} setTokenId={setSendTokenId} to={to} setTo={setTo} amount={amount} setAmount={setAmount} gasFee={gasFee} tx={tx} error={error} estimateGas={estimateGas} submitTx={submitTx} /> : null}
+      {backupStatus === "not-backed-up" && screen === "dashboard" && activeTab === "home" ? (
+        <div className="mb-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-4 text-sm leading-6 text-yellow-100">
+          Backup phrase not verified. Confirm your recovery phrase before adding significant funds.
+          <button className="mt-3 block text-accent" onClick={() => go("backup-verify")} type="button">Verify backup phrase</button>
+        </div>
+      ) : null}
+      {screen === "send" ? <SendView network={network} tokenId={selectedSendToken?.id || ""} tokens={sendTokens} setTokenId={(value) => { setSendTokenId(value); setSendConfirmVisible(false); }} to={to} setTo={(value) => { setTo(value); setSendConfirmVisible(false); }} amount={amount} setAmount={(value) => { setAmount(value); setSendConfirmVisible(false); }} gasFee={gasFee} tx={tx} error={error} estimateGas={estimateGas} submitTx={submitTx} confirmVisible={sendConfirmVisible} customTokens={customTokens} /> : null}
       {screen === "recharge" ? <RechargeModule /> : null}
       {screen === "qr-pay" ? <QrPayModule /> : null}
       {screen === "transactions" ? <TransactionHistory transactions={transactions} /> : null}
-      {screen === "security" ? <SecurityCenter address={activeAddress} /> : null}
+      {screen === "security" ? <SecurityCenter address={activeAddress} backupStatus={backupStatus} pinEnabled={Boolean(pinRecord)} deleteConfirming={deleteConfirming} onPinChanged={() => setPinRecord(getStoredPin())} onVerifyBackup={() => go("backup-verify")} onRevealSeed={revealSeedWithPassword} onDeleteLocalWallet={removeWallet} /> : null}
       {screen === "settings" ? <SettingsModule onNavigate={go} /> : null}
       {screen === "provider-settings" ? <ProviderSettings /> : null}
       {screen === "token-details" ? <TokenDetails token={selectedToken} onReceive={openReceiveForToken} onSend={openSendForToken} /> : null}
       {screen === "manage-tokens" ? <ManageTokensPage network={network} importOpen={importTokenOpen} onImportOpenChange={setImportTokenOpen} /> : null}
+      {screen === "pin-setup" ? <PinSetupView pin={pin} pinConfirm={pinConfirm} error={error} setPin={setPin} setPinConfirm={setPinConfirm} onSave={() => setupPin(false)} onSkip={() => setupPin(true)} /> : null}
+      {screen === "backup-verify" ? <BackupVerifyView value={backupVerifyText} error={error} onChange={setBackupVerifyText} onVerify={verifyBackupPhrase} /> : null}
       {screen === "about" ? <StaticInfoPage title="About" /> : null}
       {screen === "help" ? <StaticInfoPage title="Help Center" /> : null}
       {screen === "terms" ? <StaticInfoPage title="Terms" /> : null}
@@ -512,6 +617,9 @@ function renderAuthScreens(props: {
   unlockPassword: string;
   unlockPasswordVisible: boolean;
   unlocking: boolean;
+  pinEnabled: boolean;
+  pinUnlock: string;
+  pinUnlockAvailable: boolean;
   error: string;
   setConfirmText: (value: string) => void;
   setImportText: (value: string) => void;
@@ -519,6 +627,7 @@ function renderAuthScreens(props: {
   setPasswordConfirm: (value: string) => void;
   setUnlockPassword: (value: string) => void;
   setUnlockPasswordVisible: (value: boolean) => void;
+  setPinUnlock: (value: string) => void;
   startCreate: () => void;
   revealSeedPhrase: () => void;
   startImport: () => void;
@@ -526,6 +635,7 @@ function renderAuthScreens(props: {
   acceptImport: () => void;
   createVault: () => void;
   unlock: () => void;
+  unlockWithPin: () => void;
   removeWallet: () => void;
   deleteConfirming: boolean;
   go: (screen: WalletScreen) => void;
@@ -613,6 +723,25 @@ function renderAuthScreens(props: {
           </div>
 
           <ErrorText error={p.error} />
+          {p.pinEnabled ? (
+            <div className="mt-4 w-full rounded-2xl border border-white/10 bg-white/[0.045] p-3 text-left">
+              <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-500">PIN unlock</div>
+              <div className="flex gap-2">
+                <input
+                  className="field h-12 flex-1 text-center tracking-[0.35em]"
+                  inputMode="numeric"
+                  maxLength={6}
+                  type="password"
+                  value={p.pinUnlock}
+                  onChange={(e) => p.setPinUnlock(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="PIN"
+                  disabled={!p.pinUnlockAvailable}
+                />
+                <SecondaryButton className="h-12 px-4 py-0 text-sm" onClick={p.unlockWithPin} disabled={!p.pinUnlockAvailable} type="button">Use PIN</SecondaryButton>
+              </div>
+              {!p.pinUnlockAvailable ? <p className="mt-2 text-xs text-slate-500">PIN unlock resumes an active browser session after password unlock.</p> : null}
+            </div>
+          ) : null}
           <button
             className="mt-5 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#31d0aa] via-[#05c46b] to-[#f3ba2f] px-4 py-3.5 font-semibold text-black shadow-[0_14px_38px_rgba(5,196,107,0.18)] transition hover:brightness-110 disabled:opacity-60 disabled:hover:brightness-100"
             onClick={p.unlock}
@@ -674,12 +803,17 @@ function SendView(props: {
   error: string;
   estimateGas: () => void;
   submitTx: () => void;
+  confirmVisible: boolean;
+  customTokens: WalletToken[];
 }) {
   const config = getNetworkConfig(props.network);
   const selectedToken = props.tokens.find((token) => token.id === props.tokenId);
   const unsupported = !selectedToken || (config.kind !== "evm" && config.kind !== "tron");
   const txUrl = props.tx.hash ? explorerTxUrl(props.network, props.tx.hash) : "";
   const feeLabel = props.gasFee && Number.isFinite(Number(props.gasFee)) ? `${trimAmount(props.gasFee, 8)} ${config.nativeSymbol}` : props.gasFee;
+  const networkMismatch = Boolean(selectedToken && selectedToken.network !== props.network);
+  const suspiciousWarning = selectedToken ? getTokenRiskWarning(selectedToken, props.customTokens, props.tokens) : "";
+  const totalCost = props.amount ? `${props.amount} ${selectedToken?.symbol || ""}${feeLabel ? ` + ${feeLabel}` : ""}` : "Enter amount";
   return (
     <Panel className="bg-[radial-gradient(circle_at_15%_0%,rgba(5,196,107,0.13),transparent_13rem),rgba(16,20,29,0.92)]">
       <Title title="Send" subtitle={unsupported ? `${config.name} sending is disabled until safely implemented.` : `Transactions are signed locally, then broadcast to ${config.name}.`} />
@@ -687,16 +821,85 @@ function SendView(props: {
         {props.tokens.map((token) => <option key={token.id} value={token.id}>{token.symbol} - {token.name}</option>)}
       </Select>
       {unsupported ? <div className="mt-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-4 text-sm text-yellow-100">{config.addressLabel}. No fake successful sends are shown for unsupported networks.</div> : null}
+      {networkMismatch ? <div className="mt-4 rounded-2xl border border-danger/30 bg-danger/10 p-4 text-sm text-red-100">Selected token network does not match the active wallet network. Switch network before sending.</div> : null}
+      {suspiciousWarning ? <div className="mt-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-4 text-sm text-yellow-100">{suspiciousWarning}</div> : null}
       <Field className="mt-3" value={props.to} onChange={(e) => props.setTo(e.target.value)} placeholder={`Recipient ${config.shortName} address`} disabled={unsupported} />
       <Field className="mt-3" inputMode="decimal" value={props.amount} onChange={(e) => props.setAmount(e.target.value)} placeholder={`Amount in ${selectedToken?.symbol || config.nativeSymbol}`} disabled={unsupported} />
       <div className="mt-4 rounded-2xl border border-white/10 bg-ink/60 p-4 text-xs leading-5 text-slate-300">Estimated network fee: <span className="text-slate-100">{feeLabel || "Run estimate before sending"}</span></div>
       <ErrorText error={props.error} />
       {props.tx.message ? <p className="mt-3 text-sm text-mint">{props.tx.message}</p> : null}
       {props.tx.hash ? <p className="mt-2 break-all text-xs text-slate-400">Hash: {txUrl ? <a className="text-accent" href={txUrl} target="_blank" rel="noreferrer">{props.tx.hash}</a> : props.tx.hash}</p> : null}
+      {props.confirmVisible && selectedToken ? (
+        <div className="mt-4 rounded-2xl border border-accent/25 bg-accent/10 p-4 text-sm">
+          <h3 className="font-semibold text-accent">Confirm transaction</h3>
+          <ConfirmRow label="Token" value={selectedToken.symbol} />
+          <ConfirmRow label="Amount" value={props.amount || "0"} />
+          <ConfirmRow label="Recipient" value={props.to || "Missing"} mono />
+          <ConfirmRow label="Network" value={config.name} />
+          <ConfirmRow label="Estimated gas" value={feeLabel || "Not estimated"} />
+          <ConfirmRow label="Total cost" value={totalCost} />
+          <p className="mt-3 text-xs leading-5 text-yellow-100">Confirm the recipient and network. Blockchain transfers cannot be reversed.</p>
+        </div>
+      ) : null}
       <div className="mt-4 grid grid-cols-2 gap-3">
         <SecondaryButton onClick={props.estimateGas} disabled={unsupported || props.tx.state === "estimating"}>{props.tx.state === "estimating" ? "Estimating" : "Estimate"}</SecondaryButton>
-        <PrimaryButton onClick={props.submitTx} disabled={unsupported || props.tx.state === "signing" || props.tx.state === "submitted"}>{props.tx.state === "signing" || props.tx.state === "submitted" ? "Sending" : "Send"}</PrimaryButton>
+        <PrimaryButton onClick={props.submitTx} disabled={unsupported || networkMismatch || props.tx.state === "signing" || props.tx.state === "submitted"}>{props.tx.state === "signing" || props.tx.state === "submitted" ? "Sending" : props.confirmVisible ? "Confirm Send" : "Review Send"}</PrimaryButton>
       </div>
+    </Panel>
+  );
+}
+
+function validateSendRequest(network: NetworkKey, token: TokenConfig | undefined, to: string, amount: string) {
+  const config = getNetworkConfig(network);
+  if (!token) throw new Error("Select a token to send.");
+  if (token.network !== network) throw new Error("Selected token does not match the active network.");
+  if (!amount || Number(amount) <= 0) throw new Error("Enter a valid amount.");
+  if (config.kind === "tron") {
+    if (!isTronAddress(to)) throw new Error("Enter a valid TRON recipient address.");
+    return;
+  }
+  if (config.kind === "evm") {
+    if (!ethers.isAddress(to)) throw new Error("Enter a valid EVM recipient address.");
+    return;
+  }
+  throw new Error(`${config.name} sends are not implemented yet.`);
+}
+
+function getTokenRiskWarning(token: TokenConfig, customTokens: WalletToken[], visibleTokens: TokenConfig[]) {
+  const isCustom = customTokens.some((item) => item.id === token.id);
+  if (!isCustom) return "";
+  const duplicate = visibleTokens.filter((item) => item.network === token.network && item.symbol.toUpperCase() === token.symbol.toUpperCase()).length > 1;
+  if (!token.metadataVerified || !token.name.trim() || !token.symbol.trim() || duplicate) {
+    return "Suspicious custom token. Verify contract metadata and duplicate symbols before interacting.";
+  }
+  return "Custom tokens can be risky. Verify contract before interacting.";
+}
+
+function ConfirmRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return <div className="mt-2 flex justify-between gap-4 border-b border-white/10 pb-2 last:border-b-0"><span className="text-slate-400">{label}</span><span className={`max-w-[12rem] truncate text-right text-slate-100 ${mono ? "font-mono text-xs" : ""}`}>{value}</span></div>;
+}
+
+function PinSetupView({ pin, pinConfirm, error, setPin, setPinConfirm, onSave, onSkip }: { pin: string; pinConfirm: string; error: string; setPin: (value: string) => void; setPinConfirm: (value: string) => void; onSave: () => void; onSkip: () => void }) {
+  return (
+    <Panel>
+      <Title title="Set PIN Lock" subtitle="Add an optional 4 to 6 digit PIN for quick session unlock on this device." />
+      <Field inputMode="numeric" maxLength={6} type="password" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="PIN" />
+      <Field className="mt-3" inputMode="numeric" maxLength={6} type="password" value={pinConfirm} onChange={(event) => setPinConfirm(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="Confirm PIN" />
+      <ErrorText error={error} />
+      <PrimaryButton className="mt-4 w-full" onClick={onSave} type="button">Save PIN</PrimaryButton>
+      <SecondaryButton className="mt-3 w-full" onClick={onSkip} type="button">Skip for now</SecondaryButton>
+    </Panel>
+  );
+}
+
+function BackupVerifyView({ value, error, onChange, onVerify }: { value: string; error: string; onChange: (value: string) => void; onVerify: () => void }) {
+  return (
+    <Panel>
+      <Title title="Verify Backup Phrase" subtitle="Enter your 12-word recovery phrase to mark this wallet as backed up." />
+      <Warning />
+      <textarea className="field min-h-32" value={value} onChange={(event) => onChange(event.target.value)} placeholder="word one two..." />
+      <ErrorText error={error} />
+      <PrimaryButton className="mt-4 w-full" onClick={onVerify} type="button">Verify backup phrase</PrimaryButton>
     </Panel>
   );
 }

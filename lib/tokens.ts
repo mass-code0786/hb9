@@ -15,6 +15,7 @@ export type TokenConfig = {
   change24h: number;
   important?: boolean;
   placeholder?: boolean;
+  metadataVerified?: boolean;
 };
 
 export const DEFAULT_TOKENS: TokenConfig[] = [

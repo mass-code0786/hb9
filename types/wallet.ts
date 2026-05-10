@@ -15,6 +15,7 @@ export type WalletToken = {
   network?: NetworkKey;
   networkName?: string;
   placeholder?: boolean;
+  metadataVerified?: boolean;
   favorite?: boolean;
   hidden?: boolean;
   color: string;
@@ -29,6 +30,8 @@ export type WalletScreen =
   | "import"
   | "password"
   | "unlock"
+  | "pin-setup"
+  | "backup-verify"
   | "dashboard"
   | "receive"
   | "send"
