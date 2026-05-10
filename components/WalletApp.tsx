@@ -30,6 +30,7 @@ import { useTransactionStore } from "@/store/transactionStore";
 import { getMockTransactions } from "@/services/mockApi";
 import { getNetworkBalances } from "@/services/balanceService";
 import { estimateEvmTransfer, sendEvmTransfer } from "@/services/evmService";
+import { estimateTronTransfer, isTronAddress, sendTronTransfer, tronAccountFromMnemonic } from "@/services/tronService";
 import { WalletShell } from "@/components/ui/WalletShell";
 import { ErrorText, Field, Panel, PrimaryButton, SecondaryButton, Select } from "@/components/ui/Primitives";
 import { trimAmount } from "@/utils/format";
@@ -102,18 +103,27 @@ export function WalletApp() {
   const networkConfig = getNetworkConfig(network);
   const sendTokens = useMemo(() => [...DEFAULT_TOKENS, ...customTokenConfigs].filter((token) => token.network === network && token.type !== "placeholder"), [customTokenConfigs, network]);
   const selectedSendToken = sendTokens.find((token) => token.id === sendTokenId) || sendTokens[0];
+  const tronAddress = useMemo(() => {
+    if (!sessionMnemonic) return "";
+    try {
+      return tronAccountFromMnemonic(sessionMnemonic).address;
+    } catch {
+      return "";
+    }
+  }, [sessionMnemonic]);
+  const currentAddress = networkConfig.kind === "tron" ? tronAddress : activeAddress;
 
   const refreshBalances = useCallback(async () => {
-    if (!activeAddress) return;
+    if (!currentAddress) return;
     setLoadingBalance(true);
     try {
-      setBalances(await getNetworkBalances(network, activeAddress, customTokenConfigs));
+      setBalances(await getNetworkBalances(network, currentAddress, customTokenConfigs));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load balances.");
     } finally {
       setLoadingBalance(false);
     }
-  }, [activeAddress, customTokenConfigs, network, setBalances, setLoadingBalance]);
+  }, [currentAddress, customTokenConfigs, network, setBalances, setLoadingBalance]);
 
   useEffect(() => {
     const stored = getStoredVault();
@@ -130,8 +140,8 @@ export function WalletApp() {
   }, [sessionMnemonic, setActiveAddress]);
 
   useEffect(() => {
-    if (screen === "dashboard" && activeAddress) refreshBalances();
-  }, [screen, activeAddress, refreshBalances]);
+    if (screen === "dashboard" && currentAddress) refreshBalances();
+  }, [screen, currentAddress, refreshBalances]);
 
   useEffect(() => {
     const firstToken = sendTokens[0];
@@ -269,7 +279,7 @@ export function WalletApp() {
   }
 
   async function copyAddress() {
-    await navigator.clipboard.writeText(activeAddress);
+    await navigator.clipboard.writeText(currentAddress);
     setClipboardNotice("Address copied. Confirm the first and last characters before sending funds.");
     window.setTimeout(() => setClipboardNotice(""), 3500);
   }
@@ -279,11 +289,17 @@ export function WalletApp() {
     setGasFee("");
     setTx({ state: "estimating", message: "Estimating network fee..." });
     try {
-      if (!ethers.isAddress(to)) throw new Error("Enter a valid recipient address.");
       if (!amount || Number(amount) <= 0) throw new Error("Enter a valid amount.");
-      if (networkConfig.kind !== "evm" || !selectedSendToken) throw new Error(`${networkConfig.name} sends are not implemented yet.`);
-      const estimate = await estimateEvmTransfer(network, activeAddress, to, amount, selectedSendToken);
-      setGasFee(estimate.fee);
+      if (!selectedSendToken) throw new Error("Select a token to send.");
+      if (networkConfig.kind === "tron") {
+        if (!isTronAddress(to)) throw new Error("Enter a valid TRON recipient address.");
+        setGasFee(estimateTronTransfer(selectedSendToken));
+      } else {
+        if (!ethers.isAddress(to)) throw new Error("Enter a valid EVM recipient address.");
+        if (networkConfig.kind !== "evm") throw new Error(`${networkConfig.name} sends are not implemented yet.`);
+        const estimate = await estimateEvmTransfer(network, activeAddress, to, amount, selectedSendToken);
+        setGasFee(estimate.fee);
+      }
       setTx({ state: "idle", message: "Gas estimate ready." });
     } catch (err) {
       setTx({ state: "failed", message: "" });
@@ -297,11 +313,12 @@ export function WalletApp() {
     try {
       // Sensitive boundary: sessionMnemonic remains in client memory and is used only for local signing.
       if (!sessionMnemonic) throw new Error("Unlock the wallet first.");
-      if (!ethers.isAddress(to)) throw new Error("Enter a valid recipient address.");
+      if (!selectedSendToken) throw new Error("Select a token to send.");
       setTx({ state: "submitted", message: "Broadcasting transaction..." });
-      if (networkConfig.kind !== "evm" || !selectedSendToken) throw new Error(`${networkConfig.name} sends are not implemented yet.`);
-      const receipt = await sendEvmTransfer(sessionMnemonic, network, to, amount, selectedSendToken);
-      if (!receipt) throw new Error("Transaction was submitted but no receipt was returned yet.");
+      const receipt = networkConfig.kind === "tron"
+        ? await sendTronTransfer(sessionMnemonic, to, amount, selectedSendToken)
+        : await sendEvmTransfer(sessionMnemonic, network, to, amount, selectedSendToken);
+      if (!receipt?.hash) throw new Error("Transaction was submitted but no hash was returned yet.");
       setTx({ state: "confirmed", hash: receipt.hash, message: `Transaction confirmed on ${networkConfig.shortName}.` });
       addTransaction({
         id: receipt.hash,
@@ -311,7 +328,7 @@ export function WalletApp() {
         amount: `-${amount}`,
         status: "success",
         hash: receipt.hash,
-        gasFee: gasFee ? `${gasFee} ${networkConfig.nativeSymbol}` : "Estimated before send",
+        gasFee: gasFee || "Estimated before send",
         counterparty: to,
         createdAt: new Date().toISOString()
       });
@@ -341,7 +358,7 @@ export function WalletApp() {
             <span className="block truncate text-lg font-semibold leading-tight">BitzenX</span>
           </button>
           <div className="mt-1 flex min-w-0 items-center gap-2 pl-11 text-xs text-slate-400">
-            <span className="min-w-0 truncate">{activeAddress ? shortAddress(activeAddress) : "Multi-network wallet"}</span>
+            <span className="min-w-0 truncate">{currentAddress ? shortAddress(currentAddress) : "Multi-network wallet"}</span>
             {authenticated ? <span className="text-slate-600">|</span> : null}
             {authenticated ? (
               <span className="relative inline-flex max-w-[9.5rem] items-center gap-1 rounded-xl border border-accent/25 bg-white/10 px-2 py-1 text-xs font-medium text-accent">
@@ -421,7 +438,7 @@ export function WalletApp() {
       {activeTab === "discover" && screen === "dashboard" ? <DiscoverPage /> : null}
       {activeTab === "home" && screen === "dashboard" ? (
         <HomeDashboard
-          address={activeAddress}
+          address={currentAddress}
           clipboardNotice={clipboardNotice}
           balances={balances}
           loading={loadingBalance}
@@ -438,7 +455,7 @@ export function WalletApp() {
           }}
         />
       ) : null}
-      {screen === "receive" ? <ReceiveView address={activeAddress} network={network} clipboardNotice={clipboardNotice} onCopy={copyAddress} /> : null}
+      {screen === "receive" ? <ReceiveView address={currentAddress} network={network} clipboardNotice={clipboardNotice} onCopy={copyAddress} /> : null}
       {screen === "send" ? <SendView network={network} tokenId={selectedSendToken?.id || ""} tokens={sendTokens} setTokenId={setSendTokenId} to={to} setTo={setTo} amount={amount} setAmount={setAmount} gasFee={gasFee} tx={tx} error={error} estimateGas={estimateGas} submitTx={submitTx} /> : null}
       {screen === "recharge" ? <RechargeModule /> : null}
       {screen === "qr-pay" ? <QrPayModule /> : null}
@@ -569,8 +586,9 @@ function SendView(props: {
 }) {
   const config = getNetworkConfig(props.network);
   const selectedToken = props.tokens.find((token) => token.id === props.tokenId);
-  const unsupported = config.kind !== "evm" || !selectedToken;
+  const unsupported = !selectedToken || (config.kind !== "evm" && config.kind !== "tron");
   const txUrl = props.tx.hash ? explorerTxUrl(props.network, props.tx.hash) : "";
+  const feeLabel = props.gasFee && Number.isFinite(Number(props.gasFee)) ? `${trimAmount(props.gasFee, 8)} ${config.nativeSymbol}` : props.gasFee;
   return (
     <Panel className="bg-[radial-gradient(circle_at_15%_0%,rgba(5,196,107,0.13),transparent_13rem),rgba(16,20,29,0.92)]">
       <Title title="Send" subtitle={unsupported ? `${config.name} sending is disabled until safely implemented.` : `Transactions are signed locally, then broadcast to ${config.name}.`} />
@@ -580,7 +598,7 @@ function SendView(props: {
       {unsupported ? <div className="mt-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-4 text-sm text-yellow-100">{config.addressLabel}. No fake successful sends are shown for unsupported networks.</div> : null}
       <Field className="mt-3" value={props.to} onChange={(e) => props.setTo(e.target.value)} placeholder={`Recipient ${config.shortName} address`} disabled={unsupported} />
       <Field className="mt-3" inputMode="decimal" value={props.amount} onChange={(e) => props.setAmount(e.target.value)} placeholder={`Amount in ${selectedToken?.symbol || config.nativeSymbol}`} disabled={unsupported} />
-      <div className="mt-4 rounded-2xl border border-white/10 bg-ink/60 p-4 text-xs leading-5 text-slate-300">Estimated network fee: <span className="text-slate-100">{props.gasFee ? `${trimAmount(props.gasFee, 8)} ${config.nativeSymbol}` : "Run estimate before sending"}</span></div>
+      <div className="mt-4 rounded-2xl border border-white/10 bg-ink/60 p-4 text-xs leading-5 text-slate-300">Estimated network fee: <span className="text-slate-100">{feeLabel || "Run estimate before sending"}</span></div>
       <ErrorText error={props.error} />
       {props.tx.message ? <p className="mt-3 text-sm text-mint">{props.tx.message}</p> : null}
       {props.tx.hash ? <p className="mt-2 break-all text-xs text-slate-400">Hash: {txUrl ? <a className="text-accent" href={txUrl} target="_blank" rel="noreferrer">{props.tx.hash}</a> : props.tx.hash}</p> : null}
