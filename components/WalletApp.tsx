@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ethers } from "ethers";
 import { QRCodeSVG } from "qrcode.react";
-import { ArrowLeft, Bell, CheckCircle2, ChevronDown, Copy, Lock, Settings, ShieldCheck, Trash2 } from "lucide-react";
+import { ArrowLeft, Bell, CheckCircle2, ChevronDown, Copy, Eye, EyeOff, KeyRound, Loader2, Lock, Settings, ShieldCheck, Trash2 } from "lucide-react";
 import { ManageTokensPage, TokenDetails } from "@/features/tokens/TokenManagement";
 import { DiscoverPage } from "@/features/discover/DiscoverPage";
 import { HomeDashboard } from "@/features/home/HomeDashboard";
@@ -70,6 +70,8 @@ export function WalletApp() {
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [unlockPassword, setUnlockPassword] = useState("");
+  const [unlockPasswordVisible, setUnlockPasswordVisible] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
   const [importText, setImportText] = useState("");
   const [confirmText, setConfirmText] = useState("");
   const [error, setError] = useState("");
@@ -265,6 +267,7 @@ export function WalletApp() {
 
   async function unlock() {
     if (!vault) return;
+    setUnlocking(true);
     try {
       const mnemonic = await decryptMnemonic(vault, unlockPassword);
       setSessionMnemonic(mnemonic);
@@ -273,6 +276,8 @@ export function WalletApp() {
       setScreen("dashboard");
     } catch {
       setError("Incorrect password or damaged local vault.");
+    } finally {
+      setUnlocking(false);
     }
   }
 
@@ -419,12 +424,15 @@ export function WalletApp() {
           password,
           passwordConfirm,
           unlockPassword,
+          unlockPasswordVisible,
+          unlocking,
           error,
           setConfirmText,
           setImportText,
           setPassword,
           setPasswordConfirm,
           setUnlockPassword,
+          setUnlockPasswordVisible,
           startCreate,
           revealSeedPhrase,
           startImport,
@@ -502,12 +510,15 @@ function renderAuthScreens(props: {
   password: string;
   passwordConfirm: string;
   unlockPassword: string;
+  unlockPasswordVisible: boolean;
+  unlocking: boolean;
   error: string;
   setConfirmText: (value: string) => void;
   setImportText: (value: string) => void;
   setPassword: (value: string) => void;
   setPasswordConfirm: (value: string) => void;
   setUnlockPassword: (value: string) => void;
+  setUnlockPasswordVisible: (value: boolean) => void;
   startCreate: () => void;
   revealSeedPhrase: () => void;
   startImport: () => void;
@@ -567,7 +578,67 @@ function renderAuthScreens(props: {
   if (p.screen === "password") {
     return <Panel><Title title="Set Password" subtitle="This password encrypts the local vault on this device." /><Field type="password" value={p.password} onChange={(e) => p.setPassword(e.target.value)} placeholder="Password" /><Field className="mt-3" type="password" value={p.passwordConfirm} onChange={(e) => p.setPasswordConfirm(e.target.value)} placeholder="Confirm password" /><p className="mt-4 text-xs leading-5 text-slate-400">The password cannot recover funds by itself. Losing the 12-word phrase means funds cannot be recovered.</p><ErrorText error={p.error} /><PrimaryButton className="mt-4 w-full" onClick={p.createVault}>Encrypt Wallet</PrimaryButton></Panel>;
   }
-  return <Panel><Title title="Unlock Wallet" subtitle={p.vault?.address ? shortAddress(p.vault.address) : "Encrypted local wallet"} /><Field type="password" value={p.unlockPassword} onChange={(e) => p.setUnlockPassword(e.target.value)} placeholder="Password" onKeyDown={(e) => e.key === "Enter" && p.unlock()} /><ErrorText error={p.error} /><PrimaryButton className="mt-4 w-full" onClick={p.unlock}>Unlock</PrimaryButton><button className={`mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border border-danger/30 px-4 py-3 text-sm text-danger ${p.deleteConfirming ? "bg-danger/10" : ""}`} onClick={p.removeWallet}><Trash2 size={16} />{p.deleteConfirming ? "Tap again to delete local wallet" : "Remove local wallet"}</button></Panel>;
+  return (
+    <Panel className="min-h-[34rem] p-6">
+      <div className="flex min-h-[31rem] flex-col">
+        <div className="flex flex-1 flex-col items-center text-center">
+          <BrandLogo size="lg" className="mb-6 mt-2 h-16 w-16 rounded-[1.35rem] shadow-[0_0_34px_rgba(49,208,170,0.26)]" />
+          <h1 className="text-3xl font-semibold leading-tight">Unlock Wallet</h1>
+          <p className="mt-2 text-sm text-slate-400">Enter your password to access your wallet</p>
+          <div className="mt-3 rounded-full border border-white/10 bg-white/[0.055] px-3 py-1.5 font-mono text-xs text-slate-300">
+            {p.vault?.address ? shortAddress(p.vault.address) : "Encrypted local wallet"}
+          </div>
+
+          <div className="mt-8 w-full text-left">
+            <label className="mb-2 block text-xs font-medium uppercase tracking-[0.16em] text-slate-500">Password</label>
+            <div className="flex h-14 items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.06] px-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] focus-within:border-accent/60 focus-within:shadow-[0_0_0_3px_rgba(243,186,47,0.12)]">
+              <KeyRound size={18} className="shrink-0 text-accent" />
+              <input
+                className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-slate-500"
+                type={p.unlockPasswordVisible ? "text" : "password"}
+                value={p.unlockPassword}
+                onChange={(e) => p.setUnlockPassword(e.target.value)}
+                placeholder="Enter password"
+                onKeyDown={(e) => e.key === "Enter" && !p.unlocking && p.unlock()}
+              />
+              <button
+                className="rounded-xl p-2 text-slate-400 transition hover:bg-white/10 hover:text-slate-100"
+                onClick={() => p.setUnlockPasswordVisible(!p.unlockPasswordVisible)}
+                type="button"
+                aria-label={p.unlockPasswordVisible ? "Hide password" : "Show password"}
+              >
+                {p.unlockPasswordVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+          </div>
+
+          <ErrorText error={p.error} />
+          <button
+            className="mt-5 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#31d0aa] via-[#05c46b] to-[#f3ba2f] px-4 py-3.5 font-semibold text-black shadow-[0_14px_38px_rgba(5,196,107,0.18)] transition hover:brightness-110 disabled:opacity-60 disabled:hover:brightness-100"
+            onClick={p.unlock}
+            disabled={p.unlocking}
+            type="button"
+          >
+            {p.unlocking ? <Loader2 className="animate-spin" size={18} /> : null}
+            {p.unlocking ? "Unlocking" : "Unlock"}
+          </button>
+
+          <div className="mt-4 rounded-2xl border border-accent/20 bg-accent/10 px-4 py-3 text-xs leading-5 text-slate-300">
+            Your seed phrase stays encrypted on this device.
+          </div>
+        </div>
+
+        <button
+          className={`mt-8 flex w-full items-center justify-center gap-2 rounded-2xl border border-danger/30 px-4 py-3 text-sm font-medium text-danger transition hover:bg-danger/10 ${p.deleteConfirming ? "bg-danger/10" : "bg-danger/[0.03]"}`}
+          onClick={p.removeWallet}
+          type="button"
+        >
+          <Trash2 size={16} />
+          {p.deleteConfirming ? "Tap again to delete local wallet" : "Remove local wallet"}
+        </button>
+      </div>
+    </Panel>
+  );
 }
 
 function ReceiveView({ address, network, clipboardNotice, onCopy }: { address: string; network: NetworkKey; clipboardNotice: string; onCopy: () => void }) {
