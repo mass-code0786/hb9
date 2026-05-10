@@ -10,6 +10,7 @@ import { getEvmTokenMetadata } from "@/services/evmService";
 import { useTokenStore } from "@/store/tokenStore";
 import type { WalletToken } from "@/types/wallet";
 import { formatCurrency, trimAmount } from "@/utils/format";
+import { TokenIcon } from "@/components/TokenIcon";
 
 const TOKEN_COLORS = ["#38bdf8", "#05c46b", "#f3ba2f", "#a78bfa", "#fb7185", "#2dd4bf"];
 
@@ -35,25 +36,20 @@ function defaultWalletTokens(): WalletToken[] {
   }));
 }
 
-function TokenAvatar({ token }: { token: WalletToken }) {
-  return (
-    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-bold text-black" style={{ backgroundColor: token.color }}>
-      {token.symbol.slice(0, 1)}
-    </span>
-  );
-}
-
-export function TokenDetails({ token }: { token: WalletToken | null }) {
+export function TokenDetails({ token, onReceive, onSend }: { token: WalletToken | null; onReceive: (token: WalletToken) => void; onSend: (token: WalletToken) => void }) {
   const toggleFavorite = useTokenStore((state) => state.toggleFavorite);
   const toggleHidden = useTokenStore((state) => state.toggleHidden);
   if (!token) return <Panel>Select a token from the home asset list.</Panel>;
   return (
     <div className="space-y-4">
       <Panel>
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold">{token.symbol}</h1>
-            <p className="text-slate-400">{token.name}</p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <TokenIcon token={token} size="lg" />
+            <div className="min-w-0">
+              <h1 className="truncate text-3xl font-semibold">{token.symbol}</h1>
+              <p className="truncate text-slate-400">{token.name}</p>
+            </div>
           </div>
           <div className="flex gap-2">
             <button className="rounded-2xl bg-white/10 p-3" onClick={() => toggleFavorite(token.id || token.symbol)} type="button"><Star size={18} /></button>
@@ -69,6 +65,10 @@ export function TokenDetails({ token }: { token: WalletToken | null }) {
           {[40, 56, 46, 80, 72, 92, 68, 76, 88, 95, 84, 98].map((height, index) => (
             <div key={index} className="flex-1 rounded-t-xl bg-mint/70" style={{ height: `${height}%` }} />
           ))}
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <PrimaryButton className="py-3 text-sm" onClick={() => onReceive(token)} type="button">Receive</PrimaryButton>
+          <PrimaryButton className="py-3 text-sm" onClick={() => onSend(token)} type="button">Send</PrimaryButton>
         </div>
       </Panel>
     </div>
@@ -206,7 +206,7 @@ export function AddCustomToken({ defaultNetwork = "bsc" }: { defaultNetwork?: Ne
   );
 }
 
-export function ManageTokensPage({ network }: { network: NetworkKey }) {
+export function ManageTokensPage({ network, importOpen = false, onImportOpenChange }: { network: NetworkKey; importOpen?: boolean; onImportOpenChange?: (open: boolean) => void }) {
   const customTokens = useTokenStore((state) => state.customTokens);
   const hiddenSymbols = useTokenStore((state) => state.hiddenSymbols);
   const favorites = useTokenStore((state) => state.favorites);
@@ -218,6 +218,8 @@ export function ManageTokensPage({ network }: { network: NetworkKey }) {
   const normalizedQuery = query.trim().toLowerCase();
   const filteredImported = customTokens.filter((token) => matchesToken(token, normalizedQuery));
   const hiddenTokens = allTokens.filter((token) => hiddenSymbols.includes(tokenKey(token)) && matchesToken(token, normalizedQuery));
+  const importVisible = onImportOpenChange ? importOpen : showImport;
+  const setImportVisible = onImportOpenChange || setShowImport;
 
   return (
     <div className="space-y-4" data-testid="manage-tokens-screen">
@@ -226,7 +228,7 @@ export function ManageTokensPage({ network }: { network: NetworkKey }) {
           <div>
             <h1 className="text-xl font-semibold">Manage Tokens</h1>
           </div>
-          <PrimaryButton className="shrink-0 px-3 py-2 text-sm" onClick={() => setShowImport(true)} type="button">+ Import Token</PrimaryButton>
+          <PrimaryButton className="shrink-0 px-3 py-2 text-sm" onClick={() => setImportVisible(true)} type="button">+ Import Token</PrimaryButton>
         </div>
         <label className="mt-4 flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-3">
           <Search size={17} className="text-slate-400" />
@@ -234,11 +236,11 @@ export function ManageTokensPage({ network }: { network: NetworkKey }) {
         </label>
       </Panel>
 
-      {showImport ? (
+      {importVisible ? (
         <div className="fixed inset-0 z-50 flex items-end bg-black/70 px-3 pb-3 pt-12 backdrop-blur-sm sm:items-center sm:justify-center">
           <div className="w-full max-w-md">
             <div className="mb-3 flex justify-end">
-              <button className="rounded-2xl bg-white/10 p-3" onClick={() => setShowImport(false)} type="button" aria-label="Close import token"><X size={18} /></button>
+              <button className="rounded-2xl bg-white/10 p-3" onClick={() => setImportVisible(false)} type="button" aria-label="Close import token"><X size={18} /></button>
             </div>
             <AddCustomToken defaultNetwork={network} />
           </div>
@@ -287,7 +289,7 @@ function ManageTokenRow({
   return (
     <div className="flex items-center justify-between gap-3 rounded-2xl bg-white/[0.045] p-3">
       <div className="flex min-w-0 items-center gap-3">
-        <TokenAvatar token={token} />
+        <TokenIcon token={token} />
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-semibold">{token.symbol}</span>

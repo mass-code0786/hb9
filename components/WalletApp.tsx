@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ethers } from "ethers";
 import { QRCodeSVG } from "qrcode.react";
 import { ArrowLeft, Bell, CheckCircle2, ChevronDown, Copy, Lock, Settings, ShieldCheck, Trash2 } from "lucide-react";
-import { AddCustomToken, ManageTokensPage, TokenDetails } from "@/features/tokens/TokenManagement";
+import { ManageTokensPage, TokenDetails } from "@/features/tokens/TokenManagement";
 import { DiscoverPage } from "@/features/discover/DiscoverPage";
 import { HomeDashboard } from "@/features/home/HomeDashboard";
 import { MarketsPage } from "@/features/markets/MarketsPage";
@@ -81,6 +81,7 @@ export function WalletApp() {
   const [seedAcknowledged, setSeedAcknowledged] = useState(false);
   const [deleteConfirming, setDeleteConfirming] = useState(false);
   const [clipboardNotice, setClipboardNotice] = useState("");
+  const [importTokenOpen, setImportTokenOpen] = useState(false);
 
   const mnemonicWords = useMemo(() => pendingMnemonic.split(" ").filter(Boolean), [pendingMnemonic]);
   const authenticated = Boolean(sessionMnemonic);
@@ -178,7 +179,24 @@ export function WalletApp() {
 
   function go(screenName: WalletScreen) {
     setError("");
+    if (screenName !== "manage-tokens") setImportTokenOpen(false);
     setScreen(screenName);
+  }
+
+  function openReceiveForToken(token: WalletToken) {
+    if (token.network) setNetwork(token.network);
+    go("receive");
+  }
+
+  function openSendForToken(token: WalletToken) {
+    if (token.network) setNetwork(token.network);
+    if (token.id) setSendTokenId(token.id);
+    go("send");
+  }
+
+  function openTokenImport() {
+    setImportTokenOpen(true);
+    setScreen("manage-tokens");
   }
 
   function startCreate() {
@@ -452,6 +470,7 @@ export function WalletApp() {
             setSelectedToken(token);
             go("token-details");
           }}
+          onImportToken={openTokenImport}
         />
       ) : null}
       {screen === "receive" ? <ReceiveView address={currentAddress} network={network} clipboardNotice={clipboardNotice} onCopy={copyAddress} /> : null}
@@ -462,8 +481,8 @@ export function WalletApp() {
       {screen === "security" ? <SecurityCenter address={activeAddress} /> : null}
       {screen === "settings" ? <SettingsModule onNavigate={go} /> : null}
       {screen === "provider-settings" ? <ProviderSettings /> : null}
-      {screen === "token-details" ? <div className="space-y-4"><TokenDetails token={selectedToken} /><AddCustomToken defaultNetwork={network} /></div> : null}
-      {screen === "manage-tokens" ? <ManageTokensPage network={network} /> : null}
+      {screen === "token-details" ? <TokenDetails token={selectedToken} onReceive={openReceiveForToken} onSend={openSendForToken} /> : null}
+      {screen === "manage-tokens" ? <ManageTokensPage network={network} importOpen={importTokenOpen} onImportOpenChange={setImportTokenOpen} /> : null}
       {screen === "about" ? <StaticInfoPage title="About" /> : null}
       {screen === "help" ? <StaticInfoPage title="Help Center" /> : null}
       {screen === "terms" ? <StaticInfoPage title="Terms" /> : null}

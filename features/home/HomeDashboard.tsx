@@ -11,6 +11,7 @@ import type { WalletToken } from "@/types/wallet";
 import { formatCurrency, timeAgo, trimAmount } from "@/utils/format";
 import { Panel, Skeleton } from "@/components/ui/Primitives";
 import { BrandLogo } from "@/components/BrandLogo";
+import { TokenIcon } from "@/components/TokenIcon";
 import type { TokenBalance } from "@/lib/types";
 import type { WalletTransaction } from "@/types/wallet";
 
@@ -26,7 +27,8 @@ export function HomeDashboard({
   onScreen,
   onCopyAddress,
   onToggleBalance,
-  onTokenDetails
+  onTokenDetails,
+  onImportToken
 }: {
   address: string;
   balances: TokenBalance;
@@ -40,6 +42,7 @@ export function HomeDashboard({
   onCopyAddress: () => void;
   onToggleBalance: () => void;
   onTokenDetails: (token: WalletToken) => void;
+  onImportToken: () => void;
 }) {
   const currency = useSettingsStore((state) => state.currency);
   const setSearch = useTokenStore((state) => state.setSearch);
@@ -113,7 +116,7 @@ export function HomeDashboard({
             {tokens.map((token) => (
               <div key={token.id || token.symbol} className="flex w-full items-center justify-between gap-3 rounded-2xl bg-white/[0.045] p-3 text-left" data-testid="asset-row">
                 <span className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl font-bold text-black" style={{ backgroundColor: token.color }}>{token.symbol.slice(0, 1)}</span>
+                  <TokenIcon token={token} />
                   <button className="min-w-0 text-left" onClick={() => onTokenDetails(token)} type="button">
                     <span className="block truncate font-semibold">{token.symbol}</span>
                     <span className="block truncate text-xs text-slate-400">{token.name}</span>
@@ -130,6 +133,9 @@ export function HomeDashboard({
                 </span>
               </div>
             ))}
+            <button className="flex w-full items-center justify-center gap-2 rounded-2xl border border-accent/25 bg-accent/10 px-4 py-3 text-sm font-medium text-accent" onClick={onImportToken} type="button">
+              + Import Token
+            </button>
           </div>
         </Panel>
       </div>
