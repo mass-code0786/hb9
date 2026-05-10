@@ -1,0 +1,19 @@
+{
+  "name": "BitzenX Wallet",
+  "short_name": "BitzenX",
+  "description": "A mobile-first BSC crypto super wallet with local encrypted storage.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#05070b",
+  "theme_color": "#05070b",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
