@@ -222,10 +222,9 @@ export function ManageTokensPage({ network }: { network: NetworkKey }) {
   return (
     <div className="space-y-4" data-testid="manage-tokens-screen">
       <Panel>
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold">Manage Tokens</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-400">Search, pin, hide, and import tokens. Token imports stay local in this browser.</p>
           </div>
           <PrimaryButton className="shrink-0 px-3 py-2 text-sm" onClick={() => setShowImport(true)} type="button">+ Import Token</PrimaryButton>
         </div>
