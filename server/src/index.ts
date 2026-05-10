@@ -6,6 +6,7 @@ import { rateLimit } from "./rateLimit.js";
 import { rejectSensitiveWalletMaterial } from "./security.js";
 import { healthRouter } from "./routes/health.js";
 import { paymentsRouter } from "./routes/payments.js";
+import { providersRouter } from "./routes/providers.js";
 import { rechargeRouter } from "./routes/recharge.js";
 
 const app = express();
@@ -18,6 +19,7 @@ app.use(rejectSensitiveWalletMaterial);
 app.use("/api", healthRouter);
 app.use("/api", rechargeRouter);
 app.use("/api", paymentsRouter);
+app.use("/api", providersRouter);
 
 app.use((_req, res) => {
   fail(res, "Not found", 404);

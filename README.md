@@ -72,6 +72,12 @@ CORS_ORIGIN=http://localhost:3000
 RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX=120
 RECHARGE_PROVIDER=mock
+AUTO_REFUND_ENABLED=false
+RELOADLY_CLIENT_ID=
+RELOADLY_CLIENT_SECRET=
+DTONE_API_KEY=
+DTONE_API_SECRET=
+DING_API_KEY=
 ```
 
 ## BSC Testnet Testing
@@ -86,7 +92,7 @@ NEXT_PUBLIC_BSCSCAN_URL=https://testnet.bscscan.com
 NEXT_PUBLIC_USDT_BEP20_ADDRESS=<your test BEP20 token>
 ```
 
-Get test BNB from the official BNB Chain testnet faucet, send it to the BitzenX receive address, and verify transactions on BscScan testnet. For comparison testing, import the same test recovery phrase into MetaMask or TokenPocket on BSC Testnet and compare address/balance. More manual QA notes are in `docs/testing.md`.
+Get test BNB from the official BNB Chain testnet faucet, send it to the BitzenX receive address, and verify transactions on BscScan testnet. BitzenX runs as a standalone self-custody wallet and does not auto-detect or connect browser wallet extensions. More manual QA notes are in `docs/testing.md`.
 
 ## Backend
 
@@ -101,7 +107,14 @@ Endpoints:
 - `GET /api/health`
 - `POST /api/recharge/quote`
 - `POST /api/recharge/create`
+- `POST /api/recharge/webhook`
+- `GET /api/recharge/countries`
+- `GET /api/recharge/operators?country=IN`
+- `GET /api/recharge/products?operatorId=in-airtel`
+- `GET /api/recharge/status/:orderId`
 - `GET /api/recharge/history`
+- `GET /api/admin/recharge/providers`
+- `POST /api/admin/recharge/provider-status`
 - `POST /api/payments/create`
 - `GET /api/payments/history`
 
@@ -111,7 +124,7 @@ Server deployment notes, PM2 command, and an nginx reverse proxy sample are in `
 
 ## Provider Integration
 
-`server/src/providers/rechargeProvider.ts` defines the provider interface. Add DT One, Reloadly, or Ding implementations behind that interface, store encrypted provider credentials in `api_provider_settings`, and process provider webhooks into `recharge_orders` plus `audit_logs`.
+The recharge provider layer supports `mock`, `reloadly`, `dtone`, and `ding` modes behind a factory. See `docs/recharge.md` for mock testing, live provider setup, webhook handling, order states, refunds, and security notes.
 
 ## Verification
 

@@ -1,70 +1,231 @@
 import { Router } from "express";
 import { z } from "zod";
+import { config } from "../config.js";
 import { query } from "../db/pool.js";
 import { asyncHandler, fail, ok } from "../http.js";
-import { mockRechargeProvider } from "../providers/rechargeProvider.js";
+import { getRechargeProvider } from "../providers/recharge/factory.js";
+import type { RechargeOrder, RechargeQuote } from "../providers/recharge/types.js";
 
-const rechargeSchema = z.object({
-  walletAddress: z.string().min(10).optional(),
-  country: z.string().min(2),
-  operator: z.string().min(1),
-  mobile: z.string().min(4),
-  amount: z.number().positive(),
-  asset: z.enum(["BNB", "USDT"])
+const phoneRegex = /^\+?\d{6,18}$/;
+const txHashRegex = /^(0x)?[a-zA-Z0-9]{12,128}$/;
+const quotes = new Map<string, RechargeQuote>();
+const memoryOrders = new Map<string, RechargeOrder>();
+
+const quoteSchema = z.object({
+  countryCode: z.string().trim().min(2).max(3).transform((value) => value.toUpperCase()),
+  operatorId: z.string().trim().min(2).max(80),
+  phoneNumber: z.string().trim().transform((value) => value.replace(/[^\d+]/g, "")).pipe(z.string().regex(phoneRegex)),
+  productId: z.string().trim().min(2).max(100),
+  cryptoSymbol: z.enum(["BNB", "USDT"]),
+  network: z.string().trim().min(2).max(32),
+  walletAddress: z.string().trim().min(10).max(128).optional()
+});
+
+const createSchema = z.object({
+  quoteId: z.string().uuid(),
+  txHash: z.string().trim().regex(txHashRegex),
+  walletAddress: z.string().trim().min(10).max(128).optional()
+});
+
+const webhookSchema = z.object({
+  providerOrderId: z.string().trim().min(3).max(128),
+  status: z.enum(["success", "failed"]),
+  failureReason: z.string().trim().max(500).optional()
 });
 
 export const rechargeRouter = Router();
 
+async function audit(walletAddress: string | null, action: string, entityId: string | null, metadata: Record<string, unknown>) {
+  await query(
+    `insert into audit_logs (actor_wallet_address, action, entity_type, entity_id, metadata)
+     values ($1,$2,'recharge_order',$3,$4::jsonb)`,
+    [walletAddress, action, entityId, JSON.stringify(metadata)]
+  );
+}
+
+async function persistQuote(quote: RechargeQuote, walletAddress?: string) {
+  await query(
+    `insert into recharge_quotes
+      (id, user_wallet_address, country_code, operator_id, operator_name, phone_number, local_currency, local_amount, usd_amount, fx_rate, platform_fee, crypto_symbol, crypto_amount, network, expires_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+     on conflict (id) do nothing`,
+    [
+      quote.id,
+      walletAddress || null,
+      quote.countryCode,
+      quote.operatorId,
+      quote.operatorName,
+      quote.phoneNumber,
+      quote.localCurrency,
+      quote.localAmount,
+      quote.usdAmount,
+      quote.fxRate,
+      quote.platformFee,
+      quote.cryptoSymbol,
+      quote.cryptoAmount,
+      quote.network,
+      quote.expiresAt
+    ]
+  );
+}
+
+async function persistOrder(order: RechargeOrder) {
+  await query(
+    `insert into recharge_orders
+      (id, user_wallet_address, country_code, operator_id, operator_name, phone_number, local_currency, local_amount, crypto_symbol, crypto_amount, network, tx_hash, provider, provider_order_id, status, failure_reason, refund_status, created_at, updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+     on conflict (id) do update set status = excluded.status, failure_reason = excluded.failure_reason, refund_status = excluded.refund_status, updated_at = now()`,
+    [
+      order.id,
+      order.userWalletAddress || null,
+      order.countryCode,
+      order.operatorId,
+      order.operatorName,
+      order.phoneNumber,
+      order.localCurrency,
+      order.localAmount,
+      order.cryptoSymbol,
+      order.cryptoAmount,
+      order.network,
+      order.txHash,
+      order.provider,
+      order.providerOrderId || null,
+      order.status,
+      order.failureReason || null,
+      order.refundStatus || "none",
+      order.createdAt,
+      order.updatedAt
+    ]
+  );
+}
+
+function mapDbOrder(row: Record<string, unknown>): RechargeOrder {
+  return {
+    id: String(row.id),
+    userWalletAddress: row.user_wallet_address ? String(row.user_wallet_address) : undefined,
+    countryCode: String(row.country_code),
+    countryName: String(row.country_name || row.country_code),
+    operatorId: String(row.operator_id),
+    operatorName: String(row.operator_name),
+    phoneNumber: String(row.phone_number),
+    localCurrency: String(row.local_currency),
+    localAmount: Number(row.local_amount),
+    cryptoSymbol: row.crypto_symbol === "BNB" ? "BNB" : "USDT",
+    cryptoAmount: Number(row.crypto_amount),
+    network: String(row.network),
+    txHash: String(row.tx_hash),
+    provider: row.provider === "reloadly" || row.provider === "dtone" || row.provider === "ding" ? row.provider : "mock",
+    providerOrderId: row.provider_order_id ? String(row.provider_order_id) : undefined,
+    status: String(row.status) as RechargeOrder["status"],
+    failureReason: row.failure_reason ? String(row.failure_reason) : undefined,
+    refundStatus: String(row.refund_status || "none") as RechargeOrder["refundStatus"],
+    createdAt: new Date(String(row.created_at)).toISOString(),
+    updatedAt: new Date(String(row.updated_at || row.created_at)).toISOString()
+  };
+}
+
+rechargeRouter.get("/recharge/countries", asyncHandler(async (_req, res) => {
+  const provider = getRechargeProvider();
+  ok(res, { items: await provider.listCountries() }, "Recharge countries loaded");
+}));
+
+rechargeRouter.get("/recharge/operators", asyncHandler(async (req, res) => {
+  const country = typeof req.query.country === "string" ? req.query.country.toUpperCase() : "";
+  if (!country) {
+    fail(res, "country query parameter is required", 400, "Invalid recharge operators request");
+    return;
+  }
+  ok(res, { items: await getRechargeProvider().listOperators(country) }, "Recharge operators loaded");
+}));
+
+rechargeRouter.get("/recharge/products", asyncHandler(async (req, res) => {
+  const operatorId = typeof req.query.operatorId === "string" ? req.query.operatorId : "";
+  if (!operatorId) {
+    fail(res, "operatorId query parameter is required", 400, "Invalid recharge products request");
+    return;
+  }
+  ok(res, { items: await getRechargeProvider().listProducts(operatorId) }, "Recharge products loaded");
+}));
+
 rechargeRouter.post("/recharge/quote", asyncHandler(async (req, res) => {
-  const parsed = rechargeSchema.safeParse(req.body);
+  const parsed = quoteSchema.safeParse(req.body);
   if (!parsed.success) {
     fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid recharge quote request");
     return;
   }
-  const quote = await mockRechargeProvider.quote(parsed.data);
+  const quote = await getRechargeProvider().quote(parsed.data);
+  quotes.set(quote.id, quote);
+  await persistQuote(quote, parsed.data.walletAddress);
+  await audit(parsed.data.walletAddress || null, "recharge.quote", null, { quoteId: quote.id, provider: config.rechargeProvider });
   ok(res, quote, "Recharge quote created");
 }));
 
 rechargeRouter.post("/recharge/create", asyncHandler(async (req, res) => {
-  const parsed = rechargeSchema.safeParse(req.body);
+  const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid recharge create request");
     return;
   }
-  const provider = await mockRechargeProvider.create(parsed.data);
-  const rows = await query(
-    `insert into recharge_orders (wallet_address, country, operator, mobile, amount, asset, provider, provider_reference, status)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-     returning *`,
-    [
-      parsed.data.walletAddress || null,
-      parsed.data.country,
-      parsed.data.operator,
-      parsed.data.mobile,
-      parsed.data.amount,
-      parsed.data.asset,
-      "mock",
-      provider.providerReference,
-      provider.status
-    ]
-  );
-  const order = rows[0] || { ...parsed.data, ...provider };
-  await query(
-    `insert into audit_logs (actor_wallet_address, action, entity_type, entity_id, metadata)
-     values ($1,'recharge.create','recharge_order', null, $2::jsonb)`,
-    [parsed.data.walletAddress || null, JSON.stringify({ provider: "mock", mobile: parsed.data.mobile, amount: parsed.data.amount })]
-  );
+  const quote = quotes.get(parsed.data.quoteId);
+  if (!quote) {
+    fail(res, "Quote expired or not found. Create a new quote.", 404, "Recharge quote unavailable");
+    return;
+  }
+
+  await audit(parsed.data.walletAddress || null, "recharge.payment_detected", null, { quoteId: quote.id, txHash: parsed.data.txHash });
+  const order = await getRechargeProvider().create({ ...parsed.data, quote });
+  memoryOrders.set(order.id, order);
+  await persistOrder(order);
+  if (order.status === "refund_pending") {
+    await query(
+      `insert into recharge_refunds (order_id, tx_hash, crypto_symbol, crypto_amount, status, admin_review_required)
+       values ($1,$2,$3,$4,'review_required',true)
+       on conflict do nothing`,
+      [order.id, order.txHash, order.cryptoSymbol, order.cryptoAmount]
+    );
+  }
+  await audit(parsed.data.walletAddress || null, "recharge.create", order.id, { provider: order.provider, status: order.status, autoRefundEnabled: config.autoRefundEnabled });
   ok(res, order, "Recharge order created", 201);
+}));
+
+rechargeRouter.post("/recharge/webhook", asyncHandler(async (req, res) => {
+  const parsed = webhookSchema.safeParse(req.body);
+  if (!parsed.success) {
+    fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid recharge webhook request");
+    return;
+  }
+  const nextStatus = parsed.data.status === "success" ? "success" : "refund_pending";
+  await query(
+    `update recharge_orders
+     set status = $1, failure_reason = $2, refund_status = case when $1 = 'refund_pending' then 'review_required' else refund_status end, updated_at = now()
+     where provider_order_id = $3`,
+    [nextStatus, parsed.data.failureReason || null, parsed.data.providerOrderId]
+  );
+  await audit(null, "recharge.webhook", null, parsed.data);
+  ok(res, { status: nextStatus }, "Recharge webhook accepted");
+}));
+
+rechargeRouter.get("/recharge/status/:orderId", asyncHandler(async (req, res) => {
+  const orderId = String(req.params.orderId || "");
+  const dbRows = await query<Record<string, unknown>>("select * from recharge_orders where id = $1 limit 1", [orderId]);
+  const order = dbRows[0] ? mapDbOrder(dbRows[0]) : memoryOrders.get(orderId);
+  if (!order) {
+    fail(res, "Recharge order not found", 404, "Recharge status unavailable");
+    return;
+  }
+  await audit(order.userWalletAddress || null, "recharge.status", order.id, { status: order.status });
+  ok(res, order, "Recharge status loaded");
 }));
 
 rechargeRouter.get("/recharge/history", asyncHandler(async (req, res) => {
   const walletAddress = typeof req.query.walletAddress === "string" ? req.query.walletAddress : "";
-  const rows = await query(
+  const rows = await query<Record<string, unknown>>(
     `select * from recharge_orders
-     where ($1::text = '' or wallet_address = $1)
+     where ($1::text = '' or user_wallet_address = $1)
      order by created_at desc
      limit 100`,
     [walletAddress]
   );
-  ok(res, { items: rows }, "Recharge history loaded");
+  const items = rows.length > 0 ? rows.map(mapDbOrder) : Array.from(memoryOrders.values()).filter((order) => !walletAddress || order.userWalletAddress === walletAddress);
+  ok(res, { items }, "Recharge history loaded");
 }));

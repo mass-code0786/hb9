@@ -48,25 +48,79 @@ export type WalletScreen =
   | "terms"
   | "offline";
 
-export type RechargeStatus = "draft" | "processing" | "success" | "failed";
+export type RechargeStatus =
+  | "awaiting_payment"
+  | "payment_detected"
+  | "processing_recharge"
+  | "success"
+  | "failed"
+  | "refund_pending"
+  | "refunded";
 
 export type RechargeCountry = {
   code: string;
   name: string;
   currency: string;
   dialCode: string;
-  operators: string[];
+  flag: string;
+};
+
+export type RechargeOperator = {
+  id: string;
+  countryCode: string;
+  name: string;
+  logoUrl?: string;
+};
+
+export type RechargeProduct = {
+  id: string;
+  operatorId: string;
+  name: string;
+  localAmount: number;
+  localCurrency: string;
+  validity?: string;
+};
+
+export type RechargeQuote = {
+  id: string;
+  countryCode: string;
+  countryName: string;
+  operatorId: string;
+  operatorName: string;
+  phoneNumber: string;
+  productId: string;
+  productName: string;
+  localCurrency: string;
+  localAmount: number;
+  usdAmount: number;
+  fxRate: number;
+  platformFee: number;
+  cryptoSymbol: "BNB" | "USDT";
+  cryptoAmount: number;
+  network: string;
+  estimatedDelivery: string;
+  expiresAt: string;
 };
 
 export type RechargeOrder = {
   id: string;
-  country: string;
-  operator: string;
-  mobile: string;
-  amount: string;
-  cryptoAsset: TokenSymbol;
+  countryCode: string;
+  countryName: string;
+  operatorId: string;
+  operatorName: string;
+  phoneNumber: string;
+  localCurrency: string;
+  localAmount: number;
+  cryptoAsset: "BNB" | "USDT";
+  cryptoAmount: number;
+  network: string;
+  txHash: string;
   status: RechargeStatus;
+  refundStatus?: "none" | "review_required" | "pending" | "refunded" | "rejected";
+  failureReason?: string;
+  providerOrderId?: string;
   createdAt: string;
+  updatedAt?: string;
 };
 
 export type WalletTransaction = {
