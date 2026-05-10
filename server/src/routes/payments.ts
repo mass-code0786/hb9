@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { query } from "../db/pool.js";
+import { asyncHandler, fail, ok } from "../http.js";
 
 const paymentSchema = z.object({
   walletAddress: z.string().min(10).optional(),
@@ -14,10 +15,10 @@ const paymentSchema = z.object({
 
 export const paymentsRouter = Router();
 
-paymentsRouter.post("/payments/create", async (req, res) => {
+paymentsRouter.post("/payments/create", asyncHandler(async (req, res) => {
   const parsed = paymentSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.flatten() });
+    fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid payment create request");
     return;
   }
   const rows = await query(
@@ -34,10 +35,16 @@ paymentsRouter.post("/payments/create", async (req, res) => {
       parsed.data.qrMode
     ]
   );
-  res.status(201).json(rows[0] || { ...parsed.data, status: "pending" });
-});
+  const order = rows[0] || { ...parsed.data, status: "pending" };
+  await query(
+    `insert into audit_logs (actor_wallet_address, action, entity_type, entity_id, metadata)
+     values ($1,'payment.create','payment_order', null, $2::jsonb)`,
+    [parsed.data.walletAddress || null, JSON.stringify({ merchantName: parsed.data.merchantName, amount: parsed.data.amount, asset: parsed.data.asset })]
+  );
+  ok(res, order, "Payment order created", 201);
+}));
 
-paymentsRouter.get("/payments/history", async (req, res) => {
+paymentsRouter.get("/payments/history", asyncHandler(async (req, res) => {
   const walletAddress = typeof req.query.walletAddress === "string" ? req.query.walletAddress : "";
   const rows = await query(
     `select * from payment_orders
@@ -46,5 +53,5 @@ paymentsRouter.get("/payments/history", async (req, res) => {
      limit 100`,
     [walletAddress]
   );
-  res.json({ items: rows });
-});
+  ok(res, { items: rows }, "Payment history loaded");
+}));

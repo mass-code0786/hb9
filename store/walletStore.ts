@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { EncryptedVault, TokenBalance, TxStatus } from "@/lib/types";
 import type { AppTab, WalletScreen } from "@/types/wallet";
+import { NETWORK_LABEL } from "@/lib/config";
 
 type WalletState = {
   screen: WalletScreen;
@@ -36,7 +37,7 @@ export const useWalletStore = create<WalletState>((set) => ({
   balances: { bnb: "0", usdt: "0" },
   loadingBalance: false,
   balanceVisible: true,
-  network: "BSC Mainnet",
+  network: NETWORK_LABEL,
   tx: initialTx,
   setScreen: (screen) => set({ screen }),
   setActiveTab: (activeTab) => set({ activeTab }),

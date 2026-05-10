@@ -15,6 +15,7 @@ html,
 body {
   min-height: 100%;
   margin: 0;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at 25% 0%, rgba(243, 186, 47, 0.15), transparent 30rem),
     radial-gradient(circle at 90% 20%, rgba(49, 208, 170, 0.1), transparent 26rem),
@@ -76,5 +77,5 @@ select option {
 }
 
 .safe-bottom {
-  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 }

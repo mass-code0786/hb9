@@ -51,6 +51,7 @@ Open `http://localhost:3000`.
 
 ```bash
 NEXT_PUBLIC_BSC_RPC_URL=https://bsc-dataseed.binance.org
+NEXT_PUBLIC_CHAIN_MODE=mainnet
 NEXT_PUBLIC_BSC_CHAIN_ID=56
 NEXT_PUBLIC_USDT_BEP20_ADDRESS=0x55d398326f99059fF775485246999027B3197955
 NEXT_PUBLIC_BSCSCAN_URL=https://bscscan.com
@@ -60,8 +61,25 @@ NEXT_PUBLIC_MARKETS_PROVIDER=mock
 
 API_PORT=4000
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/bitzenx
+CORS_ORIGIN=http://localhost:3000
+RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_MAX=120
 RECHARGE_PROVIDER=mock
 ```
+
+## BSC Testnet Testing
+
+For real user testing without mainnet funds, set:
+
+```bash
+NEXT_PUBLIC_CHAIN_MODE=testnet
+NEXT_PUBLIC_BSC_RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545
+NEXT_PUBLIC_BSC_CHAIN_ID=97
+NEXT_PUBLIC_BSCSCAN_URL=https://testnet.bscscan.com
+NEXT_PUBLIC_USDT_BEP20_ADDRESS=<your test BEP20 token>
+```
+
+Get test BNB from the official BNB Chain testnet faucet, send it to the BitzenX receive address, and verify transactions on BscScan testnet. For comparison testing, import the same test recovery phrase into MetaMask or TokenPocket on BSC Testnet and compare address/balance. More manual QA notes are in `docs/testing.md`.
 
 ## Backend
 
@@ -82,6 +100,8 @@ Endpoints:
 
 Apply `server/migrations/001_init.sql` with your PostgreSQL migration tool. The schema includes `users`, `recharge_orders`, `payment_orders`, `audit_logs`, and `api_provider_settings`.
 
+Server deployment notes, PM2 command, and an nginx reverse proxy sample are in `server/README.md`.
+
 ## Provider Integration
 
 `server/src/providers/rechargeProvider.ts` defines the provider interface. Add DT One, Reloadly, or Ding implementations behind that interface, store encrypted provider credentials in `api_provider_settings`, and process provider webhooks into `recharge_orders` plus `audit_logs`.
@@ -92,13 +112,14 @@ Apply `server/migrations/001_init.sql` with your PostgreSQL migration tool. The 
 npm run typecheck
 npm run build
 npm run api:build
+npm run qa
 ```
 
 ## Deploy
 
 Frontend: deploy to Vercel with the `NEXT_PUBLIC_*` variables.
 
-Backend: deploy `server/` to a Node.js host, set `API_PORT`, `DATABASE_URL`, and provider credentials, run migrations, then start with `npm run api:start` after `npm run api:build`.
+Backend: deploy `server/` to a Node.js host or VPS, set `API_PORT`, `DATABASE_URL`, `CORS_ORIGIN`, rate-limit values, and provider credentials, run migrations, then start with `npm run api:start` after `npm run api:build`. For PM2 and nginx examples, see `server/README.md`.
 
 ## Security Notes
 

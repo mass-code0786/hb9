@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { query } from "../db/pool.js";
+import { asyncHandler, fail, ok } from "../http.js";
 import { mockRechargeProvider } from "../providers/rechargeProvider.js";
 
 const rechargeSchema = z.object({
@@ -14,20 +15,20 @@ const rechargeSchema = z.object({
 
 export const rechargeRouter = Router();
 
-rechargeRouter.post("/recharge/quote", async (req, res) => {
+rechargeRouter.post("/recharge/quote", asyncHandler(async (req, res) => {
   const parsed = rechargeSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.flatten() });
+    fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid recharge quote request");
     return;
   }
   const quote = await mockRechargeProvider.quote(parsed.data);
-  res.json(quote);
-});
+  ok(res, quote, "Recharge quote created");
+}));
 
-rechargeRouter.post("/recharge/create", async (req, res) => {
+rechargeRouter.post("/recharge/create", asyncHandler(async (req, res) => {
   const parsed = rechargeSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.flatten() });
+    fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid recharge create request");
     return;
   }
   const provider = await mockRechargeProvider.create(parsed.data);
@@ -47,10 +48,16 @@ rechargeRouter.post("/recharge/create", async (req, res) => {
       provider.status
     ]
   );
-  res.status(201).json(rows[0] || { ...parsed.data, ...provider });
-});
+  const order = rows[0] || { ...parsed.data, ...provider };
+  await query(
+    `insert into audit_logs (actor_wallet_address, action, entity_type, entity_id, metadata)
+     values ($1,'recharge.create','recharge_order', null, $2::jsonb)`,
+    [parsed.data.walletAddress || null, JSON.stringify({ provider: "mock", mobile: parsed.data.mobile, amount: parsed.data.amount })]
+  );
+  ok(res, order, "Recharge order created", 201);
+}));
 
-rechargeRouter.get("/recharge/history", async (req, res) => {
+rechargeRouter.get("/recharge/history", asyncHandler(async (req, res) => {
   const walletAddress = typeof req.query.walletAddress === "string" ? req.query.walletAddress : "";
   const rows = await query(
     `select * from recharge_orders
@@ -59,5 +66,5 @@ rechargeRouter.get("/recharge/history", async (req, res) => {
      limit 100`,
     [walletAddress]
   );
-  res.json({ items: rows });
-});
+  ok(res, { items: rows }, "Recharge history loaded");
+}));

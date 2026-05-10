@@ -19,8 +19,10 @@ export function HomeDashboard({
   balanceVisible,
   network,
   transactions,
+  clipboardNotice,
   onRefresh,
   onScreen,
+  onCopyAddress,
   onToggleBalance,
   onTokenDetails
 }: {
@@ -30,8 +32,10 @@ export function HomeDashboard({
   balanceVisible: boolean;
   network: string;
   transactions: WalletTransaction[];
+  clipboardNotice: string;
   onRefresh: () => void;
   onScreen: (screen: "send" | "receive" | "recharge" | "qr-pay" | "transactions") => void;
+  onCopyAddress: () => void;
   onToggleBalance: () => void;
   onTokenDetails: (token: WalletToken) => void;
 }) {
@@ -52,7 +56,7 @@ export function HomeDashboard({
           />
         </div>
         <motion.div
-          className="overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_10%_10%,rgba(243,186,47,0.30),transparent_12rem),linear-gradient(135deg,#1c2231,#0d111a)] p-5 shadow-wallet"
+          className="overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_10%_10%,rgba(5,196,107,0.25),transparent_12rem),linear-gradient(135deg,#1c2231,#0d111a)] p-5 shadow-wallet"
           drag="y"
           dragConstraints={{ top: 0, bottom: 0 }}
           onDragEnd={(_, info) => {
@@ -64,7 +68,7 @@ export function HomeDashboard({
               <option>Main Wallet</option>
               <option>Trading Wallet</option>
             </select>
-            <button className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs" type="button">{network}</button>
+            <button className="shrink-0 rounded-2xl border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent" type="button">{network}</button>
           </div>
           <div className="mt-6 text-center text-sm text-slate-300">Total Balance</div>
           <div className="mt-1 flex items-center justify-center gap-3">
@@ -73,12 +77,13 @@ export function HomeDashboard({
               {balanceVisible ? <Eye size={19} /> : <EyeOff size={19} />}
             </button>
           </div>
-          <div className="mt-5 flex items-center justify-between rounded-2xl bg-black/20 px-3 py-3">
-            <span className="text-sm text-slate-300">{shortAddress(address)}</span>
-            <button className="flex items-center gap-2 text-sm text-accent" onClick={() => navigator.clipboard.writeText(address)} type="button">
+          <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl bg-black/20 px-3 py-3">
+            <span className="min-w-0 truncate text-sm text-slate-300">{shortAddress(address)}</span>
+            <button className="flex shrink-0 items-center gap-2 text-sm text-accent" onClick={onCopyAddress} type="button">
               <Copy size={16} /> Copy
             </button>
           </div>
+          {clipboardNotice ? <div className="mt-3 rounded-2xl border border-mint/30 bg-mint/10 p-3 text-xs leading-5 text-mint">{clipboardNotice}</div> : null}
           <div className="mt-5 grid grid-cols-5 gap-2">
             <Action icon={Send} label="Send" onClick={() => onScreen("send")} />
             <Action icon={WalletCards} label="Receive" onClick={() => onScreen("receive")} />
@@ -102,17 +107,18 @@ export function HomeDashboard({
           </div>
           <div className="space-y-2">
             {(loading || isFetching) && <Skeleton className="h-16" />}
+            {tokens.length === 0 && !(loading || isFetching) ? <div className="rounded-2xl bg-white/[0.045] p-4 text-sm text-slate-400">No tokens match your search.</div> : null}
             {tokens.map((token) => (
-              <button key={token.symbol} className="flex w-full items-center justify-between rounded-2xl bg-white/[0.045] p-3 text-left" onClick={() => onTokenDetails(token)} type="button">
-                <span className="flex items-center gap-3">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl font-bold text-black" style={{ backgroundColor: token.color }}>{token.symbol.slice(0, 1)}</span>
-                  <span>
-                    <span className="block font-semibold">{token.symbol}</span>
-                    <span className="block text-xs text-slate-400">{token.name}</span>
+              <button key={token.symbol} className="flex w-full items-center justify-between gap-3 rounded-2xl bg-white/[0.045] p-3 text-left" onClick={() => onTokenDetails(token)} type="button">
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl font-bold text-black" style={{ backgroundColor: token.color }}>{token.symbol.slice(0, 1)}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold">{token.symbol}</span>
+                    <span className="block truncate text-xs text-slate-400">{token.name}</span>
                   </span>
                 </span>
-                <span className="text-right">
-                  <span className="block font-semibold">{balanceVisible ? trimAmount(token.balance) : "****"}</span>
+                <span className="shrink-0 text-right">
+                  <span className="block max-w-28 truncate font-semibold">{balanceVisible ? trimAmount(token.balance) : "****"}</span>
                   <span className="block text-xs text-slate-400">{formatCurrency(token.fiatValue, currency)}</span>
                 </span>
               </button>
@@ -140,6 +146,7 @@ export function HomeDashboard({
                 </div>
               </div>
             ))}
+            {transactions.length === 0 ? <div className="rounded-2xl bg-white/[0.045] p-4 text-sm text-slate-400">No recent activity yet.</div> : null}
           </div>
         </Panel>
       </div>
@@ -149,9 +156,9 @@ export function HomeDashboard({
 
 function Action({ icon: Icon, label, onClick }: { icon: React.ElementType; label: string; onClick: () => void }) {
   return (
-    <button className="flex h-16 flex-col items-center justify-center gap-1 rounded-2xl bg-white/10 text-[11px]" onClick={onClick} type="button">
+    <button className="flex h-16 min-w-0 flex-col items-center justify-center gap-1 rounded-2xl bg-white/10 px-1 text-[10px] leading-none sm:text-[11px]" onClick={onClick} type="button">
       <Icon size={18} />
-      <span>{label}</span>
+      <span className="truncate">{label}</span>
     </button>
   );
 }

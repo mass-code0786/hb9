@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ethers } from "ethers";
 import { QRCodeSVG } from "qrcode.react";
-import { ArrowLeft, Bell, Lock, Settings, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Bell, CheckCircle2, Copy, Lock, Settings, ShieldCheck, Trash2 } from "lucide-react";
 import { AddCustomToken, TokenDetails } from "@/features/tokens/TokenManagement";
 import { HomeDashboard } from "@/features/home/HomeDashboard";
 import { QrPayModule } from "@/features/qr-pay/QrPayModule";
@@ -69,6 +69,9 @@ export function WalletApp() {
   const [amount, setAmount] = useState("");
   const [gasFee, setGasFee] = useState("");
   const [showSeedWarning, setShowSeedWarning] = useState(false);
+  const [seedAcknowledged, setSeedAcknowledged] = useState(false);
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
+  const [clipboardNotice, setClipboardNotice] = useState("");
 
   const mnemonicWords = useMemo(() => pendingMnemonic.split(" ").filter(Boolean), [pendingMnemonic]);
   const authenticated = Boolean(sessionMnemonic);
@@ -139,6 +142,7 @@ export function WalletApp() {
     resetForms();
     setPendingMnemonic("");
     setShowSeedWarning(true);
+    setSeedAcknowledged(false);
     setScreen("create");
   }
 
@@ -218,13 +222,24 @@ export function WalletApp() {
   }
 
   function removeWallet() {
+    if (!deleteConfirming) {
+      setDeleteConfirming(true);
+      return;
+    }
     clearVault();
     setVault(null);
     setSessionMnemonic("");
     setActiveAddress("");
     setPendingMnemonic("");
     resetForms();
+    setDeleteConfirming(false);
     setScreen("landing");
+  }
+
+  async function copyAddress() {
+    await navigator.clipboard.writeText(activeAddress);
+    setClipboardNotice("Address copied. Confirm the first and last characters before sending funds.");
+    window.setTimeout(() => setClipboardNotice(""), 3500);
   }
 
   async function estimateGas() {
@@ -301,6 +316,8 @@ export function WalletApp() {
           vault,
           mnemonicWords,
           showSeedWarning,
+          seedAcknowledged,
+          setSeedAcknowledged,
           confirmText,
           importText,
           password,
@@ -320,6 +337,7 @@ export function WalletApp() {
           createVault,
           unlock,
           removeWallet,
+          deleteConfirming,
           go
         })}
       </main>
@@ -339,6 +357,7 @@ export function WalletApp() {
       {activeTab === "home" && screen === "dashboard" ? (
         <HomeDashboard
           address={activeAddress}
+          clipboardNotice={clipboardNotice}
           balances={balances}
           loading={loadingBalance}
           balanceVisible={balanceVisible}
@@ -346,6 +365,7 @@ export function WalletApp() {
           transactions={transactions}
           onRefresh={refreshBalances}
           onScreen={go}
+          onCopyAddress={copyAddress}
           onToggleBalance={toggleBalanceVisible}
           onTokenDetails={(token) => {
             setSelectedToken(token);
@@ -353,7 +373,7 @@ export function WalletApp() {
           }}
         />
       ) : null}
-      {screen === "receive" ? <ReceiveView address={activeAddress} /> : null}
+      {screen === "receive" ? <ReceiveView address={activeAddress} clipboardNotice={clipboardNotice} onCopy={copyAddress} /> : null}
       {screen === "send" ? <SendView asset={asset} setAsset={setAsset} to={to} setTo={setTo} amount={amount} setAmount={setAmount} gasFee={gasFee} tx={tx} error={error} estimateGas={estimateGas} submitTx={submitTx} /> : null}
       {screen === "recharge" ? <RechargeModule /> : null}
       {screen === "qr-pay" ? <QrPayModule /> : null}
@@ -373,6 +393,8 @@ function renderAuthScreens(props: {
   vault: EncryptedVault | null;
   mnemonicWords: string[];
   showSeedWarning: boolean;
+  seedAcknowledged: boolean;
+  setSeedAcknowledged: (value: boolean) => void;
   confirmText: string;
   importText: string;
   password: string;
@@ -392,6 +414,7 @@ function renderAuthScreens(props: {
   createVault: () => void;
   unlock: () => void;
   removeWallet: () => void;
+  deleteConfirming: boolean;
   go: (screen: WalletScreen) => void;
 }) {
   const p = props;
@@ -402,6 +425,9 @@ function renderAuthScreens(props: {
           <div className="mb-4 inline-flex rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs text-accent">Local encrypted vault</div>
           <h1 className="text-4xl font-semibold leading-tight">Your BSC wallet, recharge, and payments hub.</h1>
           <p className="mt-4 text-sm leading-6 text-slate-300">Create or import a 12-word wallet. Your recovery phrase and private key are encrypted locally and are never sent to a backend.</p>
+          <div className="mt-4 rounded-2xl border border-accent/30 bg-accent/10 p-4 text-xs leading-5 text-yellow-100">
+            Self-custody warning: BitzenX cannot reset your password, recover a lost recovery phrase, reverse transactions, or freeze funds.
+          </div>
         </div>
         <div className="space-y-3">
           <PrimaryButton className="w-full" onClick={p.startCreate}>Create Wallet</PrimaryButton>
@@ -419,7 +445,11 @@ function renderAuthScreens(props: {
           <div className="rounded-2xl bg-white/[0.045] p-4 text-sm leading-6 text-slate-300">
             Close other apps, avoid screenshots, and make sure nobody can see your screen. BitzenX will never send this phrase to a backend.
           </div>
-          <PrimaryButton className="mt-5 w-full" onClick={p.revealSeedPhrase}>Show Recovery Phrase</PrimaryButton>
+          <label className="mt-4 flex items-start gap-3 rounded-2xl bg-white/[0.045] p-4 text-sm text-slate-300">
+            <input className="mt-1 h-4 w-4 accent-[#05c46b]" type="checkbox" checked={p.seedAcknowledged} onChange={(event) => p.setSeedAcknowledged(event.target.checked)} />
+            <span>I understand that anyone with this phrase can move my funds, and BitzenX cannot recover it for me.</span>
+          </label>
+          <PrimaryButton className="mt-5 w-full" onClick={p.revealSeedPhrase} disabled={!p.seedAcknowledged}>Show Recovery Phrase</PrimaryButton>
         </Panel>
       );
     }
@@ -434,16 +464,17 @@ function renderAuthScreens(props: {
   if (p.screen === "password") {
     return <Panel><Title title="Set Password" subtitle="This password encrypts the local vault on this device." /><Field type="password" value={p.password} onChange={(e) => p.setPassword(e.target.value)} placeholder="Password" /><Field className="mt-3" type="password" value={p.passwordConfirm} onChange={(e) => p.setPasswordConfirm(e.target.value)} placeholder="Confirm password" /><p className="mt-4 text-xs leading-5 text-slate-400">The password cannot recover funds by itself. Losing the 12-word phrase means funds cannot be recovered.</p><ErrorText error={p.error} /><PrimaryButton className="mt-4 w-full" onClick={p.createVault}>Encrypt Wallet</PrimaryButton></Panel>;
   }
-  return <Panel><Title title="Unlock Wallet" subtitle={p.vault?.address ? shortAddress(p.vault.address) : "Encrypted local wallet"} /><Field type="password" value={p.unlockPassword} onChange={(e) => p.setUnlockPassword(e.target.value)} placeholder="Password" onKeyDown={(e) => e.key === "Enter" && p.unlock()} /><ErrorText error={p.error} /><PrimaryButton className="mt-4 w-full" onClick={p.unlock}>Unlock</PrimaryButton><button className="mt-5 w-full text-sm text-danger" onClick={p.removeWallet}>Remove local wallet</button></Panel>;
+  return <Panel><Title title="Unlock Wallet" subtitle={p.vault?.address ? shortAddress(p.vault.address) : "Encrypted local wallet"} /><Field type="password" value={p.unlockPassword} onChange={(e) => p.setUnlockPassword(e.target.value)} placeholder="Password" onKeyDown={(e) => e.key === "Enter" && p.unlock()} /><ErrorText error={p.error} /><PrimaryButton className="mt-4 w-full" onClick={p.unlock}>Unlock</PrimaryButton><button className={`mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border border-danger/30 px-4 py-3 text-sm text-danger ${p.deleteConfirming ? "bg-danger/10" : ""}`} onClick={p.removeWallet}><Trash2 size={16} />{p.deleteConfirming ? "Tap again to delete local wallet" : "Remove local wallet"}</button></Panel>;
 }
 
-function ReceiveView({ address }: { address: string }) {
+function ReceiveView({ address, clipboardNotice, onCopy }: { address: string; clipboardNotice: string; onCopy: () => void }) {
   return (
-    <Panel>
-      <Title title="Receive" subtitle="Use this BSC address for BNB and BEP20 tokens." />
-      <div className="mx-auto my-6 flex h-56 w-56 items-center justify-center rounded-3xl bg-white p-4"><QRCodeSVG value={address} size={192} /></div>
-      <div className="break-all rounded-2xl border border-white/10 bg-ink/60 p-4 text-center text-sm">{address}</div>
-      <PrimaryButton className="mt-4 w-full" onClick={() => navigator.clipboard.writeText(address)}>Copy Address</PrimaryButton>
+    <Panel className="text-center">
+      <Title title="Receive" subtitle="Use this BSC address for BNB and BEP20 tokens only." />
+      <div className="mx-auto my-6 flex aspect-square w-full max-w-[15rem] items-center justify-center rounded-[2rem] bg-white p-5 shadow-wallet"><QRCodeSVG value={address} size={200} /></div>
+      <div className="break-all rounded-2xl border border-white/10 bg-ink/60 p-4 text-center text-sm leading-6">{address}</div>
+      {clipboardNotice ? <div className="mt-3 flex items-center justify-center gap-2 rounded-2xl border border-mint/30 bg-mint/10 p-3 text-sm text-mint"><CheckCircle2 size={16} /> {clipboardNotice}</div> : null}
+      <PrimaryButton className="mt-4 flex w-full items-center justify-center gap-2" onClick={onCopy}><Copy size={17} />Copy Address</PrimaryButton>
     </Panel>
   );
 }
@@ -462,7 +493,7 @@ function SendView(props: {
   submitTx: () => void;
 }) {
   return (
-    <Panel>
+    <Panel className="bg-[radial-gradient(circle_at_15%_0%,rgba(5,196,107,0.13),transparent_13rem),rgba(16,20,29,0.92)]">
       <Title title="Send" subtitle="Transactions are signed locally, then broadcast to BSC." />
       <div className="mb-4 grid grid-cols-2 rounded-2xl border border-white/10 bg-ink p-1">
         {(["BNB", "USDT"] as Asset[]).map((item) => (
@@ -471,13 +502,13 @@ function SendView(props: {
       </div>
       <Field value={props.to} onChange={(e) => props.setTo(e.target.value)} placeholder="Recipient BSC address" />
       <Field className="mt-3" inputMode="decimal" value={props.amount} onChange={(e) => props.setAmount(e.target.value)} placeholder={`Amount in ${props.asset}`} />
-      <div className="mt-4 rounded-2xl border border-white/10 bg-ink/60 p-4 text-xs text-slate-300">Estimated gas: <span className="text-slate-100">{props.gasFee ? `${trimAmount(props.gasFee, 8)} BNB` : "Not estimated"}</span></div>
+      <div className="mt-4 rounded-2xl border border-white/10 bg-ink/60 p-4 text-xs leading-5 text-slate-300">Estimated network fee: <span className="text-slate-100">{props.gasFee ? `${trimAmount(props.gasFee, 8)} BNB` : "Run estimate before sending"}</span></div>
       <ErrorText error={props.error} />
       {props.tx.message ? <p className="mt-3 text-sm text-mint">{props.tx.message}</p> : null}
       {props.tx.hash ? <p className="mt-2 break-all text-xs text-slate-400">Hash: {props.tx.hash}</p> : null}
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <SecondaryButton onClick={props.estimateGas} disabled={props.tx.state === "estimating"}>Estimate</SecondaryButton>
-        <PrimaryButton onClick={props.submitTx} disabled={props.tx.state === "signing" || props.tx.state === "submitted"}>Send</PrimaryButton>
+        <SecondaryButton onClick={props.estimateGas} disabled={props.tx.state === "estimating"}>{props.tx.state === "estimating" ? "Estimating" : "Estimate"}</SecondaryButton>
+        <PrimaryButton onClick={props.submitTx} disabled={props.tx.state === "signing" || props.tx.state === "submitted"}>{props.tx.state === "signing" || props.tx.state === "submitted" ? "Sending" : "Send"}</PrimaryButton>
       </div>
     </Panel>
   );

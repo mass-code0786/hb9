@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Smartphone } from "lucide-react";
+import { CheckCircle2, Smartphone, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Panel, PrimaryButton, Select, Field } from "@/components/ui/Primitives";
 import { rechargeCountries, quoteRecharge, submitRecharge, supportedCountryCount } from "@/services/rechargeProvider";
@@ -12,13 +12,26 @@ export function RechargeModule() {
   const addTransaction = useTransactionStore((state) => state.addTransaction);
   const [status, setStatus] = useState<"idle" | "processing" | "success" | "failed">("idle");
   const [quote, setQuote] = useState<{ fee: string; payable: string; eta: string } | null>(null);
+  const [error, setError] = useState("");
   const country = useMemo(() => rechargeCountries.find((item) => item.code === store.country) || rechargeCountries[0], [store.country]);
 
   async function preview() {
+    setError("");
+    if (!store.mobile.trim() || !store.amount || Number(store.amount) <= 0) {
+      setError("Enter a mobile number and a valid recharge amount.");
+      return;
+    }
+    setStatus("processing");
     setQuote(await quoteRecharge(store.amount));
+    setStatus("idle");
   }
 
   async function submit() {
+    setError("");
+    if (!quote) {
+      setError("Get a quote before creating the recharge order.");
+      return;
+    }
     setStatus("processing");
     try {
       const order = await submitRecharge({
@@ -41,6 +54,7 @@ export function RechargeModule() {
       });
       setStatus("success");
     } catch {
+      setError("Recharge provider failed. Try again or choose another operator.");
       setStatus("failed");
     }
   }
@@ -74,15 +88,22 @@ export function RechargeModule() {
           </Select>
         </div>
         {quote ? (
-          <div className="mt-4 rounded-2xl bg-white/[0.055] p-4 text-sm text-slate-300">
-            Fee: {quote.fee} | Payable: {quote.payable} | {quote.eta}
+          <div className="mt-4 rounded-2xl border border-accent/20 bg-accent/10 p-4 text-sm text-slate-200">
+            <div className="font-semibold text-accent">Order preview</div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-300">
+              <span>Operator</span><span className="text-right">{store.operator}</span>
+              <span>Fee</span><span className="text-right">{quote.fee}</span>
+              <span>Payable</span><span className="text-right">{quote.payable} {store.cryptoAsset}</span>
+              <span>ETA</span><span className="text-right">{quote.eta}</span>
+            </div>
           </div>
         ) : null}
+        {error ? <div className="mt-4 flex items-center gap-2 rounded-2xl border border-danger/30 bg-danger/10 p-4 text-sm text-danger"><XCircle size={18} /> {error}</div> : null}
         {status === "success" ? (
           <div className="mt-4 flex items-center gap-2 rounded-2xl border border-mint/30 bg-mint/10 p-4 text-mint"><CheckCircle2 size={18} /> Recharge successful</div>
         ) : null}
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <PrimaryButton type="button" onClick={preview}>Quote</PrimaryButton>
+          <PrimaryButton type="button" onClick={preview} disabled={status === "processing"}>{status === "processing" ? "Loading" : "Quote"}</PrimaryButton>
           <PrimaryButton type="button" onClick={submit} disabled={status === "processing"}>{status === "processing" ? "Processing" : "Pay"}</PrimaryButton>
         </div>
       </Panel>

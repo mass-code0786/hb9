@@ -19,12 +19,16 @@ const demoPayload = JSON.stringify({
 export function QrPayModule() {
   const [raw, setRaw] = useState(demoPayload);
   const [request, setRequest] = useState<QrPaymentRequest | null>(parseQrPayload(demoPayload));
-  const [success, setSuccess] = useState(false);
+  const [result, setResult] = useState<"idle" | "success" | "failed">("idle");
   const [permission, setPermission] = useState<"idle" | "granted" | "denied">("idle");
   const addTransaction = useTransactionStore((state) => state.addTransaction);
 
   function confirm() {
     if (!request) return;
+    if (!request.address || !request.amount || Number(request.amount) <= 0) {
+      setResult("failed");
+      return;
+    }
     addTransaction({
       id: `qr-${Date.now()}`,
       type: "qr-pay",
@@ -36,7 +40,7 @@ export function QrPayModule() {
       gasFee: "Network fee estimated before broadcast",
       createdAt: new Date().toISOString()
     });
-    setSuccess(true);
+    setResult("success");
   }
 
   return (
@@ -69,7 +73,7 @@ export function QrPayModule() {
           <p className="mt-2 text-xs text-slate-400">{permission === "granted" ? "Camera ready for scanner integration." : permission === "denied" ? "Camera denied. Use manual QR input." : "Camera permission required to scan."}</p>
         </div>
         <textarea className="field mt-4 min-h-24" value={raw} onChange={(event) => setRaw(event.target.value)} />
-        <PrimaryButton className="mt-3 w-full" onClick={() => { setRequest(parseQrPayload(raw)); setSuccess(false); }} type="button">Parse QR</PrimaryButton>
+        <PrimaryButton className="mt-3 w-full" onClick={() => { setRequest(parseQrPayload(raw)); setResult("idle"); }} type="button">Parse QR</PrimaryButton>
       </Panel>
       {request ? (
         <Panel>
@@ -88,8 +92,8 @@ export function QrPayModule() {
               <option value="BNB">BNB</option>
             </Select>
           </div>
-          {success ? <div className="mt-4 flex items-center gap-2 text-mint"><CheckCircle2 /> Payment success</div> : null}
-          {!request.address ? <div className="mt-4 flex items-center gap-2 text-danger"><XCircle /> Payment will fail until a merchant address is added.</div> : null}
+          {result === "success" ? <div className="mt-4 flex items-center gap-2 rounded-2xl border border-mint/30 bg-mint/10 p-3 text-mint"><CheckCircle2 /> Payment success</div> : null}
+          {result === "failed" || !request.address ? <div className="mt-4 flex items-center gap-2 rounded-2xl border border-danger/30 bg-danger/10 p-3 text-danger"><XCircle /> Add a merchant address and valid amount before confirming.</div> : null}
           <PrimaryButton className="mt-4 w-full" onClick={confirm} type="button">Confirm Payment</PrimaryButton>
         </Panel>
       ) : null}

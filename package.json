@@ -7,9 +7,12 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run build",
     "api:dev": "tsx server/src/index.ts",
     "api:build": "tsc -p server/tsconfig.json",
-    "api:start": "node server/dist/index.js"
+    "api:check": "npm run api:build",
+    "api:start": "node server/dist/index.js",
+    "qa": "npm run typecheck && npm run build && npm run api:build"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.9",

@@ -1,6 +1,7 @@
 import type { EncryptedVault } from "@/lib/types";
 
-const VAULT_KEY = "bitzenx.encryptedVault.v1";
+export const VAULT_STORAGE_VERSION = 1;
+const VAULT_KEY = `bitzenx.encryptedVault.v${VAULT_STORAGE_VERSION}`;
 
 export function getStoredVault(): EncryptedVault | null {
   if (typeof window === "undefined") return null;

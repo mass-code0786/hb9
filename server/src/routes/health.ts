@@ -1,7 +1,8 @@
 import { Router } from "express";
+import { ok } from "../http.js";
 
 export const healthRouter = Router();
 
 healthRouter.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "bitzenx-api", time: new Date().toISOString() });
+  ok(res, { service: "bitzenx-api", time: new Date().toISOString() });
 });
