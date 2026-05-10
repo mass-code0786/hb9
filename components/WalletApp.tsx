@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ethers } from "ethers";
+import { AnimatePresence, motion } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
 import { ArrowLeft, Bell, CheckCircle2, ChevronDown, Copy, Eye, EyeOff, KeyRound, Loader2, Lock, Settings, ShieldCheck, Trash2 } from "lucide-react";
 import { ManageTokensPage, TokenDetails } from "@/features/tokens/TokenManagement";
@@ -36,6 +37,103 @@ import { WalletShell } from "@/components/ui/WalletShell";
 import { ErrorText, Field, Panel, PrimaryButton, SecondaryButton, Select } from "@/components/ui/Primitives";
 import { BrandLogo } from "@/components/BrandLogo";
 import { trimAmount } from "@/utils/format";
+
+function NetworkIcon({ network, size = 18, className = "" }: { network: NetworkKey; size?: number; className?: string }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 32 32",
+    className,
+    "aria-hidden": true,
+    focusable: false
+  };
+
+  if (network === "bsc") {
+    return (
+      <svg {...common}>
+        <circle cx="16" cy="16" r="16" fill="#F3BA2F" />
+        <path fill="#111827" d="m16 7.2 3.8 3.8-2.2 2.2-1.6-1.6-1.6 1.6-2.2-2.2L16 7.2Zm-6.4 6.4 2.2 2.2-2.2 2.2-2.2-2.2 2.2-2.2Zm12.8 0 2.2 2.2-2.2 2.2-2.2-2.2 2.2-2.2ZM16 14l2 2-2 2-2-2 2-2Zm-1.6 4.8 1.6 1.6 1.6-1.6 2.2 2.2-3.8 3.8-3.8-3.8 2.2-2.2Z" />
+      </svg>
+    );
+  }
+
+  if (network === "ethereum") {
+    return (
+      <svg {...common}>
+        <circle cx="16" cy="16" r="16" fill="#627EEA" />
+        <path fill="#fff" fillOpacity=".86" d="M16 4.8 9 16.3l7 4.1 7-4.1L16 4.8Z" />
+        <path fill="#fff" fillOpacity=".55" d="M16 4.8v15.6l7-4.1L16 4.8Z" />
+        <path fill="#fff" fillOpacity=".86" d="m9 17.7 7 9.5 7-9.5-7 4.1-7-4.1Z" />
+        <path fill="#fff" fillOpacity=".55" d="M16 21.8v5.4l7-9.5-7 4.1Z" />
+      </svg>
+    );
+  }
+
+  if (network === "polygon") {
+    return (
+      <svg {...common}>
+        <circle cx="16" cy="16" r="16" fill="#8247E5" />
+        <path fill="#fff" d="M20.8 10.8 25 13.2v5.1l-4.2 2.4-4.1-2.4v-2.7l-1.4-.8-1.5.8v2.7l-4.1 2.4-4.2-2.4v-5.1l4.2-2.4 4.1 2.4v2.7l1.5.8 1.4-.8v-2.7l4.1-2.4Zm0 2.7-1.8 1v2.4l1.8 1 1.9-1v-2.4l-1.9-1Zm-11.1 0-1.9 1v2.4l1.9 1 1.8-1v-2.4l-1.8-1Z" />
+      </svg>
+    );
+  }
+
+  if (network === "arbitrum") {
+    return (
+      <svg {...common}>
+        <path fill="#213147" d="m16 2 12 7v14l-12 7-12-7V9L16 2Z" />
+        <path fill="#28A0F0" d="m20.7 8.6 3.1 1.8-8.5 14.7-3.1-1.8 8.5-14.7Z" />
+        <path fill="#fff" d="m14.3 7.2 2.9 1.7-7.4 12.8-2.9-1.7 7.4-12.8Z" />
+        <path fill="none" stroke="#96BEDC" strokeWidth="1.5" d="m16 3.9 10.4 6.1v12L16 28.1 5.6 22V10L16 3.9Z" />
+      </svg>
+    );
+  }
+
+  if (network === "optimism") {
+    return (
+      <svg {...common}>
+        <circle cx="16" cy="16" r="16" fill="#FF0420" />
+        <path fill="#fff" d="M7.6 17.1c0-3.1 1.9-5.2 5-5.2 2.9 0 4.7 1.8 4.7 4.8 0 3.1-1.9 5.2-5 5.2-2.9 0-4.7-1.8-4.7-4.8Zm3.1 0c0 1.4.6 2.2 1.8 2.2 1.1 0 1.8-.9 1.8-2.5 0-1.4-.6-2.2-1.8-2.2-1.1 0-1.8.9-1.8 2.5Zm8-5h3.9c2.2 0 3.6 1.2 3.6 3.1 0 2-1.5 3.3-3.8 3.3h-.8v3.1h-2.9v-9.5Zm3.6 4.1c.7 0 1.1-.3 1.1-.9s-.4-.9-1.1-.9h-.7v1.8h.7Z" />
+      </svg>
+    );
+  }
+
+  if (network === "avalanche") {
+    return (
+      <svg {...common}>
+        <circle cx="16" cy="16" r="16" fill="#E84142" />
+        <path fill="#fff" d="M17.5 7.8c-.7-1.2-2.3-1.2-3 0L6.9 21.2c-.7 1.2.2 2.8 1.5 2.8h4.4c1.1 0 1.8-.8 2.3-1.6l1.9-3.4 1.9 3.4c.5.8 1.2 1.6 2.3 1.6h2.4c1.4 0 2.2-1.5 1.5-2.8L17.5 7.8Zm-4.8 12.8h-2.1L16 11l2.6 4.5-2.3 4-1.1-1.9-2.5 3Z" />
+      </svg>
+    );
+  }
+
+  if (network === "tron") {
+    return (
+      <svg {...common}>
+        <circle cx="16" cy="16" r="16" fill="#FF060A" />
+        <path fill="#fff" d="M6.7 7.3 25.9 11l-9.7 14.2L6.7 7.3Zm3.6 3.2 5.2 10 1.4-7.1-6.6-2.9Zm8.5 3.2-1.3 6.7 4.8-7-3.5.3Zm2.8-2.1-9.4-1.8 5.7 2.5 3.7-.7Z" />
+      </svg>
+    );
+  }
+
+  if (network === "bitcoin") {
+    return (
+      <svg {...common}>
+        <circle cx="16" cy="16" r="16" fill="#F7931A" />
+        <path fill="#fff" d="M20.4 14.1c.3-2.1-1.3-3.2-3.4-3.9l.7-2.8-1.7-.4-.7 2.7-1.4-.3.7-2.8-1.7-.4-.7 2.8-2.7-.7-.5 1.9s1.3.3 1.3.3c.7.2.8.6.8 1l-.8 3.2.2.1-.2-.1-1.1 4.5c-.1.2-.3.6-.8.5 0 0-1.3-.3-1.3-.3l-.9 2 2.7.7-.7 2.9 1.7.4.7-2.8 1.4.4-.7 2.8 1.7.4.7-2.9c2.9.5 5 .3 5.9-2.3.7-2.1 0-3.3-1.5-4.1 1.1-.2 1.9-1 2.1-2.5Zm-3.8 5.4c-.5 2.1-4.1 1-5.2.7l.9-3.8c1.2.3 4.8.9 4.3 3.1Zm.5-5.4c-.5 1.9-3.4.9-4.4.7l.9-3.4c1 .2 4 .8 3.5 2.7Z" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg {...common}>
+      <circle cx="16" cy="16" r="16" fill="#111827" />
+      <path fill="#14F195" d="M9.1 9.2h14.5l-2.7 3.1H6.4l2.7-3.1Z" />
+      <path fill="#80ECFF" d="M11.1 14.4h14.5l-2.7 3.1H8.4l2.7-3.1Z" />
+      <path fill="#9945FF" d="M9.1 19.7h14.5l-2.7 3.1H6.4l2.7-3.1Z" />
+    </svg>
+  );
+}
 
 export function WalletApp() {
   const {
@@ -93,6 +191,8 @@ export function WalletApp() {
   const [backupStatus, setBackupStatus] = useState<BackupStatus>("not-backed-up");
   const [backupVerifyText, setBackupVerifyText] = useState("");
   const [sendConfirmVisible, setSendConfirmVisible] = useState(false);
+  const [networkMenuOpen, setNetworkMenuOpen] = useState(false);
+  const networkMenuRef = useRef<HTMLSpanElement>(null);
 
   const mnemonicWords = useMemo(() => pendingMnemonic.split(" ").filter(Boolean), [pendingMnemonic]);
   const authenticated = Boolean(sessionMnemonic);
@@ -180,6 +280,24 @@ export function WalletApp() {
       events.forEach((event) => window.removeEventListener(event, resetTimer));
     };
   }, [autoLockMinutes, sessionMnemonic]);
+
+  useEffect(() => {
+    if (!networkMenuOpen) return;
+
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!networkMenuRef.current?.contains(event.target as Node)) setNetworkMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNetworkMenuOpen(false);
+    };
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [networkMenuOpen]);
 
   function resetForms() {
     setPassword("");
@@ -475,18 +593,69 @@ export function WalletApp() {
             <span className="min-w-0 truncate">{currentAddress ? shortAddress(currentAddress) : "Multi-network wallet"}</span>
             {authenticated ? <span className="text-slate-600">|</span> : null}
             {authenticated ? (
-              <span className="relative inline-flex max-w-[9.5rem] items-center gap-1 rounded-xl border border-accent/25 bg-white/10 px-2 py-1 text-xs font-medium text-accent">
-                <span className="truncate">{networkConfig.shortName}</span>
-                <ChevronDown size={13} />
+              <span ref={networkMenuRef} className="relative inline-flex min-w-0 max-w-[10.5rem]">
+                <button
+                  className="group inline-flex min-w-0 items-center gap-1.5 rounded-xl border border-accent/25 bg-white/[0.09] px-2 py-1 text-xs font-semibold text-slate-100 shadow-[0_0_20px_rgba(243,186,47,0.08)] backdrop-blur transition hover:border-accent/50 hover:bg-white/[0.13]"
+                  onClick={() => setNetworkMenuOpen((open) => !open)}
+                  type="button"
+                  aria-expanded={networkMenuOpen}
+                  aria-haspopup="listbox"
+                  aria-label="Choose network"
+                >
+                  <NetworkIcon network={network} size={15} className="shrink-0" />
+                  <span className="min-w-0 truncate text-accent">{networkConfig.shortName}</span>
+                  <ChevronDown size={13} className={`shrink-0 text-slate-300 transition ${networkMenuOpen ? "rotate-180" : ""}`} />
+                </button>
                 <select
-                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  className="sr-only"
                   value={network}
-                  onChange={(event) => setNetwork(event.target.value as NetworkKey)}
+                  onChange={(event) => {
+                    setNetwork(event.target.value as NetworkKey);
+                    setNetworkMenuOpen(false);
+                  }}
                   aria-label="Network selector"
                   data-testid="network-selector"
                 >
                   {NETWORK_OPTIONS.map((item) => <option key={item.key} value={item.key}>{item.name}</option>)}
                 </select>
+                <AnimatePresence>
+                  {networkMenuOpen ? (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                      transition={{ duration: 0.16, ease: "easeOut" }}
+                      className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[min(14.5rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/10 bg-[#0b1018]/95 p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.45),0_0_30px_rgba(243,186,47,0.08)] backdrop-blur-xl"
+                      role="listbox"
+                      aria-label="Networks"
+                    >
+                      {NETWORK_OPTIONS.map((item) => {
+                        const active = item.key === network;
+                        return (
+                          <button
+                            key={item.key}
+                            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
+                              active
+                                ? "bg-accent/[0.12] text-white shadow-[inset_0_0_0_1px_rgba(243,186,47,0.28),0_0_18px_rgba(243,186,47,0.12)]"
+                                : "text-slate-300 hover:bg-white/[0.07] hover:text-white"
+                            }`}
+                            onClick={() => {
+                              setNetwork(item.key);
+                              setNetworkMenuOpen(false);
+                            }}
+                            type="button"
+                            role="option"
+                            aria-selected={active}
+                          >
+                            <NetworkIcon network={item.key} size={18} className="shrink-0" />
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.name}</span>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${active ? "bg-accent/20 text-accent" : "bg-white/[0.06] text-slate-400"}`}>{item.shortName}</span>
+                          </button>
+                        );
+                      })}
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
               </span>
             ) : null}
           </div>
