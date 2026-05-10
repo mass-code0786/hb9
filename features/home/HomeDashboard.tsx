@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import { Copy, Eye, EyeOff, QrCode, RefreshCcw, Search, Send, Smartphone, Star, WalletCards } from "lucide-react";
 import { useWalletTokens } from "@/hooks/useWalletTokens";
-import { explorerAddressUrl, getNetworkConfig, NETWORK_OPTIONS, type NetworkKey } from "@/lib/networks";
+import { explorerAddressUrl, type NetworkKey } from "@/lib/networks";
 import { shortAddress } from "@/lib/wallet";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useTokenStore } from "@/store/tokenStore";
@@ -19,7 +19,6 @@ export function HomeDashboard({
   loading,
   balanceVisible,
   network,
-  onNetworkChange,
   transactions,
   clipboardNotice,
   onRefresh,
@@ -33,7 +32,6 @@ export function HomeDashboard({
   loading: boolean;
   balanceVisible: boolean;
   network: NetworkKey;
-  onNetworkChange: (network: NetworkKey) => void;
   transactions: WalletTransaction[];
   clipboardNotice: string;
   onRefresh: () => void;
@@ -46,7 +44,6 @@ export function HomeDashboard({
   const setSearch = useTokenStore((state) => state.setSearch);
   const toggleFavorite = useTokenStore((state) => state.toggleFavorite);
   const toggleHidden = useTokenStore((state) => state.toggleHidden);
-  const selectedNetwork = getNetworkConfig(network);
   const { tokens, isFetching } = useWalletTokens(balances, network);
   const total = tokens.reduce((sum, token) => sum + token.fiatValue, 0);
   const addressExplorer = explorerAddressUrl(network, address);
@@ -63,7 +60,7 @@ export function HomeDashboard({
           />
         </div>
         <motion.div
-          className="overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_10%_10%,rgba(5,196,107,0.25),transparent_12rem),linear-gradient(135deg,#1c2231,#0d111a)] p-5 shadow-wallet"
+          className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-[radial-gradient(circle_at_10%_8%,rgba(5,196,107,0.2),transparent_10rem),linear-gradient(135deg,#1c2231,#0d111a)] p-4 shadow-wallet"
           drag="y"
           dragConstraints={{ top: 0, bottom: 0 }}
           onDragEnd={(_, info) => {
@@ -71,36 +68,21 @@ export function HomeDashboard({
           }}
         >
           <div className="flex items-center justify-between gap-3">
-            <select className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none">
-              <option>Main Wallet</option>
-              <option>Trading Wallet</option>
-            </select>
-            <select
-              className="min-w-0 shrink-0 rounded-2xl border border-accent/30 bg-black/40 px-3 py-2 text-xs text-accent outline-none"
-              value={network}
-              onChange={(event) => onNetworkChange(event.target.value as NetworkKey)}
-              aria-label="Network selector"
-              data-testid="network-selector"
-            >
-              {NETWORK_OPTIONS.map((item) => <option key={item.key} value={item.key}>{item.name}</option>)}
-            </select>
-          </div>
-          <div className="mt-6 text-center text-sm text-slate-300">Total Balance</div>
-          <div className="mt-1 flex items-center justify-center gap-3">
-            <div className="text-center text-4xl font-semibold">{balanceVisible ? formatCurrency(total, currency) : "******"}</div>
-            <button className="rounded-2xl bg-white/10 p-3" onClick={onToggleBalance} type="button">
+            <div className="text-sm text-slate-300">Total Balance</div>
+            <button className="rounded-2xl bg-white/10 p-2.5 text-slate-100" onClick={onToggleBalance} type="button" aria-label={balanceVisible ? "Hide balance" : "Show balance"}>
               {balanceVisible ? <Eye size={19} /> : <EyeOff size={19} />}
             </button>
           </div>
-          <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl bg-black/20 px-3 py-3">
-            <span className="min-w-0 truncate text-sm text-slate-300">{selectedNetwork.addressLabel}: {selectedNetwork.placeholder ? selectedNetwork.addressLabel : shortAddress(address)}</span>
-            <button className="flex shrink-0 items-center gap-2 text-sm text-accent" onClick={onCopyAddress} type="button" disabled={selectedNetwork.placeholder}>
+          <div className="mt-1 text-4xl font-semibold leading-tight">{balanceVisible ? formatCurrency(total, currency) : "******"}</div>
+          <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-black/20 px-3 py-2.5">
+            <span className="min-w-0 truncate text-sm text-slate-300">{shortAddress(address)}</span>
+            <button className="flex shrink-0 items-center gap-2 text-sm text-accent" onClick={onCopyAddress} type="button">
               <Copy size={16} /> Copy
             </button>
           </div>
-          {addressExplorer ? <a className="mt-3 block text-center text-xs text-accent" href={addressExplorer} target="_blank" rel="noreferrer">Open {selectedNetwork.shortName} explorer</a> : null}
+          {addressExplorer ? <a className="mt-2 block text-center text-xs text-accent" href={addressExplorer} target="_blank" rel="noreferrer">Open explorer</a> : null}
           {clipboardNotice ? <div className="mt-3 rounded-2xl border border-mint/30 bg-mint/10 p-3 text-xs leading-5 text-mint">{clipboardNotice}</div> : null}
-          <div className="mt-5 grid grid-cols-5 gap-2">
+          <div className="mt-4 grid grid-cols-5 gap-2">
             <Action icon={Send} label="Send" onClick={() => onScreen("send")} />
             <Action icon={WalletCards} label="Receive" onClick={() => onScreen("receive")} />
             <Action icon={RefreshCcw} label="Swap" onClick={() => onScreen("send")} />
@@ -180,7 +162,7 @@ export function HomeDashboard({
 
 function Action({ icon: Icon, label, onClick }: { icon: React.ElementType; label: string; onClick: () => void }) {
   return (
-    <button className="flex h-16 min-w-0 flex-col items-center justify-center gap-1 rounded-2xl bg-white/10 px-1 text-[10px] leading-none sm:text-[11px]" onClick={onClick} type="button" data-testid={`action-${label.toLowerCase().replace(" ", "-")}`}>
+    <button className="flex h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-2xl bg-white/10 px-1 text-[10px] leading-none sm:text-[11px]" onClick={onClick} type="button" data-testid={`action-${label.toLowerCase().replace(" ", "-")}`}>
       <Icon size={18} />
       <span className="truncate">{label}</span>
     </button>

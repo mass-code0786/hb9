@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ethers } from "ethers";
 import { QRCodeSVG } from "qrcode.react";
-import { ArrowLeft, Bell, CheckCircle2, Copy, Lock, Settings, ShieldCheck, Trash2 } from "lucide-react";
+import { ArrowLeft, Bell, CheckCircle2, ChevronDown, Copy, Gem, Lock, Settings, ShieldCheck, Trash2 } from "lucide-react";
 import { AddCustomToken, ManageTokensPage, TokenDetails } from "@/features/tokens/TokenManagement";
 import { DiscoverPage } from "@/features/discover/DiscoverPage";
 import { HomeDashboard } from "@/features/home/HomeDashboard";
@@ -326,20 +326,42 @@ export function WalletApp() {
   }
 
   const header = (
-    <header className="mb-4 flex items-center justify-between">
-      <button className="flex items-center gap-3 text-left" onClick={() => (authenticated ? go("dashboard") : go(vault ? "unlock" : "landing"))} type="button">
-        {authenticated && screen !== "dashboard" ? <ArrowLeft size={18} /> : null}
-          <span>
-          <span className="block text-lg font-semibold">BitzenX</span>
-          <span className="block text-xs text-slate-400">{activeAddress ? `${shortAddress(activeAddress)} | ${networkConfig.shortName}` : "Multi-network wallet"}</span>
-        </span>
-      </button>
-      <div className="flex items-center gap-2">
-        {authenticated ? (
-          <select className="hidden rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-xs outline-none sm:block" value={network} onChange={(event) => setNetwork(event.target.value as NetworkKey)} aria-label="Header network selector">
-            {NETWORK_OPTIONS.map((item) => <option key={item.key} value={item.key}>{item.name}</option>)}
-          </select>
+    <header className="mb-4 flex items-center justify-between gap-3">
+      <div className="flex min-w-0 items-center gap-3">
+        {authenticated && screen !== "dashboard" ? (
+          <button className="rounded-2xl bg-white/10 p-3" onClick={() => go("dashboard")} type="button" aria-label="Back to dashboard">
+            <ArrowLeft size={18} />
+          </button>
         ) : null}
+        <div className="min-w-0">
+          <button className="flex min-w-0 items-center gap-2 text-left" onClick={() => (authenticated ? go("dashboard") : go(vault ? "unlock" : "landing"))} type="button">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-accent/35 bg-[radial-gradient(circle_at_35%_25%,rgba(255,255,255,0.35),transparent_1.2rem),rgba(5,196,107,0.14)] text-accent shadow-[0_0_24px_rgba(5,196,107,0.16)]">
+              <Gem size={18} />
+            </span>
+            <span className="block truncate text-lg font-semibold leading-tight">BitzenX</span>
+          </button>
+          <div className="mt-1 flex min-w-0 items-center gap-2 pl-11 text-xs text-slate-400">
+            <span className="min-w-0 truncate">{activeAddress ? shortAddress(activeAddress) : "Multi-network wallet"}</span>
+            {authenticated ? <span className="text-slate-600">|</span> : null}
+            {authenticated ? (
+              <span className="relative inline-flex max-w-[9.5rem] items-center gap-1 rounded-xl border border-accent/25 bg-white/10 px-2 py-1 text-xs font-medium text-accent">
+                <span className="truncate">{networkConfig.shortName}</span>
+                <ChevronDown size={13} />
+                <select
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  value={network}
+                  onChange={(event) => setNetwork(event.target.value as NetworkKey)}
+                  aria-label="Network selector"
+                  data-testid="network-selector"
+                >
+                  {NETWORK_OPTIONS.map((item) => <option key={item.key} value={item.key}>{item.name}</option>)}
+                </select>
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
         {authenticated ? <button className="rounded-2xl bg-white/10 p-3" onClick={() => go("settings")} type="button" aria-label="Open settings"><Settings size={18} /></button> : null}
         {authenticated ? <button className="rounded-2xl bg-white/10 p-3" type="button"><Bell size={18} /></button> : null}
         {authenticated ? <button className="rounded-2xl border border-white/10 px-3 py-2 text-xs" onClick={lock} type="button"><Lock size={14} className="inline" /> Lock</button> : null}
@@ -405,7 +427,6 @@ export function WalletApp() {
           loading={loadingBalance}
           balanceVisible={balanceVisible}
           network={network}
-          onNetworkChange={setNetwork}
           transactions={transactions}
           onRefresh={refreshBalances}
           onScreen={go}
@@ -518,7 +539,11 @@ function ReceiveView({ address, network, clipboardNotice, onCopy }: { address: s
   const receiveValue = config.placeholder ? config.addressLabel : address;
   return (
     <Panel className="text-center" data-testid="receive-screen">
-      <Title title="Receive" subtitle={`${config.addressLabel} on ${config.name}. Verify network before sending funds.`} />
+      <div className="mb-5">
+        <div className="mx-auto mb-3 inline-flex rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">{config.name}</div>
+        <h2 className="text-2xl font-semibold">Receive</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-400">Verify the selected network before sending funds.</p>
+      </div>
       <div className="mx-auto my-6 flex aspect-square w-full max-w-[15rem] items-center justify-center rounded-[2rem] bg-white p-5 shadow-wallet"><QRCodeSVG value={receiveValue} size={200} /></div>
       <div className="break-all rounded-2xl border border-white/10 bg-ink/60 p-4 text-center text-sm leading-6">{receiveValue}</div>
       {clipboardNotice ? <div className="mt-3 flex items-center justify-center gap-2 rounded-2xl border border-mint/30 bg-mint/10 p-3 text-sm text-mint"><CheckCircle2 size={16} /> {clipboardNotice}</div> : null}
