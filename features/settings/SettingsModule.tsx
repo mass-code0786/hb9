@@ -1,14 +1,14 @@
 "use client";
 
-import { HelpCircle, Info, Shield, FileText } from "lucide-react";
+import { HelpCircle, Info, Shield, FileText, ServerCog } from "lucide-react";
 import { Panel, Select } from "@/components/ui/Primitives";
 import { useSettingsStore } from "@/store/settingsStore";
 
-export function SettingsModule({ onNavigate }: { onNavigate: (screen: "security" | "about" | "help" | "terms") => void }) {
+export function SettingsModule({ onNavigate }: { onNavigate: (screen: "security" | "provider-settings" | "about" | "help" | "terms") => void }) {
   const settings = useSettingsStore();
   return (
     <div className="space-y-4">
-      <Panel>
+      <Panel data-testid="settings-screen">
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="mt-2 text-sm text-slate-400">Wallet preferences and support</p>
       </Panel>
@@ -32,6 +32,7 @@ export function SettingsModule({ onNavigate }: { onNavigate: (screen: "security"
           </Select>
         </div>
         <button className="settings-row" onClick={() => onNavigate("security")} type="button"><Shield size={18} /> Security center</button>
+        <button className="settings-row" onClick={() => onNavigate("provider-settings")} type="button"><ServerCog size={18} /> Provider settings</button>
         <button className="settings-row" onClick={() => onNavigate("about")} type="button"><Info size={18} /> About BitzenX</button>
         <button className="settings-row" onClick={() => onNavigate("help")} type="button"><HelpCircle size={18} /> Help center</button>
         <button className="settings-row" onClick={() => onNavigate("terms")} type="button"><FileText size={18} /> Terms</button>

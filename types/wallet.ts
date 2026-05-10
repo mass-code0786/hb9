@@ -1,4 +1,6 @@
-export type TokenSymbol = "BNB" | "USDT";
+import type { NetworkKey } from "@/lib/networks";
+
+export type TokenSymbol = "BNB" | "USDT" | "USDC" | "ETH" | "MATIC" | "TRX" | "BTC" | "AVAX" | "SOL";
 
 export type WalletToken = {
   symbol: TokenSymbol | string;
@@ -9,6 +11,10 @@ export type WalletToken = {
   change24h: number;
   address?: string;
   decimals?: number;
+  id?: string;
+  network?: NetworkKey;
+  networkName?: string;
+  placeholder?: boolean;
   favorite?: boolean;
   hidden?: boolean;
   color: string;
@@ -29,9 +35,11 @@ export type WalletScreen =
   | "recharge"
   | "qr-pay"
   | "token-details"
+  | "manage-tokens"
   | "transactions"
   | "security"
   | "settings"
+  | "provider-settings"
   | "about"
   | "help"
   | "terms"

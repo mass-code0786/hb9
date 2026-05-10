@@ -4,29 +4,35 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ethers } from "ethers";
 import { QRCodeSVG } from "qrcode.react";
 import { ArrowLeft, Bell, CheckCircle2, Copy, Lock, Settings, ShieldCheck, Trash2 } from "lucide-react";
-import { AddCustomToken, TokenDetails } from "@/features/tokens/TokenManagement";
+import { AddCustomToken, ManageTokensPage, TokenDetails } from "@/features/tokens/TokenManagement";
+import { DiscoverPage } from "@/features/discover/DiscoverPage";
 import { HomeDashboard } from "@/features/home/HomeDashboard";
+import { MarketsPage } from "@/features/markets/MarketsPage";
 import { QrPayModule } from "@/features/qr-pay/QrPayModule";
 import { RechargeModule } from "@/features/recharge/RechargeModule";
+import { RewardsPage } from "@/features/rewards/RewardsPage";
 import { SecurityCenter } from "@/features/security/SecurityCenter";
 import { SettingsModule, StaticInfoPage } from "@/features/settings/SettingsModule";
+import { ProviderSettings } from "@/features/settings/ProviderSettings";
+import { TradePage } from "@/features/trade/TradePage";
 import { TransactionHistory } from "@/features/transactions/TransactionHistory";
 import { clearVault, getStoredVault, saveVault } from "@/lib/storage";
 import { decryptMnemonic, encryptMnemonic } from "@/lib/crypto";
-import { estimateBnbGas, estimateUsdtGas, getBalances, sendBnb, sendUsdt } from "@/lib/chain";
 import { generateMnemonic, normalizeMnemonic, shortAddress, validateMnemonic, walletFromMnemonic } from "@/lib/wallet";
+import { explorerTxUrl, getNetworkConfig, NETWORK_OPTIONS, type NetworkKey } from "@/lib/networks";
+import { DEFAULT_TOKENS, type TokenConfig } from "@/lib/tokens";
 import type { EncryptedVault } from "@/lib/types";
-import type { TokenSymbol, WalletScreen, WalletToken } from "@/types/wallet";
+import type { WalletScreen, WalletToken } from "@/types/wallet";
 import { useWalletStore, initialTx } from "@/store/walletStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useTokenStore } from "@/store/tokenStore";
 import { useTransactionStore } from "@/store/transactionStore";
 import { getMockTransactions } from "@/services/mockApi";
+import { getNetworkBalances } from "@/services/balanceService";
+import { estimateEvmTransfer, sendEvmTransfer } from "@/services/evmService";
 import { WalletShell } from "@/components/ui/WalletShell";
-import { ErrorText, Field, Panel, PrimaryButton, SecondaryButton } from "@/components/ui/Primitives";
+import { ErrorText, Field, Panel, PrimaryButton, SecondaryButton, Select } from "@/components/ui/Primitives";
 import { trimAmount } from "@/utils/format";
-
-type Asset = Extract<TokenSymbol, "BNB" | "USDT">;
 
 export function WalletApp() {
   const {
@@ -48,6 +54,7 @@ export function WalletApp() {
     setBalances,
     setLoadingBalance,
     toggleBalanceVisible,
+    setNetwork,
     setTx
   } = useWalletStore();
   const selectedToken = useTokenStore((state) => state.selectedToken);
@@ -64,7 +71,7 @@ export function WalletApp() {
   const [importText, setImportText] = useState("");
   const [confirmText, setConfirmText] = useState("");
   const [error, setError] = useState("");
-  const [asset, setAsset] = useState<Asset>("BNB");
+  const [sendTokenId, setSendTokenId] = useState("bsc:BNB");
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   const [gasFee, setGasFee] = useState("");
@@ -76,17 +83,37 @@ export function WalletApp() {
   const mnemonicWords = useMemo(() => pendingMnemonic.split(" ").filter(Boolean), [pendingMnemonic]);
   const authenticated = Boolean(sessionMnemonic);
 
+  const customTokens = useTokenStore((state) => state.customTokens);
+  const customTokenConfigs = useMemo<TokenConfig[]>(
+    () => customTokens.map((token) => ({
+      id: token.id || `${token.network}:${token.address}`,
+      network: token.network || "bsc",
+      type: "erc20",
+      symbol: token.symbol,
+      name: token.name,
+      decimals: token.decimals || 18,
+      contractAddress: token.address,
+      color: token.color,
+      price: token.price,
+      change24h: token.change24h
+    })),
+    [customTokens]
+  );
+  const networkConfig = getNetworkConfig(network);
+  const sendTokens = useMemo(() => [...DEFAULT_TOKENS, ...customTokenConfigs].filter((token) => token.network === network && token.type !== "placeholder"), [customTokenConfigs, network]);
+  const selectedSendToken = sendTokens.find((token) => token.id === sendTokenId) || sendTokens[0];
+
   const refreshBalances = useCallback(async () => {
     if (!activeAddress) return;
     setLoadingBalance(true);
     try {
-      setBalances(await getBalances(activeAddress));
+      setBalances(await getNetworkBalances(network, activeAddress, customTokenConfigs));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load balances.");
     } finally {
       setLoadingBalance(false);
     }
-  }, [activeAddress, setBalances, setLoadingBalance]);
+  }, [activeAddress, customTokenConfigs, network, setBalances, setLoadingBalance]);
 
   useEffect(() => {
     const stored = getStoredVault();
@@ -105,6 +132,11 @@ export function WalletApp() {
   useEffect(() => {
     if (screen === "dashboard" && activeAddress) refreshBalances();
   }, [screen, activeAddress, refreshBalances]);
+
+  useEffect(() => {
+    const firstToken = sendTokens[0];
+    if (firstToken && !sendTokens.some((token) => token.id === sendTokenId)) setSendTokenId(firstToken.id);
+  }, [sendTokenId, sendTokens]);
 
   useEffect(() => {
     if (!sessionMnemonic) return;
@@ -249,7 +281,8 @@ export function WalletApp() {
     try {
       if (!ethers.isAddress(to)) throw new Error("Enter a valid recipient address.");
       if (!amount || Number(amount) <= 0) throw new Error("Enter a valid amount.");
-      const estimate = asset === "BNB" ? await estimateBnbGas(activeAddress, to, amount) : await estimateUsdtGas(activeAddress, to, amount);
+      if (networkConfig.kind !== "evm" || !selectedSendToken) throw new Error(`${networkConfig.name} sends are not implemented yet.`);
+      const estimate = await estimateEvmTransfer(network, activeAddress, to, amount, selectedSendToken);
       setGasFee(estimate.fee);
       setTx({ state: "idle", message: "Gas estimate ready." });
     } catch (err) {
@@ -262,21 +295,23 @@ export function WalletApp() {
     setError("");
     setTx({ state: "signing", message: "Signing locally in this browser..." });
     try {
+      // Sensitive boundary: sessionMnemonic remains in client memory and is used only for local signing.
       if (!sessionMnemonic) throw new Error("Unlock the wallet first.");
       if (!ethers.isAddress(to)) throw new Error("Enter a valid recipient address.");
       setTx({ state: "submitted", message: "Broadcasting transaction..." });
-      const receipt = asset === "BNB" ? await sendBnb(sessionMnemonic, to, amount) : await sendUsdt(sessionMnemonic, to, amount);
+      if (networkConfig.kind !== "evm" || !selectedSendToken) throw new Error(`${networkConfig.name} sends are not implemented yet.`);
+      const receipt = await sendEvmTransfer(sessionMnemonic, network, to, amount, selectedSendToken);
       if (!receipt) throw new Error("Transaction was submitted but no receipt was returned yet.");
-      setTx({ state: "confirmed", hash: receipt.hash, message: "Transaction confirmed on BSC." });
+      setTx({ state: "confirmed", hash: receipt.hash, message: `Transaction confirmed on ${networkConfig.shortName}.` });
       addTransaction({
         id: receipt.hash,
         type: "send",
-        title: `Sent ${asset}`,
-        asset,
+        title: `Sent ${selectedSendToken.symbol}`,
+        asset: selectedSendToken.symbol,
         amount: `-${amount}`,
         status: "success",
         hash: receipt.hash,
-        gasFee: gasFee ? `${gasFee} BNB` : "Estimated before send",
+        gasFee: gasFee ? `${gasFee} ${networkConfig.nativeSymbol}` : "Estimated before send",
         counterparty: to,
         createdAt: new Date().toISOString()
       });
@@ -294,13 +329,18 @@ export function WalletApp() {
     <header className="mb-4 flex items-center justify-between">
       <button className="flex items-center gap-3 text-left" onClick={() => (authenticated ? go("dashboard") : go(vault ? "unlock" : "landing"))} type="button">
         {authenticated && screen !== "dashboard" ? <ArrowLeft size={18} /> : null}
-        <span>
+          <span>
           <span className="block text-lg font-semibold">BitzenX</span>
-          <span className="block text-xs text-slate-400">{activeAddress ? shortAddress(activeAddress) : "BSC Super Wallet"}</span>
+          <span className="block text-xs text-slate-400">{activeAddress ? `${shortAddress(activeAddress)} | ${networkConfig.shortName}` : "Multi-network wallet"}</span>
         </span>
       </button>
       <div className="flex items-center gap-2">
-        {authenticated ? <button className="rounded-2xl bg-white/10 p-3" onClick={() => go("settings")} type="button"><Settings size={18} /></button> : null}
+        {authenticated ? (
+          <select className="hidden rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-xs outline-none sm:block" value={network} onChange={(event) => setNetwork(event.target.value as NetworkKey)} aria-label="Header network selector">
+            {NETWORK_OPTIONS.map((item) => <option key={item.key} value={item.key}>{item.name}</option>)}
+          </select>
+        ) : null}
+        {authenticated ? <button className="rounded-2xl bg-white/10 p-3" onClick={() => go("settings")} type="button" aria-label="Open settings"><Settings size={18} /></button> : null}
         {authenticated ? <button className="rounded-2xl bg-white/10 p-3" type="button"><Bell size={18} /></button> : null}
         {authenticated ? <button className="rounded-2xl border border-white/10 px-3 py-2 text-xs" onClick={lock} type="button"><Lock size={14} className="inline" /> Lock</button> : null}
       </div>
@@ -353,7 +393,10 @@ export function WalletApp() {
       }}
       header={header}
     >
-      {activeTab !== "home" && screen === "dashboard" ? <ComingSoon tab={activeTab} /> : null}
+      {activeTab === "markets" && screen === "dashboard" ? <MarketsPage /> : null}
+      {activeTab === "trade" && screen === "dashboard" ? <TradePage network={network} onNetworkChange={setNetwork} /> : null}
+      {activeTab === "rewards" && screen === "dashboard" ? <RewardsPage /> : null}
+      {activeTab === "discover" && screen === "dashboard" ? <DiscoverPage /> : null}
       {activeTab === "home" && screen === "dashboard" ? (
         <HomeDashboard
           address={activeAddress}
@@ -362,6 +405,7 @@ export function WalletApp() {
           loading={loadingBalance}
           balanceVisible={balanceVisible}
           network={network}
+          onNetworkChange={setNetwork}
           transactions={transactions}
           onRefresh={refreshBalances}
           onScreen={go}
@@ -373,14 +417,16 @@ export function WalletApp() {
           }}
         />
       ) : null}
-      {screen === "receive" ? <ReceiveView address={activeAddress} clipboardNotice={clipboardNotice} onCopy={copyAddress} /> : null}
-      {screen === "send" ? <SendView asset={asset} setAsset={setAsset} to={to} setTo={setTo} amount={amount} setAmount={setAmount} gasFee={gasFee} tx={tx} error={error} estimateGas={estimateGas} submitTx={submitTx} /> : null}
+      {screen === "receive" ? <ReceiveView address={activeAddress} network={network} clipboardNotice={clipboardNotice} onCopy={copyAddress} /> : null}
+      {screen === "send" ? <SendView network={network} tokenId={selectedSendToken?.id || ""} tokens={sendTokens} setTokenId={setSendTokenId} to={to} setTo={setTo} amount={amount} setAmount={setAmount} gasFee={gasFee} tx={tx} error={error} estimateGas={estimateGas} submitTx={submitTx} /> : null}
       {screen === "recharge" ? <RechargeModule /> : null}
       {screen === "qr-pay" ? <QrPayModule /> : null}
       {screen === "transactions" ? <TransactionHistory transactions={transactions} /> : null}
       {screen === "security" ? <SecurityCenter address={activeAddress} /> : null}
       {screen === "settings" ? <SettingsModule onNavigate={go} /> : null}
-      {screen === "token-details" ? <div className="space-y-4"><TokenDetails token={selectedToken} /><AddCustomToken /></div> : null}
+      {screen === "provider-settings" ? <ProviderSettings /> : null}
+      {screen === "token-details" ? <div className="space-y-4"><TokenDetails token={selectedToken} /><AddCustomToken defaultNetwork={network} /></div> : null}
+      {screen === "manage-tokens" ? <ManageTokensPage network={network} /> : null}
       {screen === "about" ? <StaticInfoPage title="About" /> : null}
       {screen === "help" ? <StaticInfoPage title="Help Center" /> : null}
       {screen === "terms" ? <StaticInfoPage title="Terms" /> : null}
@@ -467,21 +513,25 @@ function renderAuthScreens(props: {
   return <Panel><Title title="Unlock Wallet" subtitle={p.vault?.address ? shortAddress(p.vault.address) : "Encrypted local wallet"} /><Field type="password" value={p.unlockPassword} onChange={(e) => p.setUnlockPassword(e.target.value)} placeholder="Password" onKeyDown={(e) => e.key === "Enter" && p.unlock()} /><ErrorText error={p.error} /><PrimaryButton className="mt-4 w-full" onClick={p.unlock}>Unlock</PrimaryButton><button className={`mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border border-danger/30 px-4 py-3 text-sm text-danger ${p.deleteConfirming ? "bg-danger/10" : ""}`} onClick={p.removeWallet}><Trash2 size={16} />{p.deleteConfirming ? "Tap again to delete local wallet" : "Remove local wallet"}</button></Panel>;
 }
 
-function ReceiveView({ address, clipboardNotice, onCopy }: { address: string; clipboardNotice: string; onCopy: () => void }) {
+function ReceiveView({ address, network, clipboardNotice, onCopy }: { address: string; network: NetworkKey; clipboardNotice: string; onCopy: () => void }) {
+  const config = getNetworkConfig(network);
+  const receiveValue = config.placeholder ? config.addressLabel : address;
   return (
-    <Panel className="text-center">
-      <Title title="Receive" subtitle="Use this BSC address for BNB and BEP20 tokens only." />
-      <div className="mx-auto my-6 flex aspect-square w-full max-w-[15rem] items-center justify-center rounded-[2rem] bg-white p-5 shadow-wallet"><QRCodeSVG value={address} size={200} /></div>
-      <div className="break-all rounded-2xl border border-white/10 bg-ink/60 p-4 text-center text-sm leading-6">{address}</div>
+    <Panel className="text-center" data-testid="receive-screen">
+      <Title title="Receive" subtitle={`${config.addressLabel} on ${config.name}. Verify network before sending funds.`} />
+      <div className="mx-auto my-6 flex aspect-square w-full max-w-[15rem] items-center justify-center rounded-[2rem] bg-white p-5 shadow-wallet"><QRCodeSVG value={receiveValue} size={200} /></div>
+      <div className="break-all rounded-2xl border border-white/10 bg-ink/60 p-4 text-center text-sm leading-6">{receiveValue}</div>
       {clipboardNotice ? <div className="mt-3 flex items-center justify-center gap-2 rounded-2xl border border-mint/30 bg-mint/10 p-3 text-sm text-mint"><CheckCircle2 size={16} /> {clipboardNotice}</div> : null}
-      <PrimaryButton className="mt-4 flex w-full items-center justify-center gap-2" onClick={onCopy}><Copy size={17} />Copy Address</PrimaryButton>
+      <PrimaryButton className="mt-4 flex w-full items-center justify-center gap-2" onClick={onCopy} disabled={config.placeholder}><Copy size={17} />Copy Address</PrimaryButton>
     </Panel>
   );
 }
 
 function SendView(props: {
-  asset: Asset;
-  setAsset: (asset: Asset) => void;
+  network: NetworkKey;
+  tokenId: string;
+  tokens: TokenConfig[];
+  setTokenId: (tokenId: string) => void;
   to: string;
   setTo: (value: string) => void;
   amount: string;
@@ -492,30 +542,29 @@ function SendView(props: {
   estimateGas: () => void;
   submitTx: () => void;
 }) {
+  const config = getNetworkConfig(props.network);
+  const selectedToken = props.tokens.find((token) => token.id === props.tokenId);
+  const unsupported = config.kind !== "evm" || !selectedToken;
+  const txUrl = props.tx.hash ? explorerTxUrl(props.network, props.tx.hash) : "";
   return (
     <Panel className="bg-[radial-gradient(circle_at_15%_0%,rgba(5,196,107,0.13),transparent_13rem),rgba(16,20,29,0.92)]">
-      <Title title="Send" subtitle="Transactions are signed locally, then broadcast to BSC." />
-      <div className="mb-4 grid grid-cols-2 rounded-2xl border border-white/10 bg-ink p-1">
-        {(["BNB", "USDT"] as Asset[]).map((item) => (
-          <button key={item} className={`rounded-xl py-3 text-sm ${props.asset === item ? "bg-accent text-black" : "text-slate-300"}`} onClick={() => props.setAsset(item)} type="button">{item}</button>
-        ))}
-      </div>
-      <Field value={props.to} onChange={(e) => props.setTo(e.target.value)} placeholder="Recipient BSC address" />
-      <Field className="mt-3" inputMode="decimal" value={props.amount} onChange={(e) => props.setAmount(e.target.value)} placeholder={`Amount in ${props.asset}`} />
-      <div className="mt-4 rounded-2xl border border-white/10 bg-ink/60 p-4 text-xs leading-5 text-slate-300">Estimated network fee: <span className="text-slate-100">{props.gasFee ? `${trimAmount(props.gasFee, 8)} BNB` : "Run estimate before sending"}</span></div>
+      <Title title="Send" subtitle={unsupported ? `${config.name} sending is disabled until safely implemented.` : `Transactions are signed locally, then broadcast to ${config.name}.`} />
+      <Select value={props.tokenId} onChange={(event) => props.setTokenId(event.target.value)} disabled={props.tokens.length === 0}>
+        {props.tokens.map((token) => <option key={token.id} value={token.id}>{token.symbol} - {token.name}</option>)}
+      </Select>
+      {unsupported ? <div className="mt-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-4 text-sm text-yellow-100">{config.addressLabel}. No fake successful sends are shown for unsupported networks.</div> : null}
+      <Field className="mt-3" value={props.to} onChange={(e) => props.setTo(e.target.value)} placeholder={`Recipient ${config.shortName} address`} disabled={unsupported} />
+      <Field className="mt-3" inputMode="decimal" value={props.amount} onChange={(e) => props.setAmount(e.target.value)} placeholder={`Amount in ${selectedToken?.symbol || config.nativeSymbol}`} disabled={unsupported} />
+      <div className="mt-4 rounded-2xl border border-white/10 bg-ink/60 p-4 text-xs leading-5 text-slate-300">Estimated network fee: <span className="text-slate-100">{props.gasFee ? `${trimAmount(props.gasFee, 8)} ${config.nativeSymbol}` : "Run estimate before sending"}</span></div>
       <ErrorText error={props.error} />
       {props.tx.message ? <p className="mt-3 text-sm text-mint">{props.tx.message}</p> : null}
-      {props.tx.hash ? <p className="mt-2 break-all text-xs text-slate-400">Hash: {props.tx.hash}</p> : null}
+      {props.tx.hash ? <p className="mt-2 break-all text-xs text-slate-400">Hash: {txUrl ? <a className="text-accent" href={txUrl} target="_blank" rel="noreferrer">{props.tx.hash}</a> : props.tx.hash}</p> : null}
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <SecondaryButton onClick={props.estimateGas} disabled={props.tx.state === "estimating"}>{props.tx.state === "estimating" ? "Estimating" : "Estimate"}</SecondaryButton>
-        <PrimaryButton onClick={props.submitTx} disabled={props.tx.state === "signing" || props.tx.state === "submitted"}>{props.tx.state === "signing" || props.tx.state === "submitted" ? "Sending" : "Send"}</PrimaryButton>
+        <SecondaryButton onClick={props.estimateGas} disabled={unsupported || props.tx.state === "estimating"}>{props.tx.state === "estimating" ? "Estimating" : "Estimate"}</SecondaryButton>
+        <PrimaryButton onClick={props.submitTx} disabled={unsupported || props.tx.state === "signing" || props.tx.state === "submitted"}>{props.tx.state === "signing" || props.tx.state === "submitted" ? "Sending" : "Send"}</PrimaryButton>
       </div>
     </Panel>
   );
-}
-
-function ComingSoon({ tab }: { tab: string }) {
-  return <Panel><h1 className="text-2xl font-semibold capitalize">{tab}</h1><p className="mt-3 text-sm text-slate-400">Market, trade, rewards, and discovery modules are wired into the shell and ready for live APIs.</p></Panel>;
 }
 
 function Title({ title, subtitle }: { title: string; subtitle: string }) {
@@ -527,5 +576,5 @@ function Warning() {
 }
 
 function WordGrid({ words }: { words: string[] }) {
-  return <div className="grid grid-cols-2 gap-2">{words.map((word, index) => <div key={`${word}-${index}`} className="rounded-2xl border border-white/10 bg-ink/70 px-3 py-3 text-sm"><span className="mr-2 text-slate-500">{index + 1}.</span><span>{word}</span></div>)}</div>;
+  return <div className="grid grid-cols-2 gap-2">{words.map((word, index) => <div key={`${word}-${index}`} className="rounded-2xl border border-white/10 bg-ink/70 px-3 py-3 text-sm"><span className="mr-2 text-slate-500">{index + 1}.</span><span data-testid="seed-word">{word}</span></div>)}</div>;
 }

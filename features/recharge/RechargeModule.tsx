@@ -60,7 +60,7 @@ export function RechargeModule() {
   }
 
   return (
-    <div className="space-y-4 md:grid md:grid-cols-[1fr_360px] md:gap-5 md:space-y-0">
+    <div className="space-y-4 md:grid md:grid-cols-[1fr_360px] md:gap-5 md:space-y-0" data-testid="recharge-screen">
       <Panel>
         <div className="mb-5 flex items-center gap-3">
           <div className="rounded-2xl bg-accent p-3 text-black"><Smartphone size={22} /></div>

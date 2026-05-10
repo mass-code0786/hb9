@@ -7,10 +7,7 @@ export type EncryptedVault = {
   createdAt: string;
 };
 
-export type TokenBalance = {
-  bnb: string;
-  usdt: string;
-};
+export type TokenBalance = Record<string, string>;
 
 export type TxStatus = {
   hash?: string;

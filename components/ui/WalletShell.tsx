@@ -34,7 +34,7 @@ export function WalletShell({
       >
         {children}
       </motion.section>
-      <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:max-w-2xl">
+      <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:max-w-2xl" data-testid="bottom-nav">
         <div className="grid grid-cols-5 rounded-[1.6rem] border border-white/10 bg-[#121722]/95 p-2 shadow-wallet backdrop-blur-xl">
           {tabs.map((tab) => {
             const Icon = tab.icon;

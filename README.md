@@ -8,9 +8,11 @@ Mobile-first Binance Smart Chain wallet built with Next.js App Router, TypeScrip
 - Password-protected local AES-GCM vault
 - Lock, unlock, remove wallet, refresh lock, and inactivity auto-lock
 - Seed phrase warning modal and confirm backup phrase screen
-- BNB and BEP20 USDT balances on BSC
-- Receive address with QR code
-- Send BNB and USDT with gas estimation
+- Multi-network asset dashboard for BSC, Ethereum, Polygon, Arbitrum, Optimism, Avalanche, Tron placeholder, Solana placeholder, and Bitcoin watch-only placeholder
+- Native EVM and ERC20/BEP20 balance loading on supported EVM networks
+- Receive address with QR code and network-specific explorer links
+- Send EVM native assets and configured ERC20/BEP20 tokens with gas estimation
+- Markets, Trade, Rewards, and Discover wallet modules
 - Trust Wallet style dark mobile home with search, centered total balance, action buttons, tabs, token list, and fixed bottom nav
 - Recharge UI with 100+ country structure, operator/amount/payment preview/history, and mock provider abstraction
 - QR Pay UI with camera permission, manual QR fallback, merchant/petrol payment confirmation, and success/failure states
@@ -51,6 +53,11 @@ Open `http://localhost:3000`.
 
 ```bash
 NEXT_PUBLIC_BSC_RPC_URL=https://bsc-dataseed.binance.org
+NEXT_PUBLIC_ETH_RPC_URL=https://ethereum.publicnode.com
+NEXT_PUBLIC_POLYGON_RPC_URL=https://polygon-rpc.com
+NEXT_PUBLIC_ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc
+NEXT_PUBLIC_OPTIMISM_RPC_URL=https://mainnet.optimism.io
+NEXT_PUBLIC_AVALANCHE_RPC_URL=https://api.avax.network/ext/bc/C/rpc
 NEXT_PUBLIC_CHAIN_MODE=mainnet
 NEXT_PUBLIC_BSC_CHAIN_ID=56
 NEXT_PUBLIC_USDT_BEP20_ADDRESS=0x55d398326f99059fF775485246999027B3197955
@@ -113,6 +120,7 @@ npm run typecheck
 npm run build
 npm run api:build
 npm run qa
+npm run test:e2e
 ```
 
 ## Deploy
@@ -124,12 +132,14 @@ Backend: deploy `server/` to a Node.js host or VPS, set `API_PORT`, `DATABASE_UR
 ## Security Notes
 
 - Mnemonic generation/import happens only in the browser.
+- EVM networks derive the same address from the local mnemonic path. Tron, Solana, and Bitcoin are clearly labeled placeholders until separate derivation/signing is implemented safely.
 - The mnemonic is encrypted locally using Web Crypto AES-GCM before `localStorage` persistence.
 - The decrypted mnemonic is memory-only, so browser refresh locks the wallet.
 - The user password is never stored.
 - The mnemonic and private key are never sent to backend routes.
 - Backend request middleware rejects sensitive wallet-material keys.
 - The existing signing path remains local through ethers.js.
+- Unsupported networks do not show fake successful sends; send actions are disabled until implemented.
 - Avoid logging private keys or recovery phrases in future integrations.
 - Complete an external security review before handling meaningful funds.
 

@@ -1,8 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Copy, Eye, EyeOff, QrCode, RefreshCcw, Search, Send, Smartphone, WalletCards } from "lucide-react";
+import { Copy, Eye, EyeOff, QrCode, RefreshCcw, Search, Send, Smartphone, Star, WalletCards } from "lucide-react";
 import { useWalletTokens } from "@/hooks/useWalletTokens";
+import { explorerAddressUrl, getNetworkConfig, NETWORK_OPTIONS, type NetworkKey } from "@/lib/networks";
 import { shortAddress } from "@/lib/wallet";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useTokenStore } from "@/store/tokenStore";
@@ -18,6 +19,7 @@ export function HomeDashboard({
   loading,
   balanceVisible,
   network,
+  onNetworkChange,
   transactions,
   clipboardNotice,
   onRefresh,
@@ -30,22 +32,27 @@ export function HomeDashboard({
   balances: TokenBalance;
   loading: boolean;
   balanceVisible: boolean;
-  network: string;
+  network: NetworkKey;
+  onNetworkChange: (network: NetworkKey) => void;
   transactions: WalletTransaction[];
   clipboardNotice: string;
   onRefresh: () => void;
-  onScreen: (screen: "send" | "receive" | "recharge" | "qr-pay" | "transactions") => void;
+  onScreen: (screen: "send" | "receive" | "recharge" | "qr-pay" | "transactions" | "manage-tokens") => void;
   onCopyAddress: () => void;
   onToggleBalance: () => void;
   onTokenDetails: (token: WalletToken) => void;
 }) {
   const currency = useSettingsStore((state) => state.currency);
   const setSearch = useTokenStore((state) => state.setSearch);
-  const { tokens, isFetching } = useWalletTokens(balances);
+  const toggleFavorite = useTokenStore((state) => state.toggleFavorite);
+  const toggleHidden = useTokenStore((state) => state.toggleHidden);
+  const selectedNetwork = getNetworkConfig(network);
+  const { tokens, isFetching } = useWalletTokens(balances, network);
   const total = tokens.reduce((sum, token) => sum + token.fiatValue, 0);
+  const addressExplorer = explorerAddressUrl(network, address);
 
   return (
-    <div className="space-y-4 md:grid md:grid-cols-[1fr_360px] md:gap-5 md:space-y-0">
+    <div className="space-y-4 md:grid md:grid-cols-[1fr_360px] md:gap-5 md:space-y-0" data-testid="home-screen">
       <div className="space-y-4">
         <div className="flex items-center gap-3 rounded-[1.4rem] border border-white/10 bg-white/[0.055] px-4 py-3">
           <Search size={18} className="text-slate-400" />
@@ -68,7 +75,15 @@ export function HomeDashboard({
               <option>Main Wallet</option>
               <option>Trading Wallet</option>
             </select>
-            <button className="shrink-0 rounded-2xl border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent" type="button">{network}</button>
+            <select
+              className="min-w-0 shrink-0 rounded-2xl border border-accent/30 bg-black/40 px-3 py-2 text-xs text-accent outline-none"
+              value={network}
+              onChange={(event) => onNetworkChange(event.target.value as NetworkKey)}
+              aria-label="Network selector"
+              data-testid="network-selector"
+            >
+              {NETWORK_OPTIONS.map((item) => <option key={item.key} value={item.key}>{item.name}</option>)}
+            </select>
           </div>
           <div className="mt-6 text-center text-sm text-slate-300">Total Balance</div>
           <div className="mt-1 flex items-center justify-center gap-3">
@@ -78,11 +93,12 @@ export function HomeDashboard({
             </button>
           </div>
           <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl bg-black/20 px-3 py-3">
-            <span className="min-w-0 truncate text-sm text-slate-300">{shortAddress(address)}</span>
-            <button className="flex shrink-0 items-center gap-2 text-sm text-accent" onClick={onCopyAddress} type="button">
+            <span className="min-w-0 truncate text-sm text-slate-300">{selectedNetwork.addressLabel}: {selectedNetwork.placeholder ? selectedNetwork.addressLabel : shortAddress(address)}</span>
+            <button className="flex shrink-0 items-center gap-2 text-sm text-accent" onClick={onCopyAddress} type="button" disabled={selectedNetwork.placeholder}>
               <Copy size={16} /> Copy
             </button>
           </div>
+          {addressExplorer ? <a className="mt-3 block text-center text-xs text-accent" href={addressExplorer} target="_blank" rel="noreferrer">Open {selectedNetwork.shortName} explorer</a> : null}
           {clipboardNotice ? <div className="mt-3 rounded-2xl border border-mint/30 bg-mint/10 p-3 text-xs leading-5 text-mint">{clipboardNotice}</div> : null}
           <div className="mt-5 grid grid-cols-5 gap-2">
             <Action icon={Send} label="Send" onClick={() => onScreen("send")} />
@@ -103,25 +119,33 @@ export function HomeDashboard({
           </div>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Assets</h2>
-            <button className="text-sm text-accent" onClick={onRefresh} type="button">Refresh</button>
+            <div className="flex gap-3">
+              <button className="text-sm text-accent" onClick={() => onScreen("manage-tokens")} type="button">Manage</button>
+              <button className="text-sm text-accent" onClick={onRefresh} type="button">Refresh</button>
+            </div>
           </div>
           <div className="space-y-2">
             {(loading || isFetching) && <Skeleton className="h-16" />}
             {tokens.length === 0 && !(loading || isFetching) ? <div className="rounded-2xl bg-white/[0.045] p-4 text-sm text-slate-400">No tokens match your search.</div> : null}
             {tokens.map((token) => (
-              <button key={token.symbol} className="flex w-full items-center justify-between gap-3 rounded-2xl bg-white/[0.045] p-3 text-left" onClick={() => onTokenDetails(token)} type="button">
+              <div key={token.id || token.symbol} className="flex w-full items-center justify-between gap-3 rounded-2xl bg-white/[0.045] p-3 text-left" data-testid="asset-row">
                 <span className="flex min-w-0 items-center gap-3">
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl font-bold text-black" style={{ backgroundColor: token.color }}>{token.symbol.slice(0, 1)}</span>
-                  <span className="min-w-0">
+                  <button className="min-w-0 text-left" onClick={() => onTokenDetails(token)} type="button">
                     <span className="block truncate font-semibold">{token.symbol}</span>
                     <span className="block truncate text-xs text-slate-400">{token.name}</span>
+                    <span className="mt-1 inline-flex rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-slate-300">{token.networkName}</span>
+                  </button>
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="text-right">
+                    <span className="block max-w-24 truncate font-semibold">{balanceVisible ? trimAmount(token.balance) : "****"}</span>
+                    <span className="block text-xs text-slate-400">{formatCurrency(token.fiatValue, currency)}</span>
                   </span>
+                  <button className={`rounded-xl p-2 ${token.favorite ? "bg-accent text-black" : "bg-white/10 text-slate-300"}`} onClick={() => toggleFavorite(token.id || token.symbol)} type="button" aria-label={`Pin ${token.symbol}`}><Star size={15} /></button>
+                  <button className="rounded-xl bg-white/10 p-2 text-slate-300" onClick={() => toggleHidden(token.id || token.symbol)} type="button" aria-label={`Hide ${token.symbol}`}><EyeOff size={15} /></button>
                 </span>
-                <span className="shrink-0 text-right">
-                  <span className="block max-w-28 truncate font-semibold">{balanceVisible ? trimAmount(token.balance) : "****"}</span>
-                  <span className="block text-xs text-slate-400">{formatCurrency(token.fiatValue, currency)}</span>
-                </span>
-              </button>
+              </div>
             ))}
           </div>
         </Panel>
@@ -156,7 +180,7 @@ export function HomeDashboard({
 
 function Action({ icon: Icon, label, onClick }: { icon: React.ElementType; label: string; onClick: () => void }) {
   return (
-    <button className="flex h-16 min-w-0 flex-col items-center justify-center gap-1 rounded-2xl bg-white/10 px-1 text-[10px] leading-none sm:text-[11px]" onClick={onClick} type="button">
+    <button className="flex h-16 min-w-0 flex-col items-center justify-center gap-1 rounded-2xl bg-white/10 px-1 text-[10px] leading-none sm:text-[11px]" onClick={onClick} type="button" data-testid={`action-${label.toLowerCase().replace(" ", "-")}`}>
       <Icon size={18} />
       <span className="truncate">{label}</span>
     </button>

@@ -1,7 +1,11 @@
 "use client";
 
-export function Panel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={`rounded-[1.6rem] border border-white/10 bg-panel/90 p-5 shadow-wallet backdrop-blur ${className}`}>{children}</div>;
+type PanelProps = React.HTMLAttributes<HTMLDivElement> & {
+  children: React.ReactNode;
+};
+
+export function Panel({ children, className = "", ...props }: PanelProps) {
+  return <div {...props} className={`rounded-[1.6rem] border border-white/10 bg-panel/90 p-5 shadow-wallet backdrop-blur ${className}`}>{children}</div>;
 }
 
 export function PrimaryButton(props: React.ButtonHTMLAttributes<HTMLButtonElement>) {
