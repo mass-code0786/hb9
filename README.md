@@ -115,6 +115,14 @@ Endpoints:
 - `GET /api/recharge/history`
 - `GET /api/admin/recharge/providers`
 - `POST /api/admin/recharge/provider-status`
+- `POST /api/admin/login`
+- `GET /api/admin/summary`
+- `GET /api/admin/recharge-orders`
+- `GET /api/admin/payment-orders`
+- `GET /api/admin/users`
+- `GET /api/admin/audit-logs`
+- `GET /api/admin/provider-settings`
+- `GET /api/admin/fees`
 - `POST /api/payments/create`
 - `GET /api/payments/history`
 
@@ -125,6 +133,8 @@ Server deployment notes, PM2 command, and an nginx reverse proxy sample are in `
 ## Provider Integration
 
 The recharge provider layer supports `mock`, `reloadly`, `dtone`, and `ding` modes behind a factory. See `docs/recharge.md` for mock testing, live provider setup, webhook handling, order states, refunds, and security notes.
+
+Admin dashboard setup, credentials, provider safety, fee settings, recharge operations, and refund review are documented in `docs/admin.md`.
 
 ## Verification
 

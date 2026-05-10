@@ -8,6 +8,69 @@ create table if not exists users (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists admin_users (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  password_hash text not null,
+  role text not null check (role in ('super_admin', 'support_admin')) default 'support_admin',
+  enabled boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists admin_sessions (
+  id uuid primary key default gen_random_uuid(),
+  admin_user_id uuid references admin_users(id),
+  token_hash text not null,
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists fee_settings (
+  id uuid primary key default gen_random_uuid(),
+  recharge_platform_fee_percent numeric(8, 4) not null default 1.8,
+  fixed_fee numeric(20, 8) not null default 0,
+  minimum_fee numeric(20, 8) not null default 0.15,
+  qr_pay_fee_percent numeric(8, 4) not null default 0.5,
+  refund_fee numeric(20, 8) not null default 0,
+  supported_crypto_symbols text[] not null default array['BNB','USDT'],
+  updated_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists admin_notes (
+  id uuid primary key default gen_random_uuid(),
+  admin_email text not null,
+  entity_type text not null,
+  entity_id uuid,
+  note text not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists provider_settings (
+  id uuid primary key default gen_random_uuid(),
+  provider text not null unique,
+  active boolean not null default false,
+  masked_api_key text,
+  status text not null default 'not_configured',
+  webhook_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists user_activity (
+  id uuid primary key default gen_random_uuid(),
+  wallet_address text not null,
+  activity_type text not null,
+  entity_type text,
+  entity_id uuid,
+  volume numeric(20, 8) not null default 0,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists recharge_countries_cache (
   code text primary key,
   name text not null,
@@ -148,3 +211,5 @@ create index if not exists idx_recharge_quotes_wallet_created on recharge_quotes
 create index if not exists idx_recharge_refunds_order on recharge_refunds (order_id);
 create index if not exists idx_payment_orders_wallet_created on payment_orders (wallet_address, created_at desc);
 create index if not exists idx_audit_logs_entity on audit_logs (entity_type, entity_id);
+create index if not exists idx_admin_notes_entity on admin_notes (entity_type, entity_id);
+create index if not exists idx_user_activity_wallet_created on user_activity (wallet_address, created_at desc);

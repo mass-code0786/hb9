@@ -10,6 +10,9 @@ export const config = {
   dtOneApiSecret: process.env.DTONE_API_SECRET || "",
   dingApiKey: process.env.DING_API_KEY || "",
   autoRefundEnabled: process.env.AUTO_REFUND_ENABLED === "true",
+  adminEmail: process.env.ADMIN_EMAIL || "",
+  adminPasswordHash: process.env.ADMIN_PASSWORD_HASH || "",
+  adminSessionSecret: process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD_HASH || "bitzenx-admin-dev-secret",
   corsOrigin: process.env.CORS_ORIGIN || "http://localhost:3000",
   rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 60000),
   rateLimitMax: Number(process.env.RATE_LIMIT_MAX || 120)

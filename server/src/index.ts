@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { errorHandler, fail } from "./http.js";
 import { rateLimit } from "./rateLimit.js";
 import { rejectSensitiveWalletMaterial } from "./security.js";
+import { adminRouter } from "./routes/admin.js";
 import { healthRouter } from "./routes/health.js";
 import { paymentsRouter } from "./routes/payments.js";
 import { providersRouter } from "./routes/providers.js";
@@ -17,6 +18,7 @@ app.use(rateLimit);
 app.use(rejectSensitiveWalletMaterial);
 
 app.use("/api", healthRouter);
+app.use("/api", adminRouter);
 app.use("/api", rechargeRouter);
 app.use("/api", paymentsRouter);
 app.use("/api", providersRouter);
