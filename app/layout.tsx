@@ -8,6 +8,13 @@ export const metadata: Metadata = {
   title: "BitzenX Wallet",
   description: "A mobile-first BSC web wallet PWA with local encrypted storage.",
   manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      { url: "/icons/icon.svg", type: "image/svg+xml" }
+    ],
+    shortcut: [{ url: "/icons/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icons/icon.svg", type: "image/svg+xml" }]
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

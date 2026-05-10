@@ -3,6 +3,7 @@
 import { CheckCircle2, Smartphone, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Panel, PrimaryButton, Select, Field } from "@/components/ui/Primitives";
+import { BrandLogo } from "@/components/BrandLogo";
 import { rechargeCountries, quoteRecharge, submitRecharge, supportedCountryCount } from "@/services/rechargeProvider";
 import { useRechargeStore } from "@/store/rechargeStore";
 import { useTransactionStore } from "@/store/transactionStore";
@@ -63,11 +64,12 @@ export function RechargeModule() {
     <div className="space-y-4 md:grid md:grid-cols-[1fr_360px] md:gap-5 md:space-y-0" data-testid="recharge-screen">
       <Panel>
         <div className="mb-5 flex items-center gap-3">
-          <div className="rounded-2xl bg-accent p-3 text-black"><Smartphone size={22} /></div>
+          <BrandLogo size="sm" />
           <div>
             <h1 className="text-2xl font-semibold">Global Recharge</h1>
             <p className="text-sm text-slate-400">{supportedCountryCount} countries ready for provider integration</p>
           </div>
+          <div className="ml-auto rounded-2xl bg-accent p-3 text-black"><Smartphone size={22} /></div>
         </div>
         <div className="grid gap-3">
           <Select value={store.country} onChange={(event) => {

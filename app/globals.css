@@ -79,3 +79,19 @@ select option {
 .safe-bottom {
   padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 }
+
+@keyframes logo-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 14px rgba(49, 208, 170, 0.18));
+    transform: scale(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 28px rgba(243, 186, 47, 0.24));
+    transform: scale(1.035);
+  }
+}
+
+.animate-logo-glow {
+  animation: logo-glow 2.4s ease-in-out infinite;
+}

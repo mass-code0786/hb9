@@ -4,6 +4,7 @@ import { ethers } from "ethers";
 import { CheckCircle2, Fuel, QrCode, ScanLine, XCircle } from "lucide-react";
 import { useState } from "react";
 import { Panel, PrimaryButton, Field, Select } from "@/components/ui/Primitives";
+import { BrandLogo } from "@/components/BrandLogo";
 import { parseQrPayloadSafe, type QrPaymentRequest } from "@/services/qrPaymentProvider";
 import { useTransactionStore } from "@/store/transactionStore";
 import { QrScanner } from "@/features/qr-pay/QrScanner";
@@ -57,9 +58,12 @@ export function QrPayModule() {
     <div className="space-y-4">
       <Panel data-testid="qr-pay-screen">
         <div className="mb-5 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold">Scan & Pay</h1>
-            <p className="text-sm text-slate-400">Static and dynamic BSC QR payment flow</p>
+          <div className="flex min-w-0 items-center gap-3">
+            <BrandLogo size="sm" />
+            <div className="min-w-0">
+              <h1 className="text-2xl font-semibold">Scan & Pay</h1>
+              <p className="text-sm text-slate-400">Static and dynamic BSC QR payment flow</p>
+            </div>
           </div>
           <div className="rounded-2xl bg-accent p-3 text-black"><ScanLine size={24} /></div>
         </div>

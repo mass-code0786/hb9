@@ -2,6 +2,7 @@
 
 import { HelpCircle, Info, Shield, FileText, ServerCog } from "lucide-react";
 import { Panel, Select } from "@/components/ui/Primitives";
+import { BrandLogo } from "@/components/BrandLogo";
 import { useSettingsStore } from "@/store/settingsStore";
 
 export function SettingsModule({ onNavigate }: { onNavigate: (screen: "security" | "provider-settings" | "about" | "help" | "terms") => void }) {
@@ -9,8 +10,13 @@ export function SettingsModule({ onNavigate }: { onNavigate: (screen: "security"
   return (
     <div className="space-y-4">
       <Panel data-testid="settings-screen">
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="mt-2 text-sm text-slate-400">Wallet preferences and support</p>
+        <div className="flex items-center gap-3">
+          <BrandLogo size="sm" />
+          <div>
+            <h1 className="text-2xl font-semibold">Settings</h1>
+            <p className="text-sm text-slate-400">Wallet preferences and support</p>
+          </div>
+        </div>
       </Panel>
       <Panel className="space-y-3">
         <div>

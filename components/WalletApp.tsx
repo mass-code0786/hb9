@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ethers } from "ethers";
 import { QRCodeSVG } from "qrcode.react";
-import { ArrowLeft, Bell, CheckCircle2, ChevronDown, Copy, Gem, Lock, Settings, ShieldCheck, Trash2 } from "lucide-react";
+import { ArrowLeft, Bell, CheckCircle2, ChevronDown, Copy, Lock, Settings, ShieldCheck, Trash2 } from "lucide-react";
 import { AddCustomToken, ManageTokensPage, TokenDetails } from "@/features/tokens/TokenManagement";
 import { DiscoverPage } from "@/features/discover/DiscoverPage";
 import { HomeDashboard } from "@/features/home/HomeDashboard";
@@ -33,6 +33,7 @@ import { estimateEvmTransfer, sendEvmTransfer } from "@/services/evmService";
 import { estimateTronTransfer, isTronAddress, sendTronTransfer, tronAccountFromMnemonic } from "@/services/tronService";
 import { WalletShell } from "@/components/ui/WalletShell";
 import { ErrorText, Field, Panel, PrimaryButton, SecondaryButton, Select } from "@/components/ui/Primitives";
+import { BrandLogo } from "@/components/BrandLogo";
 import { trimAmount } from "@/utils/format";
 
 export function WalletApp() {
@@ -352,9 +353,7 @@ export function WalletApp() {
         ) : null}
         <div className="min-w-0">
           <button className="flex min-w-0 items-center gap-2 text-left" onClick={() => (authenticated ? go("dashboard") : go(vault ? "unlock" : "landing"))} type="button">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-accent/35 bg-[radial-gradient(circle_at_35%_25%,rgba(255,255,255,0.35),transparent_1.2rem),rgba(5,196,107,0.14)] text-accent shadow-[0_0_24px_rgba(5,196,107,0.16)]">
-              <Gem size={18} />
-            </span>
+            <BrandLogo size="md" />
             <span className="block truncate text-lg font-semibold leading-tight">BitzenX</span>
           </button>
           <div className="mt-1 flex min-w-0 items-center gap-2 pl-11 text-xs text-slate-400">
@@ -506,6 +505,7 @@ function renderAuthScreens(props: {
     return (
       <Panel>
         <div className="mb-7">
+          <BrandLogo size="lg" className="mb-5" />
           <div className="mb-4 inline-flex rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs text-accent">Local encrypted vault</div>
           <h1 className="text-4xl font-semibold leading-tight">Your BSC wallet, recharge, and payments hub.</h1>
           <p className="mt-4 text-sm leading-6 text-slate-300">Create or import a 12-word wallet. Your recovery phrase and private key are encrypted locally and are never sent to a backend.</p>
@@ -557,6 +557,7 @@ function ReceiveView({ address, network, clipboardNotice, onCopy }: { address: s
   return (
     <Panel className="text-center" data-testid="receive-screen">
       <div className="mb-5">
+        <BrandLogo size="sm" className="mx-auto mb-3" />
         <div className="mx-auto mb-3 inline-flex rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">{config.name}</div>
         <h2 className="text-2xl font-semibold">Receive</h2>
         <p className="mt-2 text-sm leading-6 text-slate-400">Verify the selected network before sending funds.</p>
@@ -611,7 +612,7 @@ function SendView(props: {
 }
 
 function Title({ title, subtitle }: { title: string; subtitle: string }) {
-  return <div className="mb-5"><h2 className="text-2xl font-semibold">{title}</h2><p className="mt-2 text-sm leading-6 text-slate-400">{subtitle}</p></div>;
+  return <div className="mb-5"><BrandLogo size="sm" className="mb-3" /><h2 className="text-2xl font-semibold">{title}</h2><p className="mt-2 text-sm leading-6 text-slate-400">{subtitle}</p></div>;
 }
 
 function Warning() {

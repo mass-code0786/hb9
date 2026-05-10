@@ -10,6 +10,7 @@ import { useTokenStore } from "@/store/tokenStore";
 import type { WalletToken } from "@/types/wallet";
 import { formatCurrency, timeAgo, trimAmount } from "@/utils/format";
 import { Panel, Skeleton } from "@/components/ui/Primitives";
+import { BrandLogo } from "@/components/BrandLogo";
 import type { TokenBalance } from "@/lib/types";
 import type { WalletTransaction } from "@/types/wallet";
 
@@ -68,7 +69,7 @@ export function HomeDashboard({
           }}
         >
           <div className="flex items-center justify-between gap-3">
-            <div className="text-sm text-slate-300">Total Balance</div>
+            <div className="flex items-center gap-2 text-sm text-slate-300"><BrandLogo size="sm" /> Total Balance</div>
             <button className="rounded-2xl bg-white/10 p-2.5 text-slate-100" onClick={onToggleBalance} type="button" aria-label={balanceVisible ? "Hide balance" : "Show balance"}>
               {balanceVisible ? <Eye size={19} /> : <EyeOff size={19} />}
             </button>
