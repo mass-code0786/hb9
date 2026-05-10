@@ -4,6 +4,8 @@ import type { TokenConfig } from "@/lib/tokens";
 
 export const ERC20_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
+  "function name() view returns (string)",
+  "function symbol() view returns (string)",
   "function decimals() view returns (uint8)",
   "function transfer(address to, uint256 amount) returns (bool)"
 ];
@@ -33,6 +35,25 @@ export async function getEvmBalances(network: NetworkKey, address: string, token
     })
   );
   return Object.fromEntries(entries);
+}
+
+export async function getEvmTokenMetadata(network: NetworkKey, contractAddress: string) {
+  if (!ethers.isAddress(contractAddress)) {
+    throw new Error("Enter a valid EVM contract address.");
+  }
+  const provider = getEvmProvider(network);
+  const contract = new ethers.Contract(contractAddress, ERC20_ABI, provider);
+  const [name, symbol, decimals] = await Promise.all([
+    contract.name() as Promise<string>,
+    contract.symbol() as Promise<string>,
+    contract.decimals() as Promise<number | bigint>
+  ]);
+
+  return {
+    name,
+    symbol,
+    decimals: Number(decimals)
+  };
 }
 
 export async function estimateEvmTransfer(network: NetworkKey, from: string, to: string, amount: string, token: TokenConfig) {
