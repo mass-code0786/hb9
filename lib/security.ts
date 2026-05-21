@@ -8,8 +8,8 @@ export type PinRecord = {
 
 export type BackupStatus = "not-backed-up" | "backed-up";
 
-const PIN_KEY = "bitzenx.security.pin.v1";
-const BACKUP_KEY = "bitzenx.security.backup.v1";
+const PIN_KEY = "hb9.security.pin.v1";
+const BACKUP_KEY = "hb9.security.backup.v1";
 
 function bytesToHex(bytes: Uint8Array) {
   return Array.from(bytes).map((byte) => byte.toString(16).padStart(2, "0")).join("");

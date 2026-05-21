@@ -147,8 +147,8 @@ async function saveRechargeVerification(orderId: string, verification: Blockchai
 
 function verifyWebhookSignature(req: Request) {
   if (!config.rechargeWebhookSecret) throw new VerificationError("Recharge webhook secret is not configured.");
-  const signature = typeof req.headers["x-bitzenx-signature"] === "string" ? req.headers["x-bitzenx-signature"] : "";
-  const timestamp = typeof req.headers["x-bitzenx-timestamp"] === "string" ? req.headers["x-bitzenx-timestamp"] : "";
+  const signature = typeof req.headers["x-hb9-signature"] === "string" ? req.headers["x-hb9-signature"] : "";
+  const timestamp = typeof req.headers["x-hb9-timestamp"] === "string" ? req.headers["x-hb9-timestamp"] : "";
   if (!signature || !timestamp) throw new VerificationError("Webhook signature headers are required.");
   const timestampMs = Number(timestamp);
   if (!Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > 5 * 60 * 1000) {

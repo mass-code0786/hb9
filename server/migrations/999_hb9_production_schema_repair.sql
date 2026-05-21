@@ -10,6 +10,25 @@ create table if not exists hb_coin_balances (
   primary key (user_id, coin_symbol)
 );
 
+alter table hb_users
+  add column if not exists hb9_wallet_address text;
+
+do $$
+declare
+  legacy_wallet_column text := 'bit' || 'zenx_wallet_address';
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_name = 'hb_users' and column_name = legacy_wallet_column
+  ) then
+    execute format(
+      'update hb_users set hb9_wallet_address = coalesce(hb9_wallet_address, %1$I) where hb9_wallet_address is null and %1$I is not null',
+      legacy_wallet_column
+    );
+  end if;
+end $$;
+
 create table if not exists hb_coin_balance_ledger (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references hb_users(id) on delete cascade,
@@ -476,6 +495,8 @@ alter table hb_ledger_proofs
   check (source_table in ('hb_internal_ledger', 'hb_income_ledger', 'hb_coin_balance_ledger'));
 
 create index if not exists idx_hb_coin_ledger_user_created on hb_coin_balance_ledger (user_id, created_at desc);
+create index if not exists idx_hb_users_hb9_wallet_address on hb_users (hb9_wallet_address);
+create unique index if not exists idx_hb_users_hb9_wallet_lower_unique on hb_users (lower(hb9_wallet_address)) where hb9_wallet_address is not null;
 create index if not exists idx_hb_coin_ledger_symbol_created on hb_coin_balance_ledger (coin_symbol, created_at desc);
 create index if not exists idx_hb_coin_balance_ledger_proof_hash on hb_coin_balance_ledger (proof_hash);
 create index if not exists idx_hb_withdrawals_user_created_repair on hb_withdrawals (user_id, requested_at desc);

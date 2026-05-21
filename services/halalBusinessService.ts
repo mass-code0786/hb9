@@ -14,7 +14,7 @@ export type HbUser = {
   own_referral_code?: string | null;
   sponsor_referral_code?: string | null;
   source_referral_code?: string | null;
-  bitzenx_wallet_address?: string | null;
+  hb9_wallet_address?: string | null;
   wallet_address?: string | null;
   usdt_bep20_address?: string | null;
   wallet_bound_at?: string | null;
@@ -473,8 +473,8 @@ export type HbSponsorPreview = {
   walletAddress?: string | null;
 } | null;
 
-export const HB_TOKEN_KEY = "bitzenx.hb.token";
-export const HB_DEV_WALLET_KEY = "bitzenx.hb.dev.wallet";
+export const HB_TOKEN_KEY = "hb9.token";
+export const HB_DEV_WALLET_KEY = "hb9.dev.wallet";
 export const HB_DEV_MOCK_WALLET = "0xA1B2000000000000000000000000000000007890";
 
 export function isHbDevDirectDashboardEnabled() {
@@ -504,7 +504,7 @@ export function createHbDevDashboardUser(walletAddress = HB_DEV_MOCK_WALLET): Hb
     status: "inactive",
     wallet_address: walletAddress || null,
     usdt_bep20_address: walletAddress || null,
-    bitzenx_wallet_address: walletAddress || null
+    hb9_wallet_address: walletAddress || null
   };
 }
 

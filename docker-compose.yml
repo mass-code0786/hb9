@@ -4,11 +4,11 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: bitzenx
+      POSTGRES_DB: hb9
     ports:
       - "5432:5432"
     volumes:
-      - bitzenx_pg:/var/lib/postgresql/data
+      - hb9_pg:/var/lib/postgresql/data
       - ./server/migrations:/docker-entrypoint-initdb.d:ro
 
   api:
@@ -17,7 +17,7 @@ services:
       dockerfile: Dockerfile.api
     environment:
       API_PORT: 4000
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/bitzenx
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/hb9
       CORS_ORIGIN: http://localhost:3000
       RATE_LIMIT_WINDOW_MS: 60000
       RATE_LIMIT_MAX: 120
@@ -28,4 +28,4 @@ services:
       - postgres
 
 volumes:
-  bitzenx_pg:
+  hb9_pg:

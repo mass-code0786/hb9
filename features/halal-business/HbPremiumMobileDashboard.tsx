@@ -173,7 +173,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   const currentTitle = useMemo(() => activeTab === "packages" ? "All Packages" : navItems.find((item) => item.id === activeTab)?.label || "Home", [activeTab]);
   const dashboardUser = user || createHbDevDashboardUser(getHbDevWallet());
   const dashboardProducts = products;
-  const boundWallet = dashboardUser.usdt_bep20_address || dashboardUser.bitzenx_wallet_address || dashboardUser.wallet_address || walletData.depositAddress || "";
+  const boundWallet = dashboardUser.usdt_bep20_address || dashboardUser.hb9_wallet_address || dashboardUser.wallet_address || walletData.depositAddress || "";
   const totalBalance = Number(walletData.balances.deposit || 0) + Number(walletData.balances.income || 0);
   const orderedProducts = useMemo(() => [...products].sort((a, b) => Number(a.package_price) - Number(b.package_price)), [products]);
   const completePackageProducts = useMemo(() => {
@@ -549,7 +549,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
     }
     const signer = await browserProvider.getSigner();
     const buyerAddress = await signer.getAddress();
-    const expectedWallet = user.usdt_bep20_address || user.bitzenx_wallet_address || user.wallet_address || "";
+    const expectedWallet = user.usdt_bep20_address || user.hb9_wallet_address || user.wallet_address || "";
     if (expectedWallet && expectedWallet.toLowerCase() !== buyerAddress.toLowerCase()) {
       setError("Connected wallet does not match this HB9 ID.");
       return;

@@ -118,7 +118,7 @@ type FeesData = {
   supportedCryptoSymbols?: string[];
 };
 
-const ADMIN_TOKEN_KEY = "bitzenx.admin.token";
+const ADMIN_TOKEN_KEY = "hb9.admin.token";
 
 const nav = [
   { href: "/admin", label: "Overview", page: "dashboard", icon: Gauge },
@@ -869,7 +869,7 @@ function RiskPanel({ data }: { data: Record<string, unknown> }) {
           {rows.map((row) => (
             <tr key={compact(row.userId || row.id)}>
               <Td>{compact(row.display_name || row.email || row.mobile_number || row.userId)}</Td>
-              <Td>{compact(row.walletAddress || row.usdt_bep20_address || row.bitzenx_wallet_address)}</Td>
+              <Td>{compact(row.walletAddress || row.usdt_bep20_address || row.hb9_wallet_address)}</Td>
               <Td><Badge value={compact(row.riskScore || 0)} /></Td>
               <Td><Badge value={compact(row.risk_flag || "normal")} /></Td>
               <Td>{Array.isArray(row.reasons) ? row.reasons.join(", ") : "-"}</Td>

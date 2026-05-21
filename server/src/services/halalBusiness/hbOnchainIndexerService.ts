@@ -149,7 +149,7 @@ async function applyPackagePurchaseEvent(input: {
     let buyerUserId = eventRows.rows[0]?.buyer_user_id || null;
     if (!buyerUserId) {
       const userRows = await client.query<{ id: string }>(
-        "select id from hb_users where lower(usdt_bep20_address) = lower($1) or lower(bitzenx_wallet_address) = lower($1) limit 1",
+        "select id from hb_users where lower(usdt_bep20_address) = lower($1) or lower(hb9_wallet_address) = lower($1) limit 1",
         [input.buyerAddress]
       );
       buyerUserId = userRows.rows[0]?.id || null;

@@ -1,6 +1,6 @@
 # Recharge System
 
-BitzenX recharge is structured as a provider-backed order flow. Wallet signing remains local in the browser; the API only receives recharge metadata and a confirmed blockchain transaction hash.
+HB9 recharge is structured as a provider-backed order flow. Wallet signing remains local in the browser; the API only receives recharge metadata and a confirmed blockchain transaction hash.
 
 ## Environment
 
@@ -53,8 +53,8 @@ Unsupported chains or tokens return a 400 response and do not create a successfu
 
 Provider webhooks require:
 
-- `x-bitzenx-timestamp`: Unix timestamp in milliseconds, within 5 minutes
-- `x-bitzenx-signature`: HMAC-SHA256 hex digest, optionally prefixed with `sha256=`
+- `x-hb9-timestamp`: Unix timestamp in milliseconds, within 5 minutes
+- `x-hb9-signature`: HMAC-SHA256 hex digest, optionally prefixed with `sha256=`
 
 The signed payload is `${timestamp}.${JSON.stringify(body)}` using `RECHARGE_WEBHOOK_SECRET`.
 
@@ -97,6 +97,6 @@ Reloadly, DT One, and Ding provider files are in place behind the factory. The c
 - Recharge routes are covered by the global API rate limiter.
 - Sensitive wallet material is rejected by API middleware.
 - The backend must never receive seed phrases, mnemonics, or private keys.
-- Crypto signing and broadcasting must remain in the local BitzenX wallet.
+- Crypto signing and broadcasting must remain in the local HB9 wallet.
 - Phone numbers are sanitized before quote/order creation.
 - Recharge quote, create, webhook, status, and refund-review actions are audit logged.

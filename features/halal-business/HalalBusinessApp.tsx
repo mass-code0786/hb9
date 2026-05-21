@@ -110,7 +110,7 @@ export function isHbBypassEnabled() {
 const HB_BYPASS_AUTH = isHbBypassEnabled();
 const HB_ROLLOUT_MODE = process.env.NEXT_PUBLIC_HB_ROLLOUT_MODE || "closed_beta";
 const HB_LAUNCH_STATUS = process.env.NEXT_PUBLIC_HB_LAUNCH_STATUS || "Controlled mainnet rollout preparation";
-const HB_MOCK_STATE_KEY = "bitzenx.hb.mock.state";
+const HB_MOCK_STATE_KEY = "hb9.mock.state";
 const PACKAGE_MANAGER_ABI = ["function buyPackage(uint256 packageId,address sponsorAddress,bytes32 referralCode)"];
 const ERC20_ABI = ["function approve(address spender,uint256 amount) returns (bool)"];
 const devUser: HbUser = {
@@ -517,7 +517,7 @@ export function HalalBusinessApp() {
     }
     const signer = await browserProvider.getSigner();
     const buyerAddress = await signer.getAddress();
-    const expectedWallet = dashboardUser.usdt_bep20_address || dashboardUser.bitzenx_wallet_address || dashboardUser.wallet_address || "";
+    const expectedWallet = dashboardUser.usdt_bep20_address || dashboardUser.hb9_wallet_address || dashboardUser.wallet_address || "";
     if (expectedWallet && expectedWallet.toLowerCase() !== buyerAddress.toLowerCase()) {
       setError("Connected wallet does not match this HB9 ID.");
       return true;
@@ -989,7 +989,7 @@ function ActivationView({ products, packages, user, loading, sponsor, onBuy }: {
             <h2 className="mt-4 text-3xl font-semibold">Activate your Business ID</h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">Referral Link to Wallet Connect to Auto Sponsor Bind to Package Buy to ID Activation</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <StatusTile label="Connected wallet" value={short(user.usdt_bep20_address || user.bitzenx_wallet_address || user.wallet_address || "Wallet")} />
+              <StatusTile label="Connected wallet" value={short(user.usdt_bep20_address || user.hb9_wallet_address || user.wallet_address || "Wallet")} />
               <StatusTile label="Sponsor" value={sponsor} />
               <StatusTile label="Account status" value={user.status} />
             </div>
@@ -1828,9 +1828,9 @@ function InfoGlowCard({ title, text }: { title: string; text: string }) {
 function ReferralView({ user, referrals, summary, singleLegProgress, levelUnlockProgress }: { user: HbUser; referrals: HbReferral[]; summary: HbReferralSummary | null; singleLegProgress: HbSingleLegProgress | null; levelUnlockProgress: HbLevelUnlockProgress | null }) {
   const referralUrl = useMemo(() => (typeof window === "undefined" ? user.referral_code : `${window.location.origin}/halal-business?ref=${user.referral_code}`), [user.referral_code]);
   const walletReferralUrl = useMemo(() => {
-    const wallet = user.usdt_bep20_address || user.bitzenx_wallet_address || user.wallet_address || "";
+    const wallet = user.usdt_bep20_address || user.hb9_wallet_address || user.wallet_address || "";
     return typeof window === "undefined" || !wallet ? "" : `${window.location.origin}/halal-business?sponsor=${wallet}`;
-  }, [user.bitzenx_wallet_address, user.usdt_bep20_address, user.wallet_address]);
+  }, [user.hb9_wallet_address, user.usdt_bep20_address, user.wallet_address]);
   const directTeamCount = Number(summary?.directTeamCount ?? summary?.directReferrals.length ?? referrals.length ?? 0);
   const totalTeamCount = Number(summary?.totalTeamCount || 0);
   const activeTeamCount = Number(summary?.activeTeamCount ?? summary?.activeCount ?? 0);

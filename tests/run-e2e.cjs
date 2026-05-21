@@ -44,7 +44,7 @@ function runPlaywright() {
   return new Promise((resolve) => {
     const child = spawnCommand(npxCmd, ["playwright", "test"], {
       stdio: "inherit",
-      env: { ...process.env, BITZENX_SKIP_WEBSERVER: "1" }
+      env: { ...process.env, HB9_SKIP_WEBSERVER: "1" }
     });
     child.on("exit", (code) => resolve(code || 0));
   });

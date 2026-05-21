@@ -1,4 +1,4 @@
-# BitzenX API Server
+# HB9 API Server
 
 Express + TypeScript backend for recharge and QR payment order orchestration. This server never stores seed phrases, private keys, decrypted mnemonics, or recovery phrases.
 
@@ -34,7 +34,7 @@ docker compose up --build -d
 
 ## Nginx Reverse Proxy
 
-Use `deploy/nginx/bitzenx-api.conf` for production. It routes `https://hb9.live/api/*` to the API on port `4000` and frontend traffic to Next.js on port `3000`.
+Use `deploy/nginx/hb9-api.conf` for production. It routes `https://hb9.live/api/*` to the API on port `4000` and frontend traffic to Next.js on port `3000`.
 
 ## Endpoints
 

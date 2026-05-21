@@ -7,7 +7,7 @@ function write(level: LogLevel, event: string, fields: LogFields = {}) {
     ts: new Date().toISOString(),
     level,
     event,
-    service: "bitzenx-api",
+    service: "hb9-api",
     ...fields
   };
   const line = `${JSON.stringify(entry)}\n`;

@@ -58,7 +58,7 @@ test("USDT BEP20 wallet binding validates and persists", async ({ page }) => {
   await page.locator('input[placeholder="0x..."]').fill("0x1111111111111111111111111111111111111111");
   await page.getByRole("button", { name: "Save Address" }).click();
   await expect(page.getByText("0x1111111111111111111111111111111111111111")).toBeVisible();
-  await expect.poll(() => page.evaluate(() => localStorage.getItem("bitzenx.hb.usdtBep20Address"))).toBe("0x1111111111111111111111111111111111111111");
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("hb9.usdtBep20Address"))).toBe("0x1111111111111111111111111111111111111111");
 });
 
 test("products page shows activation products", async ({ page }) => {

@@ -17,7 +17,7 @@ if (existsSync(rootEnvPath)) {
 }
 loadEnv({ path: resolve(process.cwd(), ".env"), quiet: true });
 
-const defaultAdminSessionSecret = "bitzenx-admin-dev-secret";
+const defaultAdminSessionSecret = "hb9-admin-dev-secret";
 const rawAdminSessionSecret = process.env.HB_SESSION_SECRET || process.env.JWT_SECRET || process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD_HASH || defaultAdminSessionSecret;
 const usdtBep20MainnetAddress = "0x55d398326f99059fF775485246999027B3197955";
 const hbTreasuryDepositAddress = process.env.HB_TREASURY_DEPOSIT_ADDRESS || process.env.COMPANY_EVM_RECEIVE_ADDRESS || "";

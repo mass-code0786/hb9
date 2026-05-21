@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const skipWebServer = process.env.BITZENX_SKIP_WEBSERVER === "1";
+const skipWebServer = process.env.HB9_SKIP_WEBSERVER === "1";
 
 export default defineConfig({
   testDir: "./tests/e2e",

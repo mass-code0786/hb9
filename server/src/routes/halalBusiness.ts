@@ -723,12 +723,12 @@ async function readContractGovernance(address: string | null | undefined) {
 async function findSponsorByReferral(client: Pick<PoolClient, "query">, sponsorRef: string) {
   const normalized = sponsorRef.trim();
   if (!normalized) return null;
-  const rows = await client.query<{ id: string; referral_code: string; display_name: string; status: "inactive" | "active" | "suspended" | "blocked"; bitzenx_wallet_address: string | null; usdt_bep20_address: string | null }>(
-    `select id, referral_code, display_name, status, bitzenx_wallet_address, usdt_bep20_address
+  const rows = await client.query<{ id: string; referral_code: string; display_name: string; status: "inactive" | "active" | "suspended" | "blocked"; hb9_wallet_address: string | null; usdt_bep20_address: string | null }>(
+    `select id, referral_code, display_name, status, hb9_wallet_address, usdt_bep20_address
      from hb_users
      where referral_code = upper($1)
         or lower(coalesce(usdt_bep20_address, '')) = lower($1)
-        or lower(coalesce(bitzenx_wallet_address, '')) = lower($1)
+        or lower(coalesce(hb9_wallet_address, '')) = lower($1)
      limit 1`,
     [normalized]
   );
@@ -1276,8 +1276,8 @@ async function readTreasuryLiveBalances(depositWallet: string, vaultWallet: stri
 
 async function calculateUserRiskScore(userId: string) {
   const [userRows, rapidWithdrawals, largePayouts, referralSpike, walletRebinds, failedAuth] = await Promise.all([
-    query<{ usdt_bep20_address: string | null; bitzenx_wallet_address: string | null; failed_login_count: number }>(
-      "select usdt_bep20_address, bitzenx_wallet_address, failed_login_count from hb_users where id = $1 limit 1",
+    query<{ usdt_bep20_address: string | null; hb9_wallet_address: string | null; failed_login_count: number }>(
+      "select usdt_bep20_address, hb9_wallet_address, failed_login_count from hb_users where id = $1 limit 1",
       [userId]
     ),
     query<{ count: string }>("select count(*)::text from hb_withdrawals where user_id = $1 and requested_at >= now() - interval '1 hour'", [userId]),
@@ -1296,7 +1296,7 @@ async function calculateUserRiskScore(userId: string) {
   if (Number(failedAuth[0]?.count || 0) >= 3 || failedLoginCount >= 3) { score += 20; reasons.push("repeated failed auth"); }
   return {
     userId,
-    walletAddress: userRows[0]?.usdt_bep20_address || userRows[0]?.bitzenx_wallet_address || "",
+    walletAddress: userRows[0]?.usdt_bep20_address || userRows[0]?.hb9_wallet_address || "",
     riskScore: Math.min(100, score),
     reasons
   };
@@ -1468,8 +1468,8 @@ async function creditNowPaymentsDeposit(payment: Record<string, unknown>) {
 async function currentUser(userId: string) {
   const rows = await query<Record<string, unknown>>(
     `select id, email, mobile_number, display_name, referral_code, referral_code as own_referral_code,
-            sponsor_user_id, bitzenx_wallet_address, sponsor_referral_code, source_referral_code,
-            usdt_bep20_address, coalesce(usdt_bep20_address, bitzenx_wallet_address) as wallet_address,
+            sponsor_user_id, hb9_wallet_address, sponsor_referral_code, source_referral_code,
+            usdt_bep20_address, coalesce(usdt_bep20_address, hb9_wallet_address) as wallet_address,
             wallet_bound_at, wallet_updated_at,
             status, activated_at, last_login_at, created_at
      from hb_users where id = $1 limit 1`,
@@ -1520,9 +1520,9 @@ const handleHbSignup = asyncHandler(async (req, res) => {
   const rows = await query<{ id: string; email: string | null; mobile_number: string | null; display_name: string; referral_code: string; status: string; created_at: string }>(
     `insert into hb_users
        (email, mobile_number, password_hash, display_name, referral_code, own_referral_code, sponsor_user_id,
-        bitzenx_wallet_address, sponsor_referral_code, source_referral_code)
+        hb9_wallet_address, sponsor_referral_code, source_referral_code)
      values ($1,$2,$3,$4,$5,$5,$6,$7,$8,$8)
-     returning id, email, mobile_number, display_name, referral_code, own_referral_code, bitzenx_wallet_address, sponsor_referral_code, source_referral_code, status, created_at`,
+     returning id, email, mobile_number, display_name, referral_code, own_referral_code, hb9_wallet_address, sponsor_referral_code, source_referral_code, status, created_at`,
     [email, mobileNumber, await hashPassword(parsed.data.password), displayName, code, sponsorRows[0]?.id || null, walletAddress, sponsorCode || null]
   );
   const user = rows[0];
@@ -1568,8 +1568,8 @@ hbRouter.post("/hb/auth/login", asyncHandler(async (req, res) => {
     locked_until: string | null;
   }>(
     `select id, email, mobile_number, password_hash, display_name, referral_code, referral_code as own_referral_code,
-            bitzenx_wallet_address, sponsor_referral_code, source_referral_code, usdt_bep20_address,
-            coalesce(usdt_bep20_address, bitzenx_wallet_address) as wallet_address,
+            hb9_wallet_address, sponsor_referral_code, source_referral_code, usdt_bep20_address,
+            coalesce(usdt_bep20_address, hb9_wallet_address) as wallet_address,
             status, failed_login_count, locked_until
      from hb_users
      where ($1::text <> '' and lower(email) = lower($1)) or ($2::text <> '' and mobile_number = $2)
@@ -1626,7 +1626,7 @@ hbRouter.get("/hb/auth/sponsor-preview", asyncHandler(async (req, res) => {
       referralCode: sponsor.referral_code,
       displayName: sponsor.display_name,
       status: sponsor.status,
-      walletAddress: sponsor.usdt_bep20_address || sponsor.bitzenx_wallet_address || null
+      walletAddress: sponsor.usdt_bep20_address || sponsor.hb9_wallet_address || null
     } : null
   }, "Sponsor preview loaded");
 }));
@@ -1655,7 +1655,7 @@ hbRouter.get("/hb/public/landing", asyncHandler(async (_req, res) => {
          )::text as total_treasury_reserve,
          coalesce((select count(*) from hb_ledger_proofs),0)::int as total_proof_records,
          coalesce((select sum(amount_usd) from hb_income_ledger where status = 'credited'),0)::text as total_distributed_income,
-         coalesce((select count(*) from hb_users where usdt_bep20_address is not null or bitzenx_wallet_address is not null),0)::int as active_wallet_ids,
+         coalesce((select count(*) from hb_users where usdt_bep20_address is not null or hb9_wallet_address is not null),0)::int as active_wallet_ids,
          coalesce((select count(*) from hb_onchain_purchase_events where status = 'confirmed'),0)::int as total_onchain_purchases`
     ),
     query<{ public_reference_id: string; proof_hash: string; chain_tx_hash: string | null; created_at: string }>(
@@ -1794,7 +1794,7 @@ hbRouter.post("/hb/dev/session", asyncHandler(async (_req, res) => {
     fail(res, "HB9 dev bypass is disabled.", 404, "Not found");
     return;
   }
-  const email = "dev.hb.user@bitzenx.local";
+  const email = "dev.hb.user@hb9.local";
   const existing = await query<{ id: string; email: string; mobile_number: string | null; display_name: string; referral_code: string; status: "inactive" | "active" | "suspended" | "blocked" }>(
     "select id, email, display_name, referral_code, status from hb_users where email = $1 limit 1",
     [email]
@@ -2204,7 +2204,7 @@ async function saveBoundWalletAddress(userId: string, address: string, action: "
   const rows = await query(
     `update hb_users
      set usdt_bep20_address = $2,
-         bitzenx_wallet_address = $2,
+         hb9_wallet_address = $2,
          wallet_bound_at = coalesce(wallet_bound_at, now()),
          wallet_updated_at = now(),
          updated_at = now()
@@ -2802,13 +2802,13 @@ hbRouter.post("/hb/onchain/purchases/track", requireHbUser, asyncHandler(async (
     ok(res, { txHash: parsed.data.txHash, status: "dry_run", dryRun: true }, "Dry-run purchase tracking simulated", 201);
     return;
   }
-  const userRows = await query<{ id: string; status: string; bitzenx_wallet_address: string | null; usdt_bep20_address: string | null }>(
-    `select id, status, bitzenx_wallet_address, usdt_bep20_address
+  const userRows = await query<{ id: string; status: string; hb9_wallet_address: string | null; usdt_bep20_address: string | null }>(
+    `select id, status, hb9_wallet_address, usdt_bep20_address
      from hb_users where id = $1 limit 1`,
     [req.hbUser!.userId]
   );
   const currentUser = userRows[0];
-  const boundWallet = currentUser?.usdt_bep20_address || currentUser?.bitzenx_wallet_address || "";
+  const boundWallet = currentUser?.usdt_bep20_address || currentUser?.hb9_wallet_address || "";
   if (!currentUser || !boundWallet || boundWallet.toLowerCase() !== parsed.data.buyerAddress.toLowerCase()) {
     fail(res, "Connected wallet does not match this HB9 ID.", 403, "Buyer wallet mismatch");
     return;
@@ -3453,7 +3453,7 @@ hbRouter.get("/hb/income", requireHbUser, asyncHandler(async (req, res) => {
     `select l.id, l.income_type, l.amount_usd, l.status, l.level_depth, l.level_depth as level_number, l.metadata, l.created_at,
             lp.public_reference_id, lp.proof_hash, lp.previous_proof_hash, lp.chain_tx_hash, lp.onchain_status,
             pkg.name as source_package,
-            coalesce(src.usdt_bep20_address, src.bitzenx_wallet_address) as source_wallet,
+            coalesce(src.usdt_bep20_address, src.hb9_wallet_address) as source_wallet,
             src.display_name as source_user_name
      from hb_income_ledger l
      left join hb_ledger_proofs lp on lp.ledger_entry_id = l.id and lp.source_table = 'hb_income_ledger'
@@ -3953,7 +3953,7 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
       display_name: string;
       referral_code: string;
       own_referral_code: string | null;
-      bitzenx_wallet_address: string | null;
+      hb9_wallet_address: string | null;
       wallet_address?: string | null;
       usdt_bep20_address: string | null;
       sponsor_referral_code: string | null;
@@ -3962,11 +3962,11 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
       created_at: string;
     }>(
       `select id, email, mobile_number, display_name, referral_code, referral_code as own_referral_code,
-              bitzenx_wallet_address, usdt_bep20_address, coalesce(usdt_bep20_address, bitzenx_wallet_address) as wallet_address,
+              hb9_wallet_address, usdt_bep20_address, coalesce(usdt_bep20_address, hb9_wallet_address) as wallet_address,
               sponsor_referral_code, source_referral_code, status, created_at
        from hb_users
        where lower(coalesce(usdt_bep20_address, '')) = lower($1)
-          or lower(coalesce(bitzenx_wallet_address, '')) = lower($1)
+          or lower(coalesce(hb9_wallet_address, '')) = lower($1)
        limit 1`,
       [walletAddress]
     );
@@ -3978,10 +3978,10 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
       userRows = await client.query(
         `insert into hb_users
            (email, mobile_number, password_hash, display_name, referral_code, own_referral_code, sponsor_user_id,
-            bitzenx_wallet_address, usdt_bep20_address, wallet_bound_at, sponsor_referral_code, source_referral_code, status)
+            hb9_wallet_address, usdt_bep20_address, wallet_bound_at, sponsor_referral_code, source_referral_code, status)
          values (null,null,null,$1,$2,$2,$3,$4,$4,now(),$5,$5,'inactive')
          returning id, email, mobile_number, display_name, referral_code, own_referral_code,
-                   bitzenx_wallet_address, usdt_bep20_address, coalesce(usdt_bep20_address, bitzenx_wallet_address) as wallet_address,
+                   hb9_wallet_address, usdt_bep20_address, coalesce(usdt_bep20_address, hb9_wallet_address) as wallet_address,
                    sponsor_referral_code, source_referral_code, status, created_at`,
         [`HB9 ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`, code, sponsor?.id || null, walletAddress, sponsor?.referral_code || null]
       );
@@ -4007,7 +4007,7 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
     } else {
       await client.query(
         `update hb_users
-         set bitzenx_wallet_address = coalesce(bitzenx_wallet_address, $2),
+         set hb9_wallet_address = coalesce(hb9_wallet_address, $2),
              usdt_bep20_address = coalesce(usdt_bep20_address, $2),
              wallet_bound_at = coalesce(wallet_bound_at, now()),
              last_login_at = now(),
@@ -4086,7 +4086,7 @@ hbRouter.get("/admin/hb/summary", requireAdmin, asyncHandler(async (_req, res) =
   const [treasuryHealth, riskRows] = await Promise.all([
     getTreasuryHealth(),
     query(
-      `select u.id, u.email, u.mobile_number, u.display_name, u.usdt_bep20_address, u.bitzenx_wallet_address,
+      `select u.id, u.email, u.mobile_number, u.display_name, u.usdt_bep20_address, u.hb9_wallet_address,
               coalesce(risk.flag, 'normal') as risk_flag, u.failed_login_count
        from hb_users u
        left join lateral (
@@ -4776,8 +4776,8 @@ hbRouter.get("/admin/hb/governance", requireAdmin, asyncHandler(async (_req, res
 }));
 
 hbRouter.get("/admin/hb/risk", requireAdmin, asyncHandler(async (_req, res) => {
-  const candidates = await query<{ id: string; email: string | null; mobile_number: string | null; display_name: string; usdt_bep20_address: string | null; bitzenx_wallet_address: string | null; risk_flag: string }>(
-    `select distinct u.id, u.email, u.mobile_number, u.display_name, u.usdt_bep20_address, u.bitzenx_wallet_address,
+  const candidates = await query<{ id: string; email: string | null; mobile_number: string | null; display_name: string; usdt_bep20_address: string | null; hb9_wallet_address: string | null; risk_flag: string }>(
+    `select distinct u.id, u.email, u.mobile_number, u.display_name, u.usdt_bep20_address, u.hb9_wallet_address,
             coalesce(risk.flag, 'normal') as risk_flag
      from hb_users u
      left join hb_withdrawals w on w.user_id = u.id and w.requested_at >= now() - interval '7 days'
@@ -4952,7 +4952,7 @@ hbRouter.post("/admin/hb/onchain-purchases/sync-event", requireAdmin, asyncHandl
     let buyerUserId = eventRows.rows[0]?.buyer_user_id || null;
     if (!buyerUserId) {
       const userRows = await client.query<{ id: string }>(
-        "select id from hb_users where lower(usdt_bep20_address) = lower($1) or lower(bitzenx_wallet_address) = lower($1) limit 1",
+        "select id from hb_users where lower(usdt_bep20_address) = lower($1) or lower(hb9_wallet_address) = lower($1) limit 1",
         [parsed.data.buyerAddress]
       );
       buyerUserId = userRows.rows[0]?.id || null;
@@ -5543,7 +5543,7 @@ hbRouter.get("/admin/hb/funds/history", requireAdmin, asyncHandler(async (req, r
 hbRouter.get("/admin/hb/users", requireAdmin, asyncHandler(async (_req, res) => {
   const rows = await query(
     `select u.id, u.email, u.mobile_number, u.display_name, u.referral_code, u.own_referral_code,
-            u.sponsor_referral_code, u.source_referral_code, u.bitzenx_wallet_address,
+            u.sponsor_referral_code, u.source_referral_code, u.hb9_wallet_address,
             u.status, u.activated_at, u.created_at, coalesce(risk.flag, 'normal') as risk_flag,
             w.wallet_address,
             s.display_name as sponsor_name,
@@ -5586,7 +5586,7 @@ hbRouter.get("/admin/hb/users", requireAdmin, asyncHandler(async (_req, res) => 
 hbRouter.get("/admin/hb/users/:id", requireAdmin, asyncHandler(async (req, res) => {
   const rows = await query(
     `select u.id, u.email, u.mobile_number, u.display_name, u.referral_code, u.own_referral_code,
-            u.sponsor_referral_code, u.source_referral_code, u.bitzenx_wallet_address,
+            u.sponsor_referral_code, u.source_referral_code, u.hb9_wallet_address,
             u.status, u.activated_at, u.created_at, coalesce(risk.flag, 'normal') as risk_flag,
             w.wallet_address, s.id as sponsor_id, s.display_name as sponsor_name, s.email as sponsor_email
      from hb_users u
@@ -5860,7 +5860,7 @@ hbRouter.post("/admin/hb/single-leg/recalculate", requireAdmin, asyncHandler(asy
 
 hbRouter.get("/admin/hb/followers-requests", requireAdmin, asyncHandler(async (_req, res) => {
   const rows = await query(
-    `select r.id, r.user_id, u.email, u.display_name, coalesce(u.usdt_bep20_address, u.bitzenx_wallet_address, w.wallet_address) as wallet_address,
+    `select r.id, r.user_id, u.email, u.display_name, coalesce(u.usdt_bep20_address, u.hb9_wallet_address, w.wallet_address) as wallet_address,
             pkg.name as package_name, p.amount_usd::text as package_price, r.platform, r.submitted_link,
             r.followers_count, r.status, r.admin_note, r.created_at, r.completed_at, r.updated_at
      from hb_followers_requests r
@@ -5901,7 +5901,7 @@ hbRouter.patch("/admin/hb/followers-requests/:id", requireAdmin, asyncHandler(as
 
 hbRouter.get("/admin/hb/custom-software-requests", requireAdmin, asyncHandler(async (_req, res) => {
   const rows = await query(
-    `select r.id, r.user_id, u.email, u.display_name, coalesce(u.usdt_bep20_address, u.bitzenx_wallet_address, w.wallet_address) as wallet_address,
+    `select r.id, r.user_id, u.email, u.display_name, coalesce(u.usdt_bep20_address, u.hb9_wallet_address, w.wallet_address) as wallet_address,
             pkg.name as package_name, p.amount_usd::text as package_price, r.software_type, r.architecture,
             r.requirements_note, r.status, r.admin_note, r.created_at, r.completed_at, r.updated_at
      from hb_custom_software_requests r

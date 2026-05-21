@@ -1,5 +1,5 @@
 
-> bitzenx-web-wallet@0.1.0 api:dev
+> hb9-web-wallet@0.1.0 api:dev
 > tsx server/src/index.ts
 
-{"ts":"2026-05-20T13:47:15.309Z","level":"info","event":"api.started","service":"bitzenx-api","port":4000,"rolloutMode":"closed_beta"}
+{"ts":"2026-05-20T13:47:15.309Z","level":"info","event":"api.started","service":"hb9-api","port":4000,"rolloutMode":"closed_beta"}

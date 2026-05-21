@@ -1,4 +1,4 @@
-const CACHE_NAME = "bitzenx-wallet-v2";
+const CACHE_NAME = "hb9-wallet-v2";
 const APP_SHELL = ["/", "/offline", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {

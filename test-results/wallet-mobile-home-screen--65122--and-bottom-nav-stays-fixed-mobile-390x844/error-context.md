@@ -255,7 +255,7 @@ Call log:
   58  |   await page.locator('input[placeholder="0x..."]').fill("0x1111111111111111111111111111111111111111");
   59  |   await page.getByRole("button", { name: "Save Address" }).click();
   60  |   await expect(page.getByText("0x1111111111111111111111111111111111111111")).toBeVisible();
-  61  |   await expect.poll(() => page.evaluate(() => localStorage.getItem("bitzenx.hb.usdtBep20Address"))).toBe("0x1111111111111111111111111111111111111111");
+  61  |   await expect.poll(() => page.evaluate(() => localStorage.getItem("hb9.usdtBep20Address"))).toBe("0x1111111111111111111111111111111111111111");
   62  | });
   63  | 
   64  | test("products page shows activation products", async ({ page }) => {

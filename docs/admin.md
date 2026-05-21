@@ -1,6 +1,6 @@
 # Admin Panel
 
-BitzenX Admin is an operations dashboard for recharge orders, QR payment orders, provider settings, fees, users/activity, and audit logs. It is intentionally separated from wallet custody code and must never access seed phrases, private keys, mnemonics, or decrypted wallet data.
+HB9 Admin is an operations dashboard for recharge orders, QR payment orders, provider settings, fees, users/activity, and audit logs. It is intentionally separated from wallet custody code and must never access seed phrases, private keys, mnemonics, or decrypted wallet data.
 
 ## Environment
 
@@ -73,5 +73,5 @@ Provider failures should move orders to `refund_pending` and create an admin-rev
 - API payloads are zod validated.
 - Rate limiting applies globally, including admin login.
 - Admin screens never expose wallet secrets or provider secrets.
-- Wallet signing remains local in the BitzenX self-custody wallet.
+- Wallet signing remains local in the HB9 self-custody wallet.
 

@@ -43,7 +43,7 @@ export const useTokenStore = create<TokenState>()(
         }))
     }),
     {
-      name: "bitzenx-token-management",
+      name: "hb9-token-management",
       partialize: (state) => ({
         customTokens: state.customTokens,
         hiddenSymbols: state.hiddenSymbols,

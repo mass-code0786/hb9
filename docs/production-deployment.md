@@ -107,7 +107,7 @@ pm2 reload ecosystem.config.cjs
 Copy the provided config:
 
 ```bash
-sudo cp deploy/nginx/bitzenx-api.conf /etc/nginx/sites-available/hb9.live
+sudo cp deploy/nginx/hb9-api.conf /etc/nginx/sites-available/hb9.live
 sudo ln -s /etc/nginx/sites-available/hb9.live /etc/nginx/sites-enabled/hb9.live
 sudo nginx -t
 sudo systemctl reload nginx

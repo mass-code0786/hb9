@@ -1,4 +1,4 @@
-const HB_SOURCE_REFERRAL_KEY = "bitzenx.hb.sourceReferral";
+const HB_SOURCE_REFERRAL_KEY = "hb9.sourceReferral";
 
 export function normalizeHbReferral(value: string | null | undefined) {
   const normalized = (value || "").trim().toUpperCase();

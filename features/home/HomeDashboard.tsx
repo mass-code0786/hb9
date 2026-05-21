@@ -12,7 +12,7 @@ import { CoinLogo } from "@/components/crypto/CoinLogo";
 import type { WalletTransaction } from "@/types/wallet";
 import { bindHbWalletAddress, fetchHbCoinHistory, fetchHbCoins, fetchHbMe, fetchHbPurchases, fetchHbWallet, fetchHbWalletAddress, getHbToken, type HbCoinBalance, type HbCoinLedgerEntry } from "@/services/halalBusinessService";
 
-const DEV_BOUND_WALLET_KEY = "bitzenx.hb.usdtBep20Address";
+const DEV_BOUND_WALLET_KEY = "hb9.usdtBep20Address";
 const defaultCoins: HbCoinBalance[] = [
   { coin_symbol: "USDT", name: "USDT BEP20", symbol: "USDT", balance: "0", usd_price: "1" },
   { coin_symbol: "BTC", name: "Bitcoin", symbol: "BTC", balance: "0", usd_price: "0" },

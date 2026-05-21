@@ -1,4 +1,4 @@
-# BitzenX Production Wallet MVP
+# HB9 Production Wallet MVP
 
 Mobile-first Binance Smart Chain wallet built with Next.js App Router, TypeScript, Tailwind CSS, ethers.js, Framer Motion, Zustand, React Query, local Web Crypto encryption, PWA support, and an Express API scaffold.
 
@@ -21,7 +21,7 @@ Mobile-first Binance Smart Chain wallet built with Next.js App Router, TypeScrip
 
 ## Security Model
 
-BitzenX is self-custody. The browser creates/imports the wallet, encrypts the mnemonic locally, and signs transactions locally with ethers.js. The backend must never receive, log, store, or derive seed phrases, mnemonics, or private keys. API middleware rejects payloads containing sensitive wallet-material keys.
+HB9 is self-custody. The browser creates/imports the wallet, encrypts the mnemonic locally, and signs transactions locally with ethers.js. The backend must never receive, log, store, or derive seed phrases, mnemonics, or private keys. API middleware rejects payloads containing sensitive wallet-material keys.
 
 ## Structure
 
@@ -61,7 +61,7 @@ NEXT_PUBLIC_CHAIN_MODE=mainnet
 NEXT_PUBLIC_BSC_CHAIN_ID=56
 NEXT_PUBLIC_USDT_BEP20_ADDRESS=0x55d398326f99059fF775485246999027B3197955
 NEXT_PUBLIC_BSCSCAN_URL=https://bscscan.com
-NEXT_PUBLIC_APP_NAME=BitzenX
+NEXT_PUBLIC_APP_NAME=HB9
 NEXT_PUBLIC_RECHARGE_PROVIDER=mock
 NEXT_PUBLIC_MARKETS_PROVIDER=mock
 BSC_RPC_URL=https://bsc-dataseed.binance.org
@@ -80,7 +80,7 @@ RECHARGE_WEBHOOK_SECRET=
 MIN_BLOCK_CONFIRMATIONS=3
 
 API_PORT=4000
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/bitzenx
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/hb9
 CORS_ORIGIN=http://localhost:3000
 RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX=120
@@ -105,7 +105,7 @@ NEXT_PUBLIC_BSCSCAN_URL=https://testnet.bscscan.com
 NEXT_PUBLIC_USDT_BEP20_ADDRESS=<your test BEP20 token>
 ```
 
-Get test BNB from the official BNB Chain testnet faucet, send it to the BitzenX receive address, and verify transactions on BscScan testnet. BitzenX runs as a standalone self-custody wallet and does not auto-detect or connect browser wallet extensions. More manual QA notes are in `docs/testing.md`.
+Get test BNB from the official BNB Chain testnet faucet, send it to the HB9 receive address, and verify transactions on BscScan testnet. HB9 runs as a standalone self-custody wallet and does not auto-detect or connect browser wallet extensions. More manual QA notes are in `docs/testing.md`.
 
 ## Backend
 

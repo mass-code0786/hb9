@@ -33,7 +33,7 @@ export const useSettingsStore = create<SettingsState>()(
       dismissInstallPrompt: () => set({ installPromptVisible: false })
     }),
     {
-      name: "bitzenx-settings",
+      name: "hb9-settings",
       partialize: (state) => ({
         darkMode: state.darkMode,
         currency: state.currency,

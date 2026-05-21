@@ -1,4 +1,4 @@
-# BitzenX QA Testing Guide
+# HB9 QA Testing Guide
 
 ## BSC Testnet Mode
 
@@ -16,20 +16,20 @@ Restart the dev server after changing chain mode.
 
 ## Get Test BNB
 
-Use the BNB Chain testnet faucet from the official BNB Chain faucet page. Fund the wallet address shown in BitzenX, then refresh balances.
+Use the BNB Chain testnet faucet from the official BNB Chain faucet page. Fund the wallet address shown in HB9, then refresh balances.
 
 ## Standalone Wallet Check
 
-Run BitzenX without any browser wallet extension installed or connected. The app must create, import, unlock, receive, estimate, and send using only the locally encrypted BitzenX wallet.
+Run HB9 without any browser wallet extension installed or connected. The app must create, import, unlock, receive, estimate, and send using only the locally encrypted HB9 wallet.
 
 ## Verify Transactions
 
-After sending test BNB, open the hash in `https://testnet.bscscan.com/tx/<hash>`. The hash shown in BitzenX should match the explorer transaction.
+After sending test BNB, open the hash in `https://testnet.bscscan.com/tx/<hash>`. The hash shown in HB9 should match the explorer transaction.
 
 ## Tiny Test BNB Send Checklist
 
 - Switch root `.env` to BSC testnet mode for the test run.
-- Fund the BitzenX address from the official BNB Chain testnet faucet.
+- Fund the HB9 address from the official BNB Chain testnet faucet.
 - Send a tiny amount such as `0.0001` BNB to a second test wallet.
 - Estimate gas first, then send.
 - Copy the transaction hash and verify it on BscScan testnet.
@@ -38,7 +38,7 @@ After sending test BNB, open the hash in `https://testnet.bscscan.com/tx/<hash>`
 
 - Deploy or choose a BEP20 test token on BSC testnet.
 - Set `NEXT_PUBLIC_USDT_BEP20_ADDRESS` to that token address.
-- Fund the BitzenX wallet with a small token balance.
+- Fund the HB9 wallet with a small token balance.
 - Send a tiny test token amount to a second test wallet.
 - Verify token transfer events on the explorer.
 

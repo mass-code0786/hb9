@@ -36,8 +36,8 @@ import {
   type HbWithdrawal
 } from "@/services/halalBusinessService";
 
-const DEV_BOUND_WALLET_KEY = "bitzenx.hb.usdtBep20Address";
-const HB_ACCOUNT_ID_KEY = "bitzenx.hb.accountId";
+const DEV_BOUND_WALLET_KEY = "hb9.usdtBep20Address";
+const HB_ACCOUNT_ID_KEY = "hb9.accountId";
 const HB_WITHDRAWAL_MIN_USD = 2;
 const HB_WITHDRAWAL_MIN_ERROR = "Minimum withdrawal is $2.";
 
@@ -121,7 +121,7 @@ export function WalletApp() {
   }
 
   if (!token) {
-    const referralCode = typeof window === "undefined" ? "" : window.localStorage.getItem("bitzenx.hb.sourceReferral") || "";
+    const referralCode = typeof window === "undefined" ? "" : window.localStorage.getItem("hb9.sourceReferral") || "";
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-4 py-5 text-white">
         {authSurface === "landing" ? (
@@ -199,7 +199,7 @@ function AuthPanel({ accountId, initialMode, onAuthenticated }: { accountId: str
   const [busy, setBusy] = useState(false);
   const [showPasswordLogin, setShowPasswordLogin] = useState(false);
   const [sponsorPreview, setSponsorPreview] = useState<HbSponsorPreview>(null);
-  const referralCode = typeof window === "undefined" ? "" : window.localStorage.getItem("bitzenx.hb.sourceReferral") || "";
+  const referralCode = typeof window === "undefined" ? "" : window.localStorage.getItem("hb9.sourceReferral") || "";
 
   useEffect(() => {
     if (!referralCode) return;

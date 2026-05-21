@@ -2,7 +2,7 @@ comment on column hb_internal_ledger.wallet_type is
   'HB9 active wallet types are deposit and income. recharge is legacy and must not receive new HB9 package distribution credits.';
 
 comment on table recharge_orders is
-  'Legacy BitzenX recharge orders. This table is not connected to active HB9 package distribution.';
+  'Legacy HB9 recharge orders. This table is not connected to active HB9 package distribution.';
 
 comment on table hb_product_allocations is
   'Legacy HB9 product allocation records. Final HB9 package split no longer creates product allocation treasury records.';

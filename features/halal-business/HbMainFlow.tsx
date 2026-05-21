@@ -197,7 +197,7 @@ export function HbMainFlow({ tab, walletAddress }: { tab: HbMainTab; walletAddre
           onCancel={() => setBuyPrompt(null)}
           onGoWallet={() => {
             setBuyPrompt(null);
-            window.dispatchEvent(new CustomEvent("bitzenx:set-tab", { detail: "wallet" }));
+            window.dispatchEvent(new CustomEvent("hb9:set-tab", { detail: "wallet" }));
           }}
           onConfirm={() => confirmBuy(buyPrompt.product.id)}
         />

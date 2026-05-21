@@ -1,4 +1,4 @@
-# BitzenX Deployment Checklist
+# HB9 Deployment Checklist
 
 ## Frontend on Vercel
 
@@ -32,7 +32,7 @@ This starts Postgres and the API. Replace default Postgres credentials before an
 
 ## Nginx
 
-Use `deploy/nginx/bitzenx-api.conf` as a starting point, then add TLS with Certbot or your load balancer.
+Use `deploy/nginx/hb9-api.conf` as a starting point, then add TLS with Certbot or your load balancer.
 
 ## Production Checks
 
