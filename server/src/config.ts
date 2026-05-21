@@ -22,6 +22,7 @@ const rawAdminSessionSecret = process.env.HB_SESSION_SECRET || process.env.JWT_S
 const usdtBep20MainnetAddress = "0x55d398326f99059fF775485246999027B3197955";
 const hbTreasuryDepositAddress = process.env.HB_TREASURY_DEPOSIT_ADDRESS || process.env.COMPANY_EVM_RECEIVE_ADDRESS || "";
 const hbWithdrawalVaultAddress = process.env.HB_WITHDRAWAL_VAULT_ADDRESS || process.env.HB_WITHDRAWAL_TREASURY_ADDRESS || "";
+const defaultHbOnchainIndexerBlockStep = process.env.NODE_ENV === "production" ? 100 : 500;
 
 if (process.env.NODE_ENV === "production") {
   if (!process.env.ADMIN_SESSION_SECRET || rawAdminSessionSecret === defaultAdminSessionSecret) {
@@ -72,7 +73,7 @@ export const config = {
   hbOnchainIndexerEnabled: process.env.HB_ONCHAIN_INDEXER_ENABLED === "true",
   hbOnchainIndexerIntervalMs: Number(process.env.HB_ONCHAIN_INDEXER_INTERVAL_MS || 15000),
   hbOnchainIndexerConfirmations: Number(process.env.HB_ONCHAIN_INDEXER_CONFIRMATIONS || 3),
-  hbOnchainIndexerBlockStep: Number(process.env.HB_ONCHAIN_INDEXER_BLOCK_STEP || 2000),
+  hbOnchainIndexerBlockStep: Number(process.env.HB_ONCHAIN_INDEXER_BLOCK_STEP || defaultHbOnchainIndexerBlockStep),
   hbMainnetSafeMode: process.env.HB_MAINNET_SAFE_MODE !== "false",
   hbMultisigReady: process.env.HB_MULTISIG_READY === "true",
   hbMultisigOwnerAddress: process.env.HB_MULTISIG_OWNER_ADDRESS || process.env.MULTISIG_OWNER_ADDRESS || "",

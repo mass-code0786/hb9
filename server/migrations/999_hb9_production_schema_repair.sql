@@ -706,6 +706,7 @@ create table if not exists hb_product_orders (
   package_purchase_id uuid references hb_package_purchases(id),
   order_number text,
   amount_usd numeric(20, 8) not null default 0,
+  idempotency_key text,
   payment_status text not null default 'paid',
   activation_status text not null default 'completed',
   distribution_status text not null default 'completed',
@@ -719,11 +720,16 @@ create table if not exists hb_product_orders (
   onchain_sponsor_address text,
   onchain_status text not null default 'not_applicable',
   synced_at timestamptz,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 alter table hb_product_orders
+  add column if not exists buyer_user_id uuid references hb_users(id),
+  add column if not exists package_purchase_id uuid references hb_package_purchases(id),
   add column if not exists order_number text,
+  add column if not exists amount_usd numeric(20, 8) not null default 0,
+  add column if not exists idempotency_key text,
   add column if not exists payment_status text not null default 'paid',
   add column if not exists activation_status text not null default 'completed',
   add column if not exists distribution_status text not null default 'completed',
@@ -736,7 +742,9 @@ alter table hb_product_orders
   add column if not exists onchain_buyer_address text,
   add column if not exists onchain_sponsor_address text,
   add column if not exists onchain_status text not null default 'not_applicable',
-  add column if not exists synced_at timestamptz;
+  add column if not exists synced_at timestamptz,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
 
 create table if not exists hb_product_order_items (
   id uuid primary key default gen_random_uuid(),
@@ -1233,6 +1241,14 @@ set act_purchase_tx_hash = coalesce(act_purchase_tx_hash, contract_purchase_tx_h
 where act_purchase_tx_hash is null;
 
 alter table hb_product_orders
+  add column if not exists buyer_user_id uuid references hb_users(id),
+  add column if not exists package_purchase_id uuid references hb_package_purchases(id),
+  add column if not exists order_number text,
+  add column if not exists amount_usd numeric(20, 8) not null default 0,
+  add column if not exists idempotency_key text,
+  add column if not exists payment_status text not null default 'paid',
+  add column if not exists activation_status text not null default 'completed',
+  add column if not exists distribution_status text not null default 'completed',
   add column if not exists contract_purchase_tx_hash text,
   add column if not exists act_purchase_tx_hash text,
   add column if not exists contract_event_id text,
@@ -1242,7 +1258,9 @@ alter table hb_product_orders
   add column if not exists onchain_buyer_address text,
   add column if not exists onchain_sponsor_address text,
   add column if not exists onchain_status text not null default 'not_applicable',
-  add column if not exists synced_at timestamptz;
+  add column if not exists synced_at timestamptz,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
 
 update hb_product_orders
 set act_purchase_tx_hash = coalesce(act_purchase_tx_hash, contract_purchase_tx_hash)
@@ -1323,28 +1341,46 @@ create table if not exists hb_onchain_sync_logs (
   contract_key text not null,
   from_block bigint,
   to_block bigint,
+  last_block bigint,
+  last_synced_block bigint,
+  last_scanned_block bigint,
+  last_checked_block bigint,
   status text not null default 'pending',
+  last_status text,
   events_found integer not null default 0,
   error text,
+  last_error text,
   triggered_by text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 alter table hb_onchain_sync_logs
   add column if not exists contract_key text,
   add column if not exists from_block bigint,
   add column if not exists to_block bigint,
+  add column if not exists last_block bigint,
+  add column if not exists last_synced_block bigint,
+  add column if not exists last_scanned_block bigint,
+  add column if not exists last_checked_block bigint,
   add column if not exists status text not null default 'pending',
+  add column if not exists last_status text,
   add column if not exists events_found integer not null default 0,
   add column if not exists error text,
+  add column if not exists last_error text,
   add column if not exists triggered_by text,
-  add column if not exists created_at timestamptz not null default now();
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
 
 create table if not exists hb_onchain_sync_cursors (
   contract_key text primary key,
   chain_id integer not null default 56,
   contract_address text,
+  from_block bigint,
+  to_block bigint,
+  last_block bigint,
   last_synced_block bigint not null default 0,
+  last_scanned_block bigint,
   last_checked_block bigint,
   last_status text not null default 'idle',
   last_error text,
@@ -1352,13 +1388,34 @@ create table if not exists hb_onchain_sync_cursors (
 );
 
 alter table hb_onchain_sync_cursors
+  add column if not exists contract_key text,
   add column if not exists chain_id integer not null default 56,
   add column if not exists contract_address text,
+  add column if not exists from_block bigint,
+  add column if not exists to_block bigint,
+  add column if not exists last_block bigint,
   add column if not exists last_synced_block bigint not null default 0,
+  add column if not exists last_scanned_block bigint,
   add column if not exists last_checked_block bigint,
   add column if not exists last_status text not null default 'idle',
   add column if not exists last_error text,
   add column if not exists updated_at timestamptz not null default now();
+
+update hb_onchain_sync_cursors
+set contract_key = 'package_manager'
+where contract_key is null;
+
+delete from hb_onchain_sync_cursors a
+using hb_onchain_sync_cursors b
+where a.ctid < b.ctid
+  and coalesce(a.contract_key, 'package_manager') = coalesce(b.contract_key, 'package_manager');
+
+insert into hb_onchain_sync_cursors
+  (contract_key, chain_id, contract_address, from_block, to_block, last_block, last_synced_block, last_scanned_block, last_checked_block, last_status, last_error, updated_at)
+select 'package_manager', 56, null, null, null, 0, 0, 0, null, 'idle', null, now()
+where not exists (
+  select 1 from hb_onchain_sync_cursors where contract_key = 'package_manager'
+);
 
 create table if not exists hb_onchain_failed_events (
   id uuid primary key default gen_random_uuid(),
@@ -1600,15 +1657,23 @@ create index if not exists idx_hb_coin_ledger_symbol_created on hb_coin_balance_
 create index if not exists idx_hb_coin_balance_ledger_proof_hash on hb_coin_balance_ledger (proof_hash);
 create index if not exists idx_hb_withdrawals_user_created_repair on hb_withdrawals (user_id, requested_at desc);
 create index if not exists idx_hb_package_purchases_user_created_repair on hb_package_purchases (user_id, created_at desc);
+create unique index if not exists idx_hb_package_purchases_idempotency_key_unique on hb_package_purchases (idempotency_key);
 create index if not exists idx_hb_package_purchases_contract_event on hb_package_purchases (contract_event_id) where contract_event_id is not null;
 create index if not exists idx_hb_package_purchases_tx on hb_package_purchases (contract_purchase_tx_hash) where contract_purchase_tx_hash is not null;
 create index if not exists idx_hb_package_purchases_act_tx on hb_package_purchases (act_purchase_tx_hash) where act_purchase_tx_hash is not null;
+create unique index if not exists idx_hb_product_orders_idempotency_key_unique on hb_product_orders (idempotency_key);
+create unique index if not exists idx_hb_income_ledger_idempotency_key_unique on hb_income_ledger (idempotency_key);
+create unique index if not exists idx_hb_internal_ledger_idempotency_key_unique on hb_internal_ledger (idempotency_key);
+create unique index if not exists idx_hb_coin_balance_ledger_idempotency_key_unique on hb_coin_balance_ledger (idempotency_key);
+create unique index if not exists idx_hb_onchain_purchase_events_contract_event_id_unique on hb_onchain_purchase_events (contract_event_id);
 create unique index if not exists idx_hb_onchain_purchase_event_id on hb_onchain_purchase_events (contract_event_id) where contract_event_id is not null;
 create unique index if not exists idx_hb_onchain_purchase_event_log on hb_onchain_purchase_events (chain_id, tx_hash, log_index) where log_index is not null;
 create index if not exists idx_hb_onchain_purchase_buyer on hb_onchain_purchase_events (buyer_user_id, created_at desc);
 create index if not exists idx_hb_onchain_purchase_status on hb_onchain_purchase_events (status, created_at desc);
 create index if not exists idx_hb_onchain_failed_retry on hb_onchain_failed_events (status, next_retry_at);
 create index if not exists idx_hb_onchain_sync_logs_status on hb_onchain_sync_logs (contract_key, status, created_at);
+create unique index if not exists idx_hb_onchain_sync_cursors_contract_key_unique on hb_onchain_sync_cursors (contract_key);
+create index if not exists idx_hb_onchain_sync_cursors_status on hb_onchain_sync_cursors (last_status, updated_at desc);
 create index if not exists idx_hb_daily_income_caps_date on hb_daily_income_caps (cap_date desc, capped_amount desc);
 create index if not exists idx_hb_income_ledger_cap_date on hb_income_ledger (cap_date desc, earner_user_id) where cap_date is not null;
 create index if not exists idx_hb_income_ledger_capped on hb_income_ledger (cap_status, created_at desc) where cap_status in ('partially_capped', 'capped');

@@ -51,6 +51,12 @@ function provider() {
   return new ethers.JsonRpcProvider(config.bscRpcUrl, config.hbChainId);
 }
 
+function isGetLogsRangeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const normalized = message.toLowerCase();
+  return normalized.includes("eth_getlogs") || normalized.includes("getlogs") || normalized.includes("block range") || normalized.includes("limit exceeded") || normalized.includes("query returned more than");
+}
+
 async function updateCursor(input: {
   status: string;
   contractAddress?: string | null;
@@ -60,12 +66,14 @@ async function updateCursor(input: {
 }) {
   await query(
     `insert into hb_onchain_sync_cursors
-      (contract_key, chain_id, contract_address, last_synced_block, last_checked_block, last_status, last_error, updated_at)
-     values ('package_manager',$1,$2,$3,$4,$5,$6,now())
+      (contract_key, chain_id, contract_address, last_block, last_synced_block, last_scanned_block, last_checked_block, last_status, last_error, updated_at)
+     values ('package_manager',$1,$2,$4,$3,$3,$4,$5,$6,now())
      on conflict (contract_key) do update
      set chain_id = excluded.chain_id,
          contract_address = excluded.contract_address,
-         last_synced_block = greatest(hb_onchain_sync_cursors.last_synced_block, excluded.last_synced_block),
+         last_block = greatest(coalesce(hb_onchain_sync_cursors.last_block, 0), coalesce(excluded.last_block, 0)),
+         last_synced_block = greatest(coalesce(hb_onchain_sync_cursors.last_synced_block, 0), coalesce(excluded.last_synced_block, 0)),
+         last_scanned_block = greatest(coalesce(hb_onchain_sync_cursors.last_scanned_block, 0), coalesce(excluded.last_scanned_block, 0)),
          last_checked_block = excluded.last_checked_block,
          last_status = excluded.last_status,
          last_error = excluded.last_error,
@@ -79,6 +87,34 @@ async function updateCursor(input: {
       input.error || null
     ]
   );
+}
+
+async function fetchPackagePurchaseLogs(fromBlock: number, toBlock: number): Promise<ethers.Log[]> {
+  try {
+    return await provider().getLogs({
+      address: config.hbPackageManagerAddress,
+      fromBlock,
+      toBlock,
+      topics: [packageManagerInterface.getEvent("PackagePurchased")!.topicHash]
+    });
+  } catch (error) {
+    if (fromBlock < toBlock && isGetLogsRangeError(error)) {
+      const midBlock = Math.floor((fromBlock + toBlock) / 2);
+      logger.warn("hb.indexer.get_logs_range_split", {
+        category: "indexer",
+        fromBlock,
+        toBlock,
+        midBlock,
+        error: error instanceof Error ? error.message : "eth_getLogs range failed"
+      });
+      const [leftLogs, rightLogs] = await Promise.all([
+        fetchPackagePurchaseLogs(fromBlock, midBlock),
+        fetchPackagePurchaseLogs(midBlock + 1, toBlock)
+      ]);
+      return leftLogs.concat(rightLogs);
+    }
+    throw error;
+  }
 }
 
 async function recordFailedEvent(input: {
@@ -275,36 +311,38 @@ export async function syncHbOnchainRange(fromBlock: number, toBlock: number) {
   }
   let synced = 0;
   let failed = 0;
-  const logs = await provider().getLogs({
-    address: config.hbPackageManagerAddress,
-    fromBlock,
-    toBlock,
-    topics: [packageManagerInterface.getEvent("PackagePurchased")!.topicHash]
-  });
-  for (const log of logs) {
-    try {
-      await processLog(log);
-      synced += 1;
-    } catch (error) {
-      failed += 1;
-      logger.warn("hb.indexer.event_failed", {
-        category: "indexer_retry",
-        txHash: log.transactionHash,
-        blockNumber: Number(log.blockNumber),
-        error: error instanceof Error ? error.message : "Unknown indexer error"
-      });
-      await recordFailedEvent({
-        txHash: log.transactionHash,
-        contractEventId: eventId(config.hbChainId, log.transactionHash, Number(log.index)),
-        blockNumber: Number(log.blockNumber),
-        logIndex: Number(log.index),
-        error: error instanceof Error ? error.message : "Unknown indexer error",
-        rawEvent: { topics: log.topics, data: log.data }
-      });
+  const chunkSize = Math.max(1, config.hbOnchainIndexerBlockStep);
+  let chunkFrom = Math.max(0, fromBlock);
+  const finalToBlock = Math.max(chunkFrom, toBlock);
+  while (chunkFrom <= finalToBlock) {
+    const chunkTo = Math.min(finalToBlock, chunkFrom + chunkSize - 1);
+    const logs = await fetchPackagePurchaseLogs(chunkFrom, chunkTo);
+    for (const log of logs) {
+      try {
+        await processLog(log);
+        synced += 1;
+      } catch (error) {
+        failed += 1;
+        logger.warn("hb.indexer.event_failed", {
+          category: "indexer_retry",
+          txHash: log.transactionHash,
+          blockNumber: Number(log.blockNumber),
+          error: error instanceof Error ? error.message : "Unknown indexer error"
+        });
+        await recordFailedEvent({
+          txHash: log.transactionHash,
+          contractEventId: eventId(config.hbChainId, log.transactionHash, Number(log.index)),
+          blockNumber: Number(log.blockNumber),
+          logIndex: Number(log.index),
+          error: error instanceof Error ? error.message : "Unknown indexer error",
+          rawEvent: { topics: log.topics, data: log.data }
+        });
+      }
     }
+    await updateCursor({ status: failed > 0 ? "partial" : "ok", lastCheckedBlock: chunkTo, lastSyncedBlock: chunkTo });
+    chunkFrom = chunkTo + 1;
   }
-  await updateCursor({ status: failed > 0 ? "partial" : "ok", lastCheckedBlock: toBlock, lastSyncedBlock: toBlock });
-  return { synced, failed, fromBlock, toBlock };
+  return { synced, failed, fromBlock, toBlock: finalToBlock };
 }
 
 async function processQueuedResyncs() {
@@ -317,14 +355,21 @@ async function processQueuedResyncs() {
   );
   for (const job of jobs) {
     try {
-      await query("update hb_onchain_sync_logs set status = 'running' where id = $1", [job.id]);
+      await query("update hb_onchain_sync_logs set status = 'running', last_status = 'running', updated_at = now() where id = $1", [job.id]);
       const fromBlock = Number(job.from_block || 0);
       const latest = Number(job.to_block || await provider().getBlockNumber());
       const result = await syncHbOnchainRange(fromBlock, latest);
-      await query("update hb_onchain_sync_logs set status = $2, events_found = $3, error = null where id = $1", [job.id, result.failed ? "partial" : "completed", result.synced || 0]);
+      const completedBlock = Number("toBlock" in result ? result.toBlock : latest);
+      await query(
+        `update hb_onchain_sync_logs
+         set status = $2, last_status = $2, events_found = $3, error = null, last_error = null,
+             last_block = $4, last_synced_block = $4, last_scanned_block = $4, last_checked_block = $4, updated_at = now()
+         where id = $1`,
+        [job.id, result.failed ? "partial" : "completed", result.synced || 0, completedBlock]
+      );
     } catch (error) {
       logger.warn("hb.indexer.retry_failed", { category: "indexer_retry", jobId: job.id, error: error instanceof Error ? error.message : "Resync failed" });
-      await query("update hb_onchain_sync_logs set status = 'failed', error = $2 where id = $1", [job.id, error instanceof Error ? error.message : "Resync failed"]);
+      await query("update hb_onchain_sync_logs set status = 'failed', last_status = 'failed', error = $2, last_error = $2, updated_at = now() where id = $1", [job.id, error instanceof Error ? error.message : "Resync failed"]);
     }
   }
 }
