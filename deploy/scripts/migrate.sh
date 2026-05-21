@@ -30,17 +30,26 @@ fi
 
 for migration in "${migrations[@]}"; do
   filename="$(basename "$migration")"
+  force_repair="false"
+  if [[ "$filename" == "999_hb9_production_schema_repair.sql" ]]; then
+    force_repair="true"
+  fi
+
   already_applied="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -At -v filename="$filename" -c "SELECT 1 FROM schema_migrations WHERE filename = :'filename' LIMIT 1;")"
-  if [[ "$already_applied" == "1" ]]; then
+  if [[ "$already_applied" == "1" && "$force_repair" != "true" ]]; then
     echo "Skipping $filename"
     continue
   fi
 
-  echo "Applying $filename"
+  if [[ "$force_repair" == "true" && "$already_applied" == "1" ]]; then
+    echo "Reapplying idempotent repair $filename"
+  else
+    echo "Applying $filename"
+  fi
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
     -v filename="$filename" \
     -c "BEGIN;" \
     -f "$migration" \
-    -c "INSERT INTO schema_migrations (filename) VALUES (:'filename');" \
+    -c "INSERT INTO schema_migrations (filename) VALUES (:'filename') ON CONFLICT (filename) DO UPDATE SET applied_at = now();" \
     -c "COMMIT;"
 done
