@@ -155,8 +155,9 @@ const nav = [
 ] as const;
 
 function apiUrl(path: string) {
-  const configured = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-  return `${configured || ""}/api${path}`;
+  const configured = (process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  const localDefault = process.env.NODE_ENV === "development" ? "http://localhost:4000" : "";
+  return `${configured || localDefault}/api${path}`;
 }
 
 async function adminRequest<T>(path: string, token?: string, init: RequestInit = {}) {

@@ -533,8 +533,9 @@ export const hbDevDashboardProducts: HbProduct[] = hbDevDashboardPackages.map((p
 }));
 
 function apiUrl(path: string) {
-  const configured = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-  return `${configured || ""}/api${path}`;
+  const configured = (process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  const localDefault = process.env.NODE_ENV === "development" ? "http://localhost:4000" : "";
+  return `${configured || localDefault}/api${path}`;
 }
 
 async function hbRequest<T>(path: string, token?: string, init: RequestInit = {}) {
@@ -567,7 +568,7 @@ export function clearHbToken() {
 }
 
 export function registerHb(input: { email?: string; mobileNumber: string; password: string; displayName: string; fullName?: string; referralCode?: string; walletAddress?: string }) {
-  return hbRequest<{ token: string; user: HbUser }>("/hb/auth/register", undefined, {
+  return hbRequest<{ token: string; user: HbUser }>("/hb/auth/signup", undefined, {
     method: "POST",
     body: JSON.stringify(input)
   });

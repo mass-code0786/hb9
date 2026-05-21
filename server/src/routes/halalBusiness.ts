@@ -1478,7 +1478,7 @@ async function currentUser(userId: string) {
   return rows[0] || null;
 }
 
-hbRouter.post("/hb/auth/register", asyncHandler(async (req, res) => {
+const handleHbSignup = asyncHandler(async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid registration");
@@ -1544,7 +1544,10 @@ hbRouter.post("/hb/auth/register", asyncHandler(async (req, res) => {
   }
   await audit(user.id, "hb.auth.register", "hb_user", user.id, { sponsorCode: sponsorCode || null, hasEmail: Boolean(email), hasMobile: true });
   ok(res, { token: await createToken(user.id, user.email || user.mobile_number || user.id, req), user }, "HB9 user registered", 201);
-}));
+});
+
+hbRouter.post("/hb/auth/register", handleHbSignup);
+hbRouter.post("/hb/auth/signup", handleHbSignup);
 
 hbRouter.post("/hb/auth/login", asyncHandler(async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
