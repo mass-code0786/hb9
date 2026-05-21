@@ -182,7 +182,7 @@ export async function applyIncomeCap(input: {
 
     const coinLedgerRows = await client.query<{ id: string }>(
       `insert into hb_coin_balance_ledger
-        (user_id, coin_symbol, amount, type, direction, reference, note, idempotency_key)
+        (user_id, coin_symbol, amount, type, direction, reference_id, note, idempotency_key)
        values ($1,'USDT',$2,'earning','credit',$3,$4,$5)
        on conflict (idempotency_key) do nothing
        returning id`,

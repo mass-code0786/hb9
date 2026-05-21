@@ -816,8 +816,8 @@ async function applyHbCoinAdjustment(input: {
   }
   const ledgerRows = await input.client.query<{ id: string }>(
     `insert into hb_coin_balance_ledger
-      (user_id, coin_symbol, amount, type, direction, reference, reference_id, admin_id, note, idempotency_key, metadata, usd_price, usd_value)
-     values ($1,$2,$3,$4,$5,$6,$6,$7,$8,$9,$10::jsonb,$11,$12)
+      (user_id, coin_symbol, amount, type, direction, reference_id, admin_id, note, idempotency_key, metadata, usd_price, usd_value)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12)
      on conflict (idempotency_key) do nothing
      returning id`,
     [input.userId, input.coinSymbol, amount, input.type, input.direction, input.reference || null, input.adminId || null, input.note || null, input.idempotencyKey, JSON.stringify(input.metadata || {}), input.usdPrice ?? null, input.usdValue ?? null]
@@ -2100,7 +2100,7 @@ hbRouter.get("/hb/coins/history", requireHbUser, asyncHandler(async (req, res) =
     return;
   }
   const rows = await query(
-    `select id, coin_symbol, amount::text, type, direction, reference, note, created_at
+    `select id, coin_symbol, amount::text, type, direction, reference_id as reference, note, created_at
      from hb_coin_balance_ledger
      where user_id = $1 and ($2::text = '' or coin_symbol = $2)
      order by created_at desc
@@ -3760,11 +3760,11 @@ hbRouter.get("/hb/wallet-activity", requireHbUser, asyncHandler(async (req, res)
        union all
        select l.id::text,
               case
-                when l.reference like 'admin_transfer:%' and l.direction = 'credit' then 'received_funds'
-                when l.reference like 'admin_transfer:%' and l.direction = 'debit' then 'transferred_funds'
-                when l.reference like 'admin_credit:%' then 'admin_credit'
-                when l.reference like 'admin_deduct:%' then 'admin_deduction'
-                when l.reference like 'admin_bulk:%' then 'bulk_distribution'
+                when l.reference_id like 'admin_transfer:%' and l.direction = 'credit' then 'received_funds'
+                when l.reference_id like 'admin_transfer:%' and l.direction = 'debit' then 'transferred_funds'
+                when l.reference_id like 'admin_credit:%' then 'admin_credit'
+                when l.reference_id like 'admin_deduct:%' then 'admin_deduction'
+                when l.reference_id like 'admin_bulk:%' then 'bulk_distribution'
                 else l.type
               end as type,
               l.direction, l.amount::text as amount_usd, l.metadata,
@@ -3782,14 +3782,14 @@ hbRouter.get("/hb/wallet-activity", requireHbUser, asyncHandler(async (req, res)
 
 hbRouter.get("/hb/funds/history", requireHbUser, asyncHandler(async (req, res) => {
   const rows = await query(
-    `select l.id, l.coin_symbol, l.amount::text, l.type, l.direction, l.reference, l.note, l.created_at,
+    `select l.id, l.coin_symbol, l.amount::text, l.type, l.direction, l.reference_id as reference, l.note, l.created_at,
             p.public_reference_id, p.proof_hash,
             case
-              when l.reference like 'admin_transfer:%' and l.direction = 'credit' then 'received_funds'
-              when l.reference like 'admin_transfer:%' and l.direction = 'debit' then 'transferred_funds'
-              when l.reference like 'admin_credit:%' then 'admin_credit'
-              when l.reference like 'admin_deduct:%' then 'admin_deduction'
-              when l.reference like 'admin_bulk:%' then 'bulk_distribution'
+              when l.reference_id like 'admin_transfer:%' and l.direction = 'credit' then 'received_funds'
+              when l.reference_id like 'admin_transfer:%' and l.direction = 'debit' then 'transferred_funds'
+              when l.reference_id like 'admin_credit:%' then 'admin_credit'
+              when l.reference_id like 'admin_deduct:%' then 'admin_deduction'
+              when l.reference_id like 'admin_bulk:%' then 'bulk_distribution'
               else l.type
             end as action_type
      from hb_coin_balance_ledger l
@@ -5045,7 +5045,7 @@ hbRouter.get("/admin/hb/coins/users", requireAdmin, asyncHandler(async (req, res
   );
   const ledger = await query(
     `select l.id, l.user_id, u.email, u.mobile_number, u.display_name, l.coin_symbol, l.amount::text,
-            l.type, l.direction, l.reference, l.admin_id, l.note, l.created_at
+            l.type, l.direction, l.reference_id as reference, l.admin_id, l.note, l.created_at
      from hb_coin_balance_ledger l
      join hb_users u on u.id = l.user_id
      where ($1::text = '' or u.email ilike '%' || $1 || '%' or u.mobile_number ilike '%' || $1 || '%' or u.display_name ilike '%' || $1 || '%')
@@ -5082,7 +5082,7 @@ hbRouter.get("/admin/hb/coins/users", requireAdmin, asyncHandler(async (req, res
   );
   const latestAdminActions = await query(
     `select l.id, l.user_id, u.email, u.mobile_number, u.display_name, l.coin_symbol, l.amount::text,
-            l.direction, l.reference, l.admin_id, l.note, l.created_at
+            l.direction, l.reference_id as reference, l.admin_id, l.note, l.created_at
      from hb_coin_balance_ledger l
      join hb_users u on u.id = l.user_id
      where l.type in ('admin', 'admin_credit', 'admin_debit')
@@ -5097,7 +5097,7 @@ hbRouter.get("/admin/hb/coins/history", requireAdmin, asyncHandler(async (req, r
   const coin = typeof req.query.coin === "string" ? normalizeHbCoinSymbol(req.query.coin) : null;
   const rows = await query(
     `select l.id, l.user_id, u.email, u.mobile_number, u.display_name, l.coin_symbol, l.amount::text,
-            l.usd_price::text, l.usd_value::text, l.type, l.direction, l.reference, l.reference_id,
+            l.usd_price::text, l.usd_value::text, l.type, l.direction, l.reference_id as reference, l.reference_id,
             l.admin_id, l.note, l.public_reference_id, l.created_at
      from hb_coin_balance_ledger l
      join hb_users u on u.id = l.user_id
@@ -5144,7 +5144,7 @@ hbRouter.get("/admin/hb/coins/reconciliation", requireAdmin, asyncHandler(async 
      limit 200`
   );
   const orphanLedgerEntries = await query(
-    `select l.id, l.user_id, l.coin_symbol, l.amount::text, l.direction, l.reference, l.created_at
+    `select l.id, l.user_id, l.coin_symbol, l.amount::text, l.direction, l.reference_id as reference, l.created_at
      from hb_coin_balance_ledger l
      left join hb_users u on u.id = l.user_id
      where u.id is null
@@ -5152,13 +5152,13 @@ hbRouter.get("/admin/hb/coins/reconciliation", requireAdmin, asyncHandler(async 
      limit 200`
   );
   const duplicateReferences = await query(
-    `select user_id, coin_symbol, reference, count(*)::int as duplicate_count,
+    `select user_id, coin_symbol, reference_id as reference, count(*)::int as duplicate_count,
             sum(case when direction = 'credit' then amount else -amount end)::text as net_amount
      from hb_coin_balance_ledger
-     where reference is not null and reference <> ''
-     group by user_id, coin_symbol, reference
+     where reference_id is not null and reference_id <> ''
+     group by user_id, coin_symbol, reference_id
      having count(*) > 1
-     order by count(*) desc, reference
+     order by count(*) desc, reference_id
      limit 200`
   );
   const usdtSync = await query(

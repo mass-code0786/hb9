@@ -81,7 +81,7 @@ export const hbRequiredSchema: RequiredTable[] = [
   },
   {
     table: "hb_coin_balance_ledger",
-    columns: ["id", "user_id", "coin_symbol", "amount", "amount_usd", "type", "direction", "reference", "note", "idempotency_key", "metadata", "proof_hash", "created_at"]
+    columns: ["id", "user_id", "coin_symbol", "amount", "amount_usd", "type", "direction", "reference_id", "note", "idempotency_key", "metadata", "proof_hash", "created_at"]
   },
   {
     table: "hb_coin_conversions",

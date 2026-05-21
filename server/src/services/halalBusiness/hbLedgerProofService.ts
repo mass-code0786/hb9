@@ -77,7 +77,7 @@ export async function createLedgerProof(
     : sourceTable === "hb_income_ledger"
       ? `select id, earner_user_id as user_id, source_user_id, package_purchase_id, income_type, amount_usd::text, status, level_depth, idempotency_key, metadata, created_at
          from hb_income_ledger where id = $1 limit 1`
-      : `select id, user_id, coin_symbol, direction, amount::text as amount_usd, type, reference, admin_id, note, idempotency_key, created_at,
+      : `select id, user_id, coin_symbol, direction, amount::text as amount_usd, type, reference_id as reference, reference_id, admin_id, note, idempotency_key, created_at,
                 jsonb_build_object('coinSymbol', coin_symbol, 'adminId', admin_id, 'note', note) as metadata
          from hb_coin_balance_ledger where id = $1 limit 1`;
   const rows = await client.query<Record<string, any>>(sql, [ledgerEntryId]);
