@@ -5,9 +5,17 @@ const devConnectSources = process.env.NODE_ENV === "production" ? [] : ["http://
 const connectSources = [
   "'self'",
   ...devConnectSources,
+  "https://api.hb9.live",
+  "https://hb9.live",
+  "wss://api.hb9.live",
+  "https://rpc.ankr.com",
+  "https://bsc-dataseed.binance.org",
+  "https://*.walletconnect.com",
+  "wss://*.walletconnect.com",
+  "https://*.walletconnect.org",
+  "wss://*.walletconnect.org",
   ...(apiBaseUrl ? [apiBaseUrl] : []),
-  bscRpcUrl,
-  "https://bsc-dataseed.binance.org"
+  bscRpcUrl
 ];
 
 const securityHeaders = [

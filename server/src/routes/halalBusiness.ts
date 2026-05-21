@@ -158,14 +158,14 @@ const treasurySettingsSchema = z.object({
 });
 
 const walletChallengeSchema = z.object({
-  walletAddress: z.string().trim().regex(/^0x[a-fA-F0-9]{40}$/),
+  walletAddress: z.string().trim().refine(isAddress, "walletAddress must be a valid EVM address.").transform((value) => getAddress(value)),
   chainId: z.number().int().positive(),
   referralCode: z.string().trim().min(3).max(40).optional().or(z.literal(""))
 });
 
 const walletVerifySchema = z.object({
   nonce: z.string().trim().min(16).max(160),
-  walletAddress: z.string().trim().regex(/^0x[a-fA-F0-9]{40}$/),
+  walletAddress: z.string().trim().refine(isAddress, "walletAddress must be a valid EVM address.").transform((value) => getAddress(value)),
   chainId: z.number().int().positive(),
   signature: z.string().trim().min(20).max(300)
 });
@@ -3845,6 +3845,11 @@ hbRouter.post("/hb/auth/wallet/challenge", asyncHandler(async (req, res) => {
     fail(res, "Wallet signature authentication is not enabled.", 404, "Not found");
     return;
   }
+  logger.info("hb.wallet_challenge.payload", {
+    walletAddress: typeof req.body?.walletAddress === "string" ? req.body.walletAddress : null,
+    chainId: req.body?.chainId ?? null,
+    hasReferralCode: Boolean(req.body?.referralCode)
+  });
   const parsed = walletChallengeSchema.safeParse(req.body);
   if (!parsed.success) {
     fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid wallet challenge");
