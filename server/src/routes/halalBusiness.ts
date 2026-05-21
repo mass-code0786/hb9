@@ -626,11 +626,6 @@ async function enforceRolloutAccess(res: Response, input: { walletAddress?: stri
     fail(res, "HB9 is temporarily paused for production safety.", 503, "Emergency pause active");
     return false;
   }
-  if (controls.rolloutMode === "closed_beta" && !(await isWhitelisted(input))) {
-    logger.warn("hb.rollout.blocked", { category: "whitelist", action: input.action, walletAddress: input.walletAddress || null, referralCode: input.referralCode || null });
-    fail(res, "Closed beta is limited to whitelisted wallets or referral codes.", 403, "Closed beta");
-    return false;
-  }
   return true;
 }
 
