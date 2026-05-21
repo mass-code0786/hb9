@@ -20,9 +20,17 @@ fi
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS schema_migrations (filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());"
 
-for migration in server/migrations/*.sql; do
+shopt -s nullglob
+mapfile -t migrations < <(printf '%s\n' server/migrations/*.sql | sort)
+
+if [[ "${#migrations[@]}" -eq 0 ]]; then
+  echo "No migrations found in server/migrations"
+  exit 0
+fi
+
+for migration in "${migrations[@]}"; do
   filename="$(basename "$migration")"
-  already_applied="$(psql "$DATABASE_URL" -At -c "SELECT 1 FROM schema_migrations WHERE filename = '$filename' LIMIT 1;")"
+  already_applied="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -At -v filename="$filename" -c "SELECT 1 FROM schema_migrations WHERE filename = :'filename' LIMIT 1;")"
   if [[ "$already_applied" == "1" ]]; then
     echo "Skipping $filename"
     continue
@@ -30,8 +38,9 @@ for migration in server/migrations/*.sql; do
 
   echo "Applying $filename"
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+    -v filename="$filename" \
     -c "BEGIN;" \
     -f "$migration" \
-    -c "INSERT INTO schema_migrations (filename) VALUES ('$filename');" \
+    -c "INSERT INTO schema_migrations (filename) VALUES (:'filename');" \
     -c "COMMIT;"
 done
