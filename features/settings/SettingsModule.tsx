@@ -1,20 +1,20 @@
 "use client";
 
-import { HelpCircle, Info, Shield, FileText, ServerCog } from "lucide-react";
+import { HelpCircle, Info, FileText } from "lucide-react";
 import { Panel, Select } from "@/components/ui/Primitives";
 import { BrandLogo } from "@/components/BrandLogo";
 import { useSettingsStore } from "@/store/settingsStore";
 
-export function SettingsModule({ onNavigate }: { onNavigate: (screen: "security" | "provider-settings" | "about" | "help" | "terms") => void }) {
+export function SettingsModule({ onNavigate }: { onNavigate: (screen: "about" | "help" | "terms") => void }) {
   const settings = useSettingsStore();
   return (
     <div className="space-y-4">
       <Panel data-testid="settings-screen">
         <div className="flex items-center gap-3">
-          <BrandLogo size="sm" />
+          <BrandLogo size="sm" showText />
           <div>
             <h1 className="text-2xl font-semibold">Settings</h1>
-            <p className="text-sm text-slate-400">Wallet preferences and support</p>
+            <p className="text-sm text-slate-400">Account preferences and support</p>
           </div>
         </div>
       </Panel>
@@ -29,16 +29,6 @@ export function SettingsModule({ onNavigate }: { onNavigate: (screen: "security"
           </Select>
         </div>
         <div>
-          <div className="mb-2 text-sm text-slate-400">Auto-lock</div>
-          <Select value={settings.autoLockMinutes} onChange={(event) => settings.setAutoLockMinutes(Number(event.target.value))}>
-            <option value={1}>1 minute</option>
-            <option value={5}>5 minutes</option>
-            <option value={15}>15 minutes</option>
-            <option value={30}>30 minutes</option>
-            <option value={0}>Never</option>
-          </Select>
-        </div>
-        <div>
           <div className="mb-2 text-sm text-slate-400">Language</div>
           <Select value={settings.language} onChange={(event) => settings.setLanguage(event.target.value)}>
             <option>English</option>
@@ -47,9 +37,7 @@ export function SettingsModule({ onNavigate }: { onNavigate: (screen: "security"
             <option>Urdu</option>
           </Select>
         </div>
-        <button className="settings-row" onClick={() => onNavigate("security")} type="button"><Shield size={18} /> Security center</button>
-        <button className="settings-row" onClick={() => onNavigate("provider-settings")} type="button"><ServerCog size={18} /> Provider settings</button>
-        <button className="settings-row" onClick={() => onNavigate("about")} type="button"><Info size={18} /> About BitzenX</button>
+        <button className="settings-row" onClick={() => onNavigate("about")} type="button"><Info size={18} /> About HB9</button>
         <button className="settings-row" onClick={() => onNavigate("help")} type="button"><HelpCircle size={18} /> Help center</button>
         <button className="settings-row" onClick={() => onNavigate("terms")} type="button"><FileText size={18} /> Terms</button>
       </Panel>
@@ -62,7 +50,7 @@ export function StaticInfoPage({ title }: { title: string }) {
     <Panel>
       <h1 className="text-2xl font-semibold">{title}</h1>
       <p className="mt-3 text-sm leading-6 text-slate-400">
-        BitzenX keeps wallet keys local on your device. Review each transaction carefully before signing.
+        HB9 shows a business wallet interface for HB9 balances. External wallet connection is used only for BSC proof, USDT BEP20 approvals, and contract interaction.
       </p>
     </Panel>
   );

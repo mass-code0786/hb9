@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { logger } from "./logger.js";
 
 export type ApiEnvelope<T> = {
   success: boolean;
@@ -23,5 +24,6 @@ export function asyncHandler(fn: (req: Request, res: Response, next: NextFunctio
 
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   const message = err instanceof Error ? err.message : "Unexpected server error";
+  logger.error("api.error", { category: "unhandled", message });
   fail(res, message, 500, "Internal server error");
 }

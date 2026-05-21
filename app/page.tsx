@@ -1,5 +1,7 @@
-import { WalletApp } from "@/components/WalletApp";
+"use client";
 
-export default function Home() {
-  return <WalletApp />;
+import { HbPremiumMobileDashboard } from "@/features/halal-business/HbPremiumMobileDashboard";
+
+export default function Page() {
+  return <HbPremiumMobileDashboard />;
 }

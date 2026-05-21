@@ -12,7 +12,7 @@ export function TransactionHistory({ transactions }: { transactions: WalletTrans
       <h1 className="mb-4 text-2xl font-semibold">Transaction History</h1>
       <div className="space-y-3">
         {transactions.map((tx) => (
-          <div key={tx.id} className="rounded-2xl bg-white/[0.045] p-4">
+          <div key={tx.id} className="rounded-2xl bg-[#0b1728]/60 p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="font-semibold">{tx.title}</div>

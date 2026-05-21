@@ -1,13 +1,29 @@
 {
-  "name": "BitzenX Wallet",
-  "short_name": "BitzenX",
-  "description": "A mobile-first BSC crypto super wallet with local encrypted storage.",
+  "name": "HB9",
+  "short_name": "HB9",
+  "description": "Decentralized Business Identity and Product Activation Ecosystem with wallet-first onboarding, treasury visibility, and proof transparency.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "browser"],
   "background_color": "#05070b",
   "theme_color": "#05070b",
   "orientation": "portrait",
+  "categories": ["finance", "business", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Transparency",
+      "short_name": "Proofs",
+      "url": "/halal-business#proofs",
+      "description": "Open HB9 proof transparency"
+    },
+    {
+      "name": "Treasury",
+      "short_name": "Treasury",
+      "url": "/halal-business#treasury",
+      "description": "Open treasury transparency"
+    }
+  ],
   "icons": [
     {
       "src": "/icons/icon.svg",

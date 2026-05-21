@@ -12,7 +12,7 @@ import { QrScanner } from "@/features/qr-pay/QrScanner";
 
 const demoPayload = JSON.stringify({
   mode: "dynamic",
-  merchant: "BitzenX Fuel Station",
+  merchant: "HB9 Fuel Station",
   category: "petrol",
   address: "0x0000000000000000000000000000000000000000",
   asset: "USDT",
@@ -92,7 +92,7 @@ export function QrPayModule() {
           <p className="mt-2 max-w-xs text-sm leading-6 text-slate-400">
             Your payment to {request.merchant} was confirmed on BSC.
           </p>
-          <div className="mt-8 w-full rounded-[1.25rem] border border-white/10 bg-white/[0.04] p-4 text-left">
+          <div className="mt-8 w-full rounded-[1.25rem] border border-white/10 bg-[#0b1728]/60 p-4 text-left">
             <PaymentRow label="Merchant" value={request.merchant} />
             <PaymentRow label="Category" value={categoryLabel(request.category)} />
             <PaymentRow label="Network" value="BSC" />
@@ -109,7 +109,7 @@ export function QrPayModule() {
       <Panel data-testid="qr-pay-screen">
         <div className="mb-5 flex items-center justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <BrandLogo size="sm" />
+            <BrandLogo size="sm" showText />
             <div className="min-w-0">
               <h1 className="text-2xl font-semibold">Scan & Pay</h1>
               <p className="text-sm text-slate-400">Scan a payment QR and review before paying.</p>
@@ -123,7 +123,7 @@ export function QrPayModule() {
       {request ? (
         <Panel>
           <div className="mb-5 flex items-center gap-3">
-            <div className="rounded-2xl bg-white/10 p-3 text-accent">{request.category === "petrol" ? <Fuel size={22} /> : <QrCode size={22} />}</div>
+            <div className="rounded-2xl bg-[#0b1728]/75 p-3 text-accent">{request.category === "petrol" ? <Fuel size={22} /> : <QrCode size={22} />}</div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Payment request</p>
               <h2 className="mt-1 text-xl font-semibold">{request.merchant}</h2>

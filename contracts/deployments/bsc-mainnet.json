@@ -1,0 +1,53 @@
+{
+  "network": "bscMainnet",
+  "chainId": 56,
+  "deployer": "0x263e3C8d975662EBF2B44d0F65250105cD535d7d",
+  "usdtAddress": "0x55d398326f99059fF775485246999027B3197955",
+  "treasuryAddresses": {
+    "direct": "0x82034cE63010600b767B863Fe0f22093509A23D2",
+    "level": "0x82034cE63010600b767B863Fe0f22093509A23D2",
+    "companyReserve": "0x31b35faD2546f2da899599042895f91445F11c5c"
+  },
+  "timestamp": "2026-05-20T16:10:04.269Z",
+  "contracts": {
+    "HBReferralRegistry": {
+      "address": "0x0E2b46C2Ecf1Ec20ddEB54cA64e7C3D57aDb486e",
+      "txHash": "0x4e9c26683de0d8aea73aa279932c9c52ad01972d92b2e806fadbdfd12662b561",
+      "constructorArgs": [
+        "0x263e3C8d975662EBF2B44d0F65250105cD535d7d"
+      ]
+    },
+    "HBTreasurySplitter": {
+      "address": "0xFcCBFF3927eFFD31010a087355605aA954aB8073",
+      "txHash": "0x7ee7dfa5c1add5f49ce4dd6fd30a3652aef7119285667147e0710a2eca3f8f11",
+      "constructorArgs": [
+        "0x55d398326f99059fF775485246999027B3197955",
+        "0x263e3C8d975662EBF2B44d0F65250105cD535d7d"
+      ]
+    },
+    "HBIncomeDistributor": {
+      "address": "0xc1ba0b9d3a5F8c0DCD21b747AEDF8751B836ccBf",
+      "txHash": "0xb346ebac247caddf1f1e57d9fd82c1630c79dcccaf08916c53e18451e9d8d1f4",
+      "constructorArgs": [
+        "0x263e3C8d975662EBF2B44d0F65250105cD535d7d"
+      ]
+    },
+    "HalalBusinessPackageManager": {
+      "address": "0xa9E27398023289172717729E580ed0F15AAE728e",
+      "txHash": "0xa74c46b05ba32151b31f0bcb6613a13f6b98e768b9af30b4c15537d47ce8183f",
+      "constructorArgs": [
+        "0x55d398326f99059fF775485246999027B3197955",
+        "0x0E2b46C2Ecf1Ec20ddEB54cA64e7C3D57aDb486e",
+        "0xFcCBFF3927eFFD31010a087355605aA954aB8073",
+        "0x263e3C8d975662EBF2B44d0F65250105cD535d7d"
+      ]
+    }
+  },
+  "ownership": {
+    "referralRegistryOwner": "0xa9E27398023289172717729E580ed0F15AAE728e",
+    "treasurySplitterOwner": "0xa9E27398023289172717729E580ed0F15AAE728e",
+    "packageManagerPendingOwner": "0x263e3C8d975662EBF2B44d0F65250105cD535d7d",
+    "incomeDistributorPendingOwner": "0x263e3C8d975662EBF2B44d0F65250105cD535d7d",
+    "multisigOwner": "0x263e3C8d975662EBF2B44d0F65250105cD535d7d"
+  }
+}

@@ -15,7 +15,7 @@ export function RewardsPage() {
       <Panel>
         <div className="flex items-center gap-3"><CalendarCheck className="text-accent" /><h2 className="text-lg font-semibold">Daily check-in</h2></div>
         <div className="mt-4 grid grid-cols-7 gap-2">
-          {Array.from({ length: 7 }, (_, index) => <div key={index} className="rounded-xl bg-white/[0.045] py-3 text-center text-xs text-slate-300">D{index + 1}</div>)}
+          {Array.from({ length: 7 }, (_, index) => <div key={index} className="rounded-xl bg-[#0b1728]/60 py-3 text-center text-xs text-slate-300">D{index + 1}</div>)}
         </div>
         <PrimaryButton className="mt-4 w-full" disabled>Check-in Locked</PrimaryButton>
       </Panel>

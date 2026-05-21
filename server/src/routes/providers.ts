@@ -3,6 +3,7 @@ import { z } from "zod";
 import { asyncHandler, ok } from "../http.js";
 import { config } from "../config.js";
 import { query } from "../db/pool.js";
+import { requireAdmin } from "../adminAuth.js";
 
 export const providersRouter = Router();
 
@@ -26,7 +27,7 @@ providersRouter.get("/providers/status", asyncHandler(async (_req, res) => {
   }, "Provider status loaded");
 }));
 
-providersRouter.get("/admin/recharge/providers", asyncHandler(async (_req, res) => {
+providersRouter.get("/admin/recharge/providers", requireAdmin, asyncHandler(async (_req, res) => {
   ok(res, {
     activeProvider: config.rechargeProvider,
     autoRefundEnabled: config.autoRefundEnabled,
@@ -39,7 +40,7 @@ providersRouter.get("/admin/recharge/providers", asyncHandler(async (_req, res) 
   }, "Recharge provider settings loaded");
 }));
 
-providersRouter.post("/admin/recharge/provider-status", asyncHandler(async (req, res) => {
+providersRouter.post("/admin/recharge/provider-status", requireAdmin, asyncHandler(async (req, res) => {
   const parsed = providerStatusSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, data: null, message: "Invalid provider status request", error: JSON.stringify(parsed.error.flatten()) });

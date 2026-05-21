@@ -3,24 +3,24 @@
 import { Search, TrendingUp } from "lucide-react";
 import { Panel } from "@/components/ui/Primitives";
 import { TokenIcon } from "@/components/TokenIcon";
+import type { NetworkKey } from "@/lib/networks";
 import { formatCurrency } from "@/utils/format";
 
-const markets = [
-  { symbol: "BTC", name: "Bitcoin", price: 64000, change: 1.2, marketCap: "$1.26T", color: "#f7931a" },
-  { symbol: "ETH", name: "Ethereum", price: 3025.42, change: 2.15, marketCap: "$363B", color: "#8a92b2" },
-  { symbol: "BNB", name: "BNB", price: 612.35, change: 1.84, marketCap: "$91B", color: "#f3ba2f" },
-  { symbol: "MATIC", name: "Polygon", price: 0.72, change: -0.62, marketCap: "$7B", color: "#8247e5" },
-  { symbol: "TRX", name: "Tron", price: 0.12, change: 0.88, marketCap: "$11B", color: "#ff060a" },
-  { symbol: "SOL", name: "Solana", price: 142.7, change: 3.4, marketCap: "$64B", color: "#14f195" }
+const markets: Array<{ symbol: string; name: string; network: NetworkKey; price: number; change: number; marketCap: string; color: string }> = [
+  { symbol: "BTC", name: "Bitcoin", network: "bitcoin", price: 64000, change: 1.2, marketCap: "$1.26T", color: "#f7931a" },
+  { symbol: "BNB", name: "BNB", network: "bsc", price: 612.35, change: 1.84, marketCap: "$91B", color: "#f3ba2f" },
+  { symbol: "MATIC", name: "Polygon", network: "polygon", price: 0.72, change: -0.62, marketCap: "$7B", color: "#8247e5" },
+  { symbol: "TRX", name: "Tron", network: "tron", price: 0.12, change: 0.88, marketCap: "$11B", color: "#ff060a" },
+  { symbol: "SOL", name: "Solana", network: "solana", price: 142.7, change: 3.4, marketCap: "$64B", color: "#14f195" }
 ];
 
 export function MarketsPage() {
   return (
     <div className="space-y-4" data-testid="markets-screen">
       <Panel>
-        <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.055] px-4 py-3">
+        <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#0b1728]/70 px-4 py-3">
           <Search size={18} className="text-slate-400" />
-          <input className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500" placeholder="Search BTC, ETH, BNB" />
+          <input className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500" placeholder="Search BTC, BNB, USDT" />
         </div>
       </Panel>
       <Panel>
@@ -30,7 +30,7 @@ export function MarketsPage() {
         </div>
         <div className="grid grid-cols-3 gap-2">
           {markets.slice(0, 3).map((coin) => (
-            <div key={coin.symbol} className="rounded-2xl bg-white/[0.045] p-3">
+            <div key={coin.symbol} className="rounded-2xl bg-[#0b1728]/60 p-3">
               <div className="font-semibold">{coin.symbol}</div>
               <div className={coin.change >= 0 ? "text-sm text-mint" : "text-sm text-danger"}>{coin.change >= 0 ? "+" : ""}{coin.change}%</div>
             </div>
@@ -41,7 +41,7 @@ export function MarketsPage() {
         <h2 className="mb-4 text-lg font-semibold">Crypto Markets</h2>
         <div className="space-y-2">
           {markets.map((coin) => (
-            <div key={coin.symbol} className="flex items-center justify-between gap-3 rounded-2xl bg-white/[0.045] p-3" data-testid="market-row">
+            <div key={coin.symbol} className="flex items-center justify-between gap-3 rounded-2xl bg-[#0b1728]/60 p-3" data-testid="market-row">
               <div className="flex min-w-0 items-center gap-3">
                 <TokenIcon token={{ ...coin, balance: "0", fiatValue: 0, price: coin.price, change24h: coin.change, color: coin.color }} />
                 <span className="min-w-0">

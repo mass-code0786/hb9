@@ -1,6 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#05070b"/>
-  <path d="M256 84 406 171v170L256 428 106 341V171L256 84Z" fill="#f3ba2f"/>
-  <path d="M256 140 356 198v116l-100 58-100-58V198l100-58Z" fill="#05070b"/>
-  <path d="M256 182 320 219v74l-64 37-64-37v-74l64-37Z" fill="#31d0aa"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
+  <defs>
+    <linearGradient id="outer" x1="92" x2="420" y1="42" y2="470" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e0f8ff"/>
+      <stop offset=".34" stop-color="#22d3ee"/>
+      <stop offset=".72" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#00c8ff"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="125" x2="392" y1="82" y2="430" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0f3457"/>
+      <stop offset=".48" stop-color="#071827"/>
+      <stop offset="1" stop-color="#020817"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="matrix(170 170 -170 170 188 128)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#baf2ff" stop-opacity=".62"/>
+      <stop offset=".42" stop-color="#38bdf8" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#020817" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#020817"/>
+  <circle cx="256" cy="256" r="198" fill="#00c8ff" opacity=".055"/>
+  <path d="M256 44 428 143v198L256 440 84 341V143L256 44Z" fill="#020817" stroke="url(#outer)" stroke-width="15" stroke-linejoin="round"/>
+  <path d="M256 84 394 164v184L256 428 118 348V164L256 84Z" fill="url(#glass)" stroke="#7dd3fc" stroke-opacity=".38" stroke-width="7"/>
+  <path d="M256 84 394 164v184L256 428 118 348V164L256 84Z" fill="url(#glow)"/>
+  <path d="M148 176 256 114l108 62M148 336l108 62 108-62M118 244h56M338 244h56" stroke="#67e8f9" stroke-opacity=".35" stroke-width="8" stroke-linecap="round"/>
+  <path d="M148 172h58M148 340h58M306 172h58M306 340h58" stroke="#baf2ff" stroke-opacity=".22" stroke-width="6" stroke-linecap="round"/>
+  <path d="M148 154c34-35 71-53 108-53 38 0 74 18 108 53H148Z" fill="#e0f8ff" opacity=".08"/>
+  <text x="256" y="304" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="128" font-weight="900" letter-spacing="8" fill="#f8feff">HB9</text>
+  <text x="256" y="304" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="128" font-weight="900" letter-spacing="8" fill="none" stroke="#67e8f9" stroke-opacity=".24" stroke-width="4">HB9</text>
+  <circle cx="150" cy="176" r="8" fill="#baf2ff"/>
+  <circle cx="362" cy="336" r="8" fill="#38bdf8"/>
 </svg>

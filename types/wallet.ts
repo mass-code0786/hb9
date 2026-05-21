@@ -1,6 +1,6 @@
 import type { NetworkKey } from "@/lib/networks";
 
-export type TokenSymbol = "BNB" | "USDT" | "USDC" | "ETH" | "MATIC" | "TRX" | "BTC" | "AVAX" | "SOL";
+export type TokenSymbol = "BNB" | "USDT" | "USDC" | "MATIC" | "TRX" | "BTC" | "AVAX" | "SOL";
 
 export type WalletToken = {
   symbol: TokenSymbol | string;
@@ -21,7 +21,7 @@ export type WalletToken = {
   color: string;
 };
 
-export type AppTab = "home" | "markets" | "trade" | "rewards" | "discover";
+export type AppTab = "home" | "products" | "team" | "income" | "wallet";
 
 export type WalletScreen =
   | "landing"
@@ -35,6 +35,8 @@ export type WalletScreen =
   | "dashboard"
   | "receive"
   | "send"
+  | "deposit"
+  | "withdrawal"
   | "recharge"
   | "qr-pay"
   | "token-details"

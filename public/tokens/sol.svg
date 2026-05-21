@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <circle cx="128" cy="128" r="128" fill="#111827"/>
+  <defs>
+    <linearGradient id="sol-a" x1="58" x2="198" y1="81" y2="175" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00FFA3"/>
+      <stop offset="1" stop-color="#DC1FFF"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#sol-a)" d="M72 67h134l-22 24H50l22-24Zm-22 98h134l22 24H72l-22-24Zm22-49h134l-22 24H50l22-24Z"/>
+</svg>

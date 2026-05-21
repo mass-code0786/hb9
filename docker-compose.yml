@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bitzenx
+    ports:
+      - "5432:5432"
+    volumes:
+      - bitzenx_pg:/var/lib/postgresql/data
+      - ./server/migrations:/docker-entrypoint-initdb.d:ro
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      API_PORT: 4000
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/bitzenx
+      CORS_ORIGIN: http://localhost:3000
+      RATE_LIMIT_WINDOW_MS: 60000
+      RATE_LIMIT_MAX: 120
+      RECHARGE_PROVIDER: mock
+    ports:
+      - "4000:4000"
+    depends_on:
+      - postgres
+
+volumes:
+  bitzenx_pg:

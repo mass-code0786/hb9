@@ -5,6 +5,7 @@ import { CheckCircle2, ExternalLink, Eye, EyeOff, Loader2, Plus, Search, Star, X
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState, ErrorText, Field, Panel, PrimaryButton, Select } from "@/components/ui/Primitives";
 import { explorerAddressUrl, getNetworkConfig, NETWORK_OPTIONS, type NetworkKey } from "@/lib/networks";
+import { getNetworkBadgeClass } from "@/lib/tokenIcons";
 import { DEFAULT_TOKENS } from "@/lib/tokens";
 import { getEvmTokenMetadata } from "@/services/evmService";
 import { useTokenStore } from "@/store/tokenStore";
@@ -38,6 +39,8 @@ function defaultWalletTokens(): WalletToken[] {
 }
 
 export function TokenDetails({ token, onReceive, onSend }: { token: WalletToken | null; onReceive: (token: WalletToken) => void; onSend: (token: WalletToken) => void }) {
+  void onReceive;
+  void onSend;
   const toggleFavorite = useTokenStore((state) => state.toggleFavorite);
   const toggleHidden = useTokenStore((state) => state.toggleHidden);
   if (!token) return <Panel>Select a token from the home asset list.</Panel>;
@@ -54,8 +57,8 @@ export function TokenDetails({ token, onReceive, onSend }: { token: WalletToken 
             </div>
           </div>
           <div className="flex gap-2">
-            <button className="rounded-2xl bg-white/10 p-3" onClick={() => toggleFavorite(token.id || token.symbol)} type="button"><Star size={18} /></button>
-            <button className="rounded-2xl bg-white/10 p-3" onClick={() => toggleHidden(token.id || token.symbol)} type="button"><EyeOff size={18} /></button>
+            <button className="rounded-2xl bg-[#0b1728]/75 p-3" onClick={() => toggleFavorite(token.id || token.symbol)} type="button"><Star size={18} /></button>
+            <button className="rounded-2xl bg-[#0b1728]/75 p-3" onClick={() => toggleHidden(token.id || token.symbol)} type="button"><EyeOff size={18} /></button>
           </div>
         </div>
         <div className="mt-6 text-4xl font-semibold">{trimAmount(token.balance)}</div>
@@ -63,15 +66,12 @@ export function TokenDetails({ token, onReceive, onSend }: { token: WalletToken 
       </Panel>
       <Panel>
         <h2 className="mb-4 text-lg font-semibold">Price chart</h2>
-        <div className="flex h-44 items-end gap-2 rounded-2xl bg-white/[0.045] p-4">
+        <div className="flex h-44 items-end gap-2 rounded-2xl bg-[#0b1728]/60 p-4">
           {[40, 56, 46, 80, 72, 92, 68, 76, 88, 95, 84, 98].map((height, index) => (
             <div key={index} className="flex-1 rounded-t-xl bg-mint/70" style={{ height: `${height}%` }} />
           ))}
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <PrimaryButton className="py-3 text-sm" onClick={() => onReceive(token)} type="button">Receive</PrimaryButton>
-          <PrimaryButton className="py-3 text-sm" onClick={() => onSend(token)} type="button">Send</PrimaryButton>
-        </div>
+        <div className="mt-4 rounded-2xl border border-white/10 bg-[#0b1728]/60 p-3 text-sm text-slate-300">Crypto send and receive are disabled in the main HB9 flow. Use Deposit and Withdrawal from Home.</div>
       </Panel>
       <Panel>
         <h2 className="mb-4 text-lg font-semibold">Token info</h2>
@@ -222,7 +222,7 @@ export function AddCustomToken({ defaultNetwork = "bsc" }: { defaultNetwork?: Ne
         {!fetched && address.trim() ? <span className="block">Token metadata is not verified yet.</span> : null}
         {duplicateSymbol ? <span className="block">A token with this symbol already exists on this network.</span> : null}
       </div>
-      {selectedNetwork.kind !== "evm" ? <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.045] p-3 text-sm text-slate-300">{selectedNetwork.addressLabel}</div> : null}
+      {selectedNetwork.kind !== "evm" ? <div className="mt-4 rounded-2xl border border-white/10 bg-[#0b1728]/60 p-3 text-sm text-slate-300">{selectedNetwork.addressLabel}</div> : null}
       <ErrorText error={error} />
       <PrimaryButton className="mt-4 w-full" onClick={submit} disabled={loading || selectedNetwork.kind !== "evm"} type="button">
         {loading ? "Fetching Token" : "Import Token"}
@@ -265,7 +265,7 @@ export function ManageTokensPage({ network, importOpen = false, onImportOpenChan
         <div className="fixed inset-0 z-50 flex items-end bg-black/70 px-3 pb-3 pt-12 backdrop-blur-sm sm:items-center sm:justify-center">
           <div className="w-full max-w-md">
             <div className="mb-3 flex justify-end">
-              <button className="rounded-2xl bg-white/10 p-3" onClick={() => setImportVisible(false)} type="button" aria-label="Close import token"><X size={18} /></button>
+              <button className="rounded-2xl bg-[#0b1728]/75 p-3" onClick={() => setImportVisible(false)} type="button" aria-label="Close import token"><X size={18} /></button>
             </div>
             <AddCustomToken defaultNetwork={network} />
           </div>
@@ -321,21 +321,21 @@ function ManageTokenRow({
   const key = tokenKey(token);
   const hidden = hiddenSymbols.includes(key);
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl bg-white/[0.045] p-3">
+    <div className="flex items-center justify-between gap-3 rounded-2xl bg-[#0b1728]/60 p-3">
       <div className="flex min-w-0 items-center gap-3">
         <TokenIcon token={token} />
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-semibold">{token.symbol}</span>
-            <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-slate-300">{token.networkName}</span>
+            <span className="font-bold text-slate-50">{token.symbol}</span>
+            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getNetworkBadgeClass(token.network)}`}>{token.networkName}</span>
           </div>
           <div className="truncate text-xs text-slate-400">{token.name}</div>
           <div className="mt-1 text-xs text-slate-500">{trimAmount(token.balance || "0")} | {formatCurrency(token.fiatValue || 0)}</div>
         </div>
       </div>
       <div className="flex shrink-0 gap-2">
-        <button className={`rounded-xl p-2 ${favorites.includes(key) ? "bg-accent text-black" : "bg-white/10"}`} onClick={() => onFavorite(key)} type="button" aria-label={`Pin ${token.symbol}`}><Star size={15} /></button>
-        <button className="rounded-xl bg-white/10 p-2" onClick={() => onHidden(key)} type="button" aria-label={`${hidden ? "Show" : "Hide"} ${token.symbol}`}>
+        <button className={`rounded-xl p-2 ${favorites.includes(key) ? "bg-accent text-black" : "bg-[#0b1728]/75"}`} onClick={() => onFavorite(key)} type="button" aria-label={`Pin ${token.symbol}`}><Star size={15} /></button>
+        <button className="rounded-xl bg-[#0b1728]/75 p-2" onClick={() => onHidden(key)} type="button" aria-label={`${hidden ? "Show" : "Hide"} ${token.symbol}`}>
           {hidden ? <Eye size={15} /> : <EyeOff size={15} />}
         </button>
       </div>

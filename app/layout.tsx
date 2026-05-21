@@ -5,9 +5,22 @@ import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 import { Providers } from "@/components/Providers";
 
 export const metadata: Metadata = {
-  title: "BitzenX Wallet",
-  description: "A mobile-first BSC web wallet PWA with local encrypted storage.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://hb9.live"),
+  title: "HB9 | Decentralized Business Identity",
+  description: "Decentralized Business Identity and Product Activation Ecosystem with wallet-first onboarding, treasury visibility, referral distribution, and proof-based earning transparency.",
   manifest: "/manifest.webmanifest",
+  openGraph: {
+    title: "HB9",
+    description: "Decentralized Business Identity & Product Activation Ecosystem.",
+    siteName: "HB9",
+    type: "website",
+    images: [{ url: "/icons/icon.svg", width: 512, height: 512, alt: "HB9" }]
+  },
+  twitter: {
+    card: "summary",
+    title: "HB9",
+    description: "Wallet-first business identity, activation products, treasury visibility, and proof transparency."
+  },
   icons: {
     icon: [
       { url: "/icons/icon.svg", type: "image/svg+xml" }
@@ -18,7 +31,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "BitzenX"
+    title: "HB9"
   }
 };
 

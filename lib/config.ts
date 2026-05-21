@@ -2,8 +2,9 @@ export const CHAIN_MODE = process.env.NEXT_PUBLIC_CHAIN_MODE === "testnet" ? "te
 export const BSC_RPC_URL =
   process.env.NEXT_PUBLIC_BSC_RPC_URL ||
   (CHAIN_MODE === "testnet" ? "https://data-seed-prebsc-1-s1.binance.org:8545" : "https://bsc-dataseed.binance.org");
-export const BSC_CHAIN_ID = Number(process.env.NEXT_PUBLIC_BSC_CHAIN_ID || (CHAIN_MODE === "testnet" ? 97 : 56));
+export const BSC_CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID || process.env.NEXT_PUBLIC_BSC_CHAIN_ID || (CHAIN_MODE === "testnet" ? 97 : 56));
 export const USDT_CONTRACT =
+  process.env.NEXT_PUBLIC_USDT_TOKEN_ADDRESS ||
   process.env.NEXT_PUBLIC_USDT_BEP20_ADDRESS ||
   process.env.NEXT_PUBLIC_USDT_CONTRACT ||
   "0x55d398326f99059fF775485246999027B3197955";

@@ -1,9 +1,12 @@
 import { Router } from "express";
+import crypto from "node:crypto";
+import type { Request } from "express";
 import { z } from "zod";
 import { config } from "../config.js";
 import { query } from "../db/pool.js";
 import { asyncHandler, fail, ok } from "../http.js";
 import { getRechargeProvider } from "../providers/recharge/factory.js";
+import { VerificationError, verifyBlockchainTransaction, type BlockchainVerification } from "../services/blockchainVerifier.js";
 import type { RechargeOrder, RechargeQuote } from "../providers/recharge/types.js";
 
 const phoneRegex = /^\+?\d{6,18}$/;
@@ -99,6 +102,67 @@ async function persistOrder(order: RechargeOrder) {
   );
 }
 
+async function txHashAlreadyUsed(txHash: string) {
+  const normalized = txHash.toLowerCase();
+  if (Array.from(memoryOrders.values()).some((order) => order.txHash.toLowerCase() === normalized)) return true;
+  const rows = await query<{ id: string }>(
+    `select id from recharge_orders where lower(tx_hash) = lower($1)
+     union all
+     select id from payment_orders where lower(tx_hash) = lower($1)
+     limit 1`,
+    [txHash]
+  );
+  return Boolean(rows[0]);
+}
+
+async function saveRechargeVerification(orderId: string, verification: BlockchainVerification) {
+  await query(
+    `update recharge_orders
+     set chain_id = $2,
+         token_symbol = $3,
+         token_contract = $4,
+         from_address = $5,
+         to_address = $6,
+         verified_amount = $7,
+         confirmations = $8,
+         verified_at = $9,
+         verification_status = $10,
+         verification_error = null,
+         updated_at = now()
+     where id = $1`,
+    [
+      orderId,
+      verification.chainId,
+      verification.tokenSymbol,
+      verification.tokenContract,
+      verification.fromAddress,
+      verification.toAddress,
+      verification.verifiedAmount,
+      verification.confirmations,
+      verification.verifiedAt,
+      verification.verificationStatus
+    ]
+  );
+}
+
+function verifyWebhookSignature(req: Request) {
+  if (!config.rechargeWebhookSecret) throw new VerificationError("Recharge webhook secret is not configured.");
+  const signature = typeof req.headers["x-bitzenx-signature"] === "string" ? req.headers["x-bitzenx-signature"] : "";
+  const timestamp = typeof req.headers["x-bitzenx-timestamp"] === "string" ? req.headers["x-bitzenx-timestamp"] : "";
+  if (!signature || !timestamp) throw new VerificationError("Webhook signature headers are required.");
+  const timestampMs = Number(timestamp);
+  if (!Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > 5 * 60 * 1000) {
+    throw new VerificationError("Webhook timestamp is outside the allowed tolerance.");
+  }
+  const payload = `${timestamp}.${JSON.stringify(req.body)}`;
+  const expected = crypto.createHmac("sha256", config.rechargeWebhookSecret).update(payload).digest("hex");
+  const left = Buffer.from(signature.replace(/^sha256=/, ""), "hex");
+  const right = Buffer.from(expected, "hex");
+  if (left.length !== right.length || !crypto.timingSafeEqual(left, right)) {
+    throw new VerificationError("Webhook signature is invalid.");
+  }
+}
+
 function mapDbOrder(row: Record<string, unknown>): RechargeOrder {
   return {
     id: String(row.id),
@@ -171,11 +235,31 @@ rechargeRouter.post("/recharge/create", asyncHandler(async (req, res) => {
     fail(res, "Quote expired or not found. Create a new quote.", 404, "Recharge quote unavailable");
     return;
   }
+  if (await txHashAlreadyUsed(parsed.data.txHash)) {
+    fail(res, "Transaction hash has already been used.", 409, "Duplicate transaction");
+    return;
+  }
 
-  await audit(parsed.data.walletAddress || null, "recharge.payment_detected", null, { quoteId: quote.id, txHash: parsed.data.txHash });
+  let verification: BlockchainVerification;
+  try {
+    verification = await verifyBlockchainTransaction({
+      txHash: parsed.data.txHash,
+      network: quote.network,
+      tokenSymbol: quote.cryptoSymbol,
+      requiredAmount: quote.cryptoAmount
+    });
+  } catch (err) {
+    const message = err instanceof VerificationError ? err.publicReason : "Transaction verification failed.";
+    await audit(parsed.data.walletAddress || null, "recharge.verification_failed", null, { quoteId: quote.id, txHash: parsed.data.txHash, error: message });
+    fail(res, message, err instanceof VerificationError ? err.statusCode : 400, "Recharge transaction verification failed");
+    return;
+  }
+
+  await audit(parsed.data.walletAddress || null, "recharge.payment_verified", null, { quoteId: quote.id, txHash: parsed.data.txHash, verification });
   const order = await getRechargeProvider().create({ ...parsed.data, quote });
   memoryOrders.set(order.id, order);
   await persistOrder(order);
+  await saveRechargeVerification(order.id, verification);
   if (order.status === "refund_pending") {
     await query(
       `insert into recharge_refunds (order_id, tx_hash, crypto_symbol, crypto_amount, status, admin_review_required)
@@ -189,6 +273,13 @@ rechargeRouter.post("/recharge/create", asyncHandler(async (req, res) => {
 }));
 
 rechargeRouter.post("/recharge/webhook", asyncHandler(async (req, res) => {
+  try {
+    verifyWebhookSignature(req);
+  } catch (err) {
+    const message = err instanceof VerificationError ? err.publicReason : "Webhook signature verification failed.";
+    fail(res, message, 401, "Invalid recharge webhook signature");
+    return;
+  }
   const parsed = webhookSchema.safeParse(req.body);
   if (!parsed.success) {
     fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid recharge webhook request");
@@ -218,14 +309,18 @@ rechargeRouter.get("/recharge/status/:orderId", asyncHandler(async (req, res) =>
 }));
 
 rechargeRouter.get("/recharge/history", asyncHandler(async (req, res) => {
-  const walletAddress = typeof req.query.walletAddress === "string" ? req.query.walletAddress : "";
+  const walletAddress = typeof req.query.walletAddress === "string" ? req.query.walletAddress.trim() : "";
+  if (!walletAddress) {
+    fail(res, "walletAddress query parameter is required", 400, "Invalid recharge history request");
+    return;
+  }
   const rows = await query<Record<string, unknown>>(
     `select * from recharge_orders
-     where ($1::text = '' or user_wallet_address = $1)
+     where user_wallet_address = $1
      order by created_at desc
      limit 100`,
     [walletAddress]
   );
-  const items = rows.length > 0 ? rows.map(mapDbOrder) : Array.from(memoryOrders.values()).filter((order) => !walletAddress || order.userWalletAddress === walletAddress);
+  const items = rows.length > 0 ? rows.map(mapDbOrder) : Array.from(memoryOrders.values()).filter((order) => order.userWalletAddress === walletAddress);
   ok(res, { items }, "Recharge history loaded");
 }));

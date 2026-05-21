@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Clock3, FileText, RefreshCcw, Smartphone, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, Clock3, FileText, RefreshCcw, Search, Smartphone, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState, ErrorCard, Field, Panel, PrimaryButton, SecondaryButton, Select } from "@/components/ui/Primitives";
 import { BrandLogo } from "@/components/BrandLogo";
@@ -48,8 +48,18 @@ export function RechargeModule() {
   const [txHash, setTxHash] = useState("");
   const [loading, setLoading] = useState<"catalog" | "quote" | "order" | "status" | "">("catalog");
   const [error, setError] = useState("");
+  const [countrySearch, setCountrySearch] = useState("");
+  const [countryMenuOpen, setCountryMenuOpen] = useState(false);
 
   const country = useMemo(() => countries.find((item) => item.code === store.country) || countries[0], [countries, store.country]);
+  const filteredCountries = useMemo(() => {
+    const query = countrySearch.trim().toLowerCase();
+    if (!query) return countries;
+    return countries.filter((item) => {
+      const haystack = `${item.name} ${item.code} ${item.dialCode} ${item.currency}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [countries, countrySearch]);
   const operator = useMemo(() => operators.find((item) => item.id === store.operatorId) || operators[0], [operators, store.operatorId]);
   const product = useMemo(() => products.find((item) => item.id === store.productId) || products[0], [products, store.productId]);
   const step = order ? 7 : quote ? 5 : product ? 4 : operator ? 3 : store.mobile ? 2 : 1;
@@ -61,6 +71,9 @@ export function RechargeModule() {
       .then((items) => {
         if (!active) return;
         setCountries(items);
+        if (!items.some((item) => item.code === store.country)) {
+          store.setField("country", items.some((item) => item.code === "IN") ? "IN" : items[0]?.code || "");
+        }
       })
       .catch(() => setError("Could not load recharge countries."))
       .finally(() => setLoading(""));
@@ -190,11 +203,18 @@ export function RechargeModule() {
     setError("");
   }
 
+  function selectCountry(countryCode: string) {
+    resetFlow();
+    store.setField("country", countryCode);
+    setCountrySearch("");
+    setCountryMenuOpen(false);
+  }
+
   return (
     <div className="space-y-4 md:grid md:grid-cols-[minmax(0,1fr)_360px] md:gap-5 md:space-y-0" data-testid="recharge-screen">
       <Panel>
         <div className="mb-5 flex items-center gap-3">
-          <BrandLogo size="sm" />
+          <BrandLogo size="sm" showText />
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold">Global Recharge</h1>
             <p className="text-sm text-slate-400">{supportedCountryCount} countries, local currency quotes</p>
@@ -204,19 +224,57 @@ export function RechargeModule() {
 
         <div className="mb-4 grid grid-cols-7 gap-1">
           {[1, 2, 3, 4, 5, 6, 7].map((item) => (
-            <div key={item} className={`h-1.5 rounded-full ${item <= step ? "bg-accent" : "bg-white/10"}`} />
+            <div key={item} className={`h-1.5 rounded-full ${item <= step ? "bg-accent" : "bg-[#0b1728]/75"}`} />
           ))}
         </div>
 
         <div className="grid gap-3">
           <label className="space-y-2">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">1. Country</span>
-            <Select value={store.country} onChange={(event) => {
-              resetFlow();
-              store.setField("country", event.target.value);
-            }} disabled={loading === "catalog"}>
-              {countries.map((item) => <option key={item.code} value={item.code}>{flagEmoji(item.code)} {item.name} ({item.dialCode})</option>)}
-            </Select>
+            <div className="relative">
+              <button
+                aria-expanded={countryMenuOpen}
+                className="field flex min-h-[3.15rem] items-center justify-between gap-3 text-left"
+                disabled={loading === "catalog"}
+                onClick={() => setCountryMenuOpen((open) => !open)}
+                type="button"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {country ? `${country.flag || flagEmoji(country.code)} ${country.name} (${country.dialCode})` : "Select country"}
+                </span>
+                <ChevronDown size={18} className="shrink-0 text-slate-400" />
+              </button>
+              {countryMenuOpen ? (
+                <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-white/10 bg-[#10141d] shadow-wallet">
+                  <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
+                    <Search size={16} className="shrink-0 text-slate-500" />
+                    <input
+                      autoFocus
+                      className="min-w-0 flex-1 bg-transparent py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500"
+                      onChange={(event) => setCountrySearch(event.target.value)}
+                      placeholder="Search country or dial code"
+                      value={countrySearch}
+                    />
+                  </div>
+                  <div className="max-h-72 overflow-y-auto overscroll-contain p-1 sm:max-h-80">
+                    {filteredCountries.length > 0 ? filteredCountries.map((item) => (
+                      <button
+                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-[#0b1728]/75 ${item.code === store.country ? "bg-accent/[0.12] text-accent" : "text-slate-100"}`}
+                        key={item.code}
+                        onClick={() => selectCountry(item.code)}
+                        type="button"
+                      >
+                        <span className="w-7 shrink-0 text-lg leading-none">{item.flag || flagEmoji(item.code)}</span>
+                        <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                        <span className="shrink-0 text-xs text-slate-400">{item.dialCode}</span>
+                      </button>
+                    )) : (
+                      <div className="px-3 py-4 text-sm text-slate-400">No countries found.</div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </label>
 
           <label className="space-y-2">
@@ -273,7 +331,7 @@ export function RechargeModule() {
             <QuoteRow label="Payable" value={`${quote.cryptoAmount} ${quote.cryptoSymbol}`} strong />
             <QuoteRow label="ETA" value={quote.estimatedDelivery} />
             <Field className="mt-3" placeholder="Confirmed blockchain tx hash" value={txHash} onChange={(event) => setTxHash(event.target.value)} />
-            <p className="mt-2 text-xs leading-5 text-slate-400">Send from the local BitzenX wallet, wait for confirmation, then paste the transaction hash. Signing remains local.</p>
+            <p className="mt-2 text-xs leading-5 text-slate-400">Send from your connected external BSC wallet, wait for confirmation, then paste the transaction hash.</p>
           </div>
         ) : null}
 
@@ -295,7 +353,7 @@ export function RechargeModule() {
         <div className="space-y-2">
           {store.history.length === 0 ? <EmptyState title="No recharge orders" detail="Completed and pending top-ups will appear here." /> : null}
           {store.history.map((item) => (
-            <button key={item.id} className="w-full rounded-2xl bg-white/[0.045] p-3 text-left text-sm transition hover:bg-white/[0.075]" onClick={() => setOrder(item)} type="button">
+            <button key={item.id} className="w-full rounded-2xl bg-[#0b1728]/60 p-3 text-left text-sm transition hover:bg-[#0b1728]/75" onClick={() => setOrder(item)} type="button">
               <div className="flex items-center justify-between gap-3">
                 <span className="min-w-0 truncate font-medium">{item.operatorName}</span>
                 <span className={item.status === "success" ? "text-mint" : item.status === "refund_pending" || item.status === "failed" ? "text-danger" : "text-accent"}>{statusLabels[item.status]}</span>
@@ -326,7 +384,7 @@ function OrderStatus({ order, onRefresh, loading }: { order: RechargeOrder; onRe
       <div className="flex items-center gap-2 font-semibold">
         {success ? <CheckCircle2 size={18} className="text-mint" /> : failed ? <XCircle size={18} className="text-danger" /> : <Clock3 size={18} className="text-accent" />}
         <span>{statusLabels[order.status]}</span>
-        <button className="ml-auto rounded-xl bg-white/10 p-2" onClick={onRefresh} type="button" aria-label="Refresh recharge status" disabled={loading}>
+        <button className="ml-auto rounded-xl bg-[#0b1728]/75 p-2" onClick={onRefresh} type="button" aria-label="Refresh recharge status" disabled={loading}>
           <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
         </button>
       </div>
@@ -340,4 +398,3 @@ function OrderStatus({ order, onRefresh, loading }: { order: RechargeOrder; onRe
     </div>
   );
 }
-

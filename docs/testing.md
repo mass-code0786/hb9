@@ -2,7 +2,7 @@
 
 ## BSC Testnet Mode
 
-Use these environment values in `.env.local`:
+For a temporary local BSC testnet run, put these values in root `.env` and restart the dev server:
 
 ```bash
 NEXT_PUBLIC_CHAIN_MODE=testnet
@@ -18,13 +18,36 @@ Restart the dev server after changing chain mode.
 
 Use the BNB Chain testnet faucet from the official BNB Chain faucet page. Fund the wallet address shown in BitzenX, then refresh balances.
 
-## Compare With MetaMask Or TokenPocket
+## Standalone Wallet Check
 
-Import the same recovery phrase into MetaMask or TokenPocket only in a test wallet. Select BSC Testnet, compare the derived address, and verify BNB balance parity.
+Run BitzenX without any browser wallet extension installed or connected. The app must create, import, unlock, receive, estimate, and send using only the locally encrypted BitzenX wallet.
 
 ## Verify Transactions
 
 After sending test BNB, open the hash in `https://testnet.bscscan.com/tx/<hash>`. The hash shown in BitzenX should match the explorer transaction.
+
+## Tiny Test BNB Send Checklist
+
+- Switch root `.env` to BSC testnet mode for the test run.
+- Fund the BitzenX address from the official BNB Chain testnet faucet.
+- Send a tiny amount such as `0.0001` BNB to a second test wallet.
+- Estimate gas first, then send.
+- Copy the transaction hash and verify it on BscScan testnet.
+
+## Test BEP20 Send Checklist
+
+- Deploy or choose a BEP20 test token on BSC testnet.
+- Set `NEXT_PUBLIC_USDT_BEP20_ADDRESS` to that token address.
+- Fund the BitzenX wallet with a small token balance.
+- Send a tiny test token amount to a second test wallet.
+- Verify token transfer events on the explorer.
+
+## Troubleshooting
+
+- If balances do not load, verify `NEXT_PUBLIC_BSC_RPC_URL` and chain ID `97`.
+- If gas estimation fails, make sure the wallet has test BNB for gas.
+- If BEP20 sends fail, confirm token decimals and contract address.
+- If explorer links open mainnet, check `NEXT_PUBLIC_BSCSCAN_URL`.
 
 ## Manual Mobile QA
 

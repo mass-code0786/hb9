@@ -41,7 +41,7 @@ export function parseQrPayloadSafe(value: string): ParsedQrResult {
       error: "",
       request: {
       mode: parsed.mode === "dynamic" ? "dynamic" : "static",
-      merchant: parsed.merchant || "BitzenX Merchant",
+      merchant: parsed.merchant || "HB9 Merchant",
       category: parsed.category || "merchant",
       address,
       asset: parsed.asset === "BNB" ? "BNB" : "USDT",

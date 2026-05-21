@@ -5,7 +5,6 @@ Express + TypeScript backend for recharge and QR payment order orchestration. Th
 ## Local Setup
 
 ```bash
-cp server/.env.example server/.env
 npm run api:dev
 ```
 
@@ -17,6 +16,8 @@ npm run api:start
 ```
 
 ## VPS Deployment With PM2
+
+Fill `server/.env.production` on the VPS before starting PM2.
 
 ```bash
 npm install
@@ -33,20 +34,7 @@ docker compose up --build -d
 
 ## Nginx Reverse Proxy
 
-```nginx
-server {
-  server_name api.example.com;
-
-  location / {
-    proxy_pass http://127.0.0.1:4000;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-  }
-}
-```
+Use `deploy/nginx/bitzenx-api.conf` for production. It routes `https://hb9.live/api/*` to the API on port `4000` and frontend traffic to Next.js on port `3000`.
 
 ## Endpoints
 

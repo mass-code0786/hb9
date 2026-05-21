@@ -1,15 +1,28 @@
 import type { RechargeCountry, RechargeOperator, RechargeProduct } from "./types.js";
+import worldCountries from "world-countries";
 
-export const countries: RechargeCountry[] = [
-  { code: "IN", name: "India", currency: "INR", dialCode: "+91", flag: "IN" },
-  { code: "PK", name: "Pakistan", currency: "PKR", dialCode: "+92", flag: "PK" },
-  { code: "AE", name: "UAE", currency: "AED", dialCode: "+971", flag: "AE" },
-  { code: "BD", name: "Bangladesh", currency: "BDT", dialCode: "+880", flag: "BD" },
-  { code: "NP", name: "Nepal", currency: "NPR", dialCode: "+977", flag: "NP" },
-  { code: "SA", name: "Saudi Arabia", currency: "SAR", dialCode: "+966", flag: "SA" },
-  { code: "GB", name: "UK", currency: "GBP", dialCode: "+44", flag: "GB" },
-  { code: "US", name: "USA", currency: "USD", dialCode: "+1", flag: "US" }
-];
+function dialCode(root: string | undefined, suffixes: string[] | undefined) {
+  if (!root) return "";
+  if (!suffixes?.length) return root;
+  if (suffixes.length === 1) return `${root}${suffixes[0]}`;
+  if ((root === "+1" || root === "+7") && suffixes.length > 10) return root;
+  return `${root}${suffixes[0]}`;
+}
+
+export const countries: RechargeCountry[] = worldCountries
+  .map((country) => ({
+    code: country.cca2,
+    name: country.name.common,
+    currency: Object.keys(country.currencies || {})[0] || "",
+    dialCode: dialCode(country.idd?.root, country.idd?.suffixes),
+    flag: country.flag || country.cca2
+  }))
+  .filter((country) => country.code && country.name && country.dialCode)
+  .sort((left, right) => {
+    if (left.code === "IN") return -1;
+    if (right.code === "IN") return 1;
+    return left.name.localeCompare(right.name);
+  });
 
 export const operators: RechargeOperator[] = [
   { id: "in-airtel", countryCode: "IN", name: "Airtel" },
@@ -50,4 +63,3 @@ export const fxRatesToUsd: Record<string, number> = {
   GBP: 1.25,
   USD: 1
 };
-

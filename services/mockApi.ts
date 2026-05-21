@@ -7,7 +7,6 @@ export async function getMarketSnapshot() {
   return [
     { symbol: "BNB", name: "BNB", price: 612.35, change24h: 1.84 },
     { symbol: "USDT", name: "Tether USD", price: 1, change24h: 0.01 },
-    { symbol: "ETH", name: "Ethereum", price: 3240.2, change24h: -0.42 },
     { symbol: "BTC", name: "Bitcoin", price: 64220.9, change24h: 2.16 }
   ];
 }
@@ -36,11 +35,11 @@ export async function getMockTransactions(): Promise<WalletTransaction[]> {
     {
       id: "tx-receive-demo",
       type: "receive",
-      title: "Received BNB",
-      asset: "BNB",
-      amount: "+0.034",
+      title: "USDT deposit",
+      asset: "USDT",
+      amount: "+25.00",
       status: "success",
-      gasFee: "0 BNB",
+      gasFee: "NOWPayments",
       createdAt: new Date(Date.now() - 1000 * 60 * 60 * 8).toISOString()
     }
   ];

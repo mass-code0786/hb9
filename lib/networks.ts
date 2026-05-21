@@ -124,7 +124,6 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
 
 export const NETWORK_OPTIONS = [
   NETWORKS.bsc,
-  NETWORKS.ethereum,
   NETWORKS.polygon,
   NETWORKS.arbitrum,
   NETWORKS.optimism,

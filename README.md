@@ -43,7 +43,6 @@ public/          PWA manifest, service worker, app icon
 
 ```bash
 npm install
-cp .env.example .env.local
 npm run dev
 ```
 
@@ -65,6 +64,20 @@ NEXT_PUBLIC_BSCSCAN_URL=https://bscscan.com
 NEXT_PUBLIC_APP_NAME=BitzenX
 NEXT_PUBLIC_RECHARGE_PROVIDER=mock
 NEXT_PUBLIC_MARKETS_PROVIDER=mock
+BSC_RPC_URL=https://bsc-dataseed.binance.org
+ETH_RPC_URL=https://ethereum.publicnode.com
+POLYGON_RPC_URL=https://polygon-rpc.com
+HB_TREASURY_DEPOSIT_ADDRESS=
+HB_WITHDRAWAL_VAULT_ADDRESS=
+HB_WITHDRAWAL_PROVIDER_ENABLED=false
+HB_WITHDRAWAL_SIGNER_PRIVATE_KEY=
+COMPANY_EVM_RECEIVE_ADDRESS=
+COMPANY_TRON_RECEIVE_ADDRESS=
+USDT_BEP20_CONTRACT=0x55d398326f99059fF775485246999027B3197955
+NEXT_PUBLIC_USDT_TOKEN_ADDRESS=0x55d398326f99059fF775485246999027B3197955
+USDT_TRC20_CONTRACT=TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj
+RECHARGE_WEBHOOK_SECRET=
+MIN_BLOCK_CONFIRMATIONS=3
 
 API_PORT=4000
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/bitzenx
@@ -150,7 +163,7 @@ npm run test:e2e
 
 Frontend: deploy to Vercel with the `NEXT_PUBLIC_*` variables.
 
-Backend: deploy `server/` to a Node.js host or VPS, set `API_PORT`, `DATABASE_URL`, `CORS_ORIGIN`, rate-limit values, and provider credentials, run migrations, then start with `npm run api:start` after `npm run api:build`. For PM2 and nginx examples, see `server/README.md`.
+Backend: deploy `server/` to a Node.js host or VPS, fill `server/.env.production`, run migrations, then start with `npm run api:start` after `npm run api:build`. For PM2 and nginx examples, see `server/README.md`.
 
 ## Security Notes
 

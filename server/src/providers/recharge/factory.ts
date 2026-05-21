@@ -10,6 +10,8 @@ export function getRechargeProvider(name = config.rechargeProvider): RechargePro
   if (provider === "reloadly") return reloadlyProvider;
   if (provider === "dtone") return dtOneProvider;
   if (provider === "ding") return dingProvider;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("RECHARGE_PROVIDER must be a live provider in production.");
+  }
   return mockRechargeProvider;
 }
-

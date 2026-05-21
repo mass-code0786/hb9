@@ -7,17 +7,24 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
     "check": "npm run typecheck && npm run build",
     "api:dev": "tsx server/src/index.ts",
     "api:build": "tsc -p server/tsconfig.json",
     "api:check": "npm run api:build",
     "api:start": "node server/dist/index.js",
+    "deploy:bsc-mainnet": "npm --prefix contracts run deploy:bsc-mainnet",
+    "deploy:check:bsc-mainnet": "npm --prefix contracts run deploy:check:bsc-mainnet",
+    "verify:bsc-mainnet": "npm --prefix contracts run verify:bsc-mainnet",
     "qa": "npm run typecheck && npm run build && npm run api:build",
-    "test:e2e": "node tests/run-e2e.cjs"
+    "test:e2e": "node tests/run-e2e.cjs",
+    "test": "node tests/run-e2e.cjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.9",
+    "@types/bcryptjs": "^2.4.6",
     "@zxing/browser": "^0.2.0",
+    "bcryptjs": "^3.0.3",
     "bip39": "^3.1.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
@@ -31,6 +38,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tronweb": "^6.3.0",
+    "world-countries": "^5.1.0",
     "zod": "^4.4.3",
     "zustand": "^5.0.13"
   },

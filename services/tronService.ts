@@ -4,7 +4,7 @@ import { getNetworkConfig } from "@/lib/networks";
 import type { TokenConfig } from "@/lib/tokens";
 
 const TRON_PATH = "m/44'/195'/0'/0/0";
-const TRC20_TRANSFER_FEE_LIMIT = 30_000_000;
+const TRON_TOKEN_TRANSFER_FEE_LIMIT = 30_000_000;
 
 type TronBroadcast = {
   result?: boolean;
@@ -111,7 +111,7 @@ export async function sendTronTransfer(mnemonic: string, to: string, amount: str
   if (token.type === "trc20" && token.contractAddress) {
     const rawAmount = parseUnits(amount, token.decimals);
     const contract = await tronWeb.contract().at(token.contractAddress);
-    const txid = await contract.transfer(to, rawAmount.toString()).send({ feeLimit: TRC20_TRANSFER_FEE_LIMIT }, account.privateKey) as string;
+    const txid = await contract.transfer(to, rawAmount.toString()).send({ feeLimit: TRON_TOKEN_TRANSFER_FEE_LIMIT }, account.privateKey) as string;
     return { hash: txid };
   }
 

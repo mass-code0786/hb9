@@ -5,6 +5,7 @@ const skipWebServer = process.env.BITZENX_SKIP_WEBSERVER === "1";
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 60_000,
+  workers: 1,
   expect: {
     timeout: 10_000
   },
