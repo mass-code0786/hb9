@@ -21,7 +21,7 @@ fi
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS schema_migrations (filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());"
 
 shopt -s nullglob
-mapfile -t migrations < <(printf '%s\n' server/migrations/*.sql | sort)
+mapfile -t migrations < <(printf '%s\n' server/migrations/*.sql | sort -V)
 
 if [[ "${#migrations[@]}" -eq 0 ]]; then
   echo "No migrations found in server/migrations"
