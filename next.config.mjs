@@ -2,13 +2,12 @@
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 const bscRpcUrl = process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bsc-dataseed.binance.org";
 const devConnectSources = process.env.NODE_ENV === "production" ? [] : ["http://localhost:4000", "http://127.0.0.1:4000"];
-const connectSources = [
+const connectSources = Array.from(new Set([
   "'self'",
   ...devConnectSources,
   "https://api.hb9.live",
   "https://hb9.live",
   "wss://api.hb9.live",
-  "https://rpc.ankr.com",
   "https://bsc-dataseed.binance.org",
   "https://*.walletconnect.com",
   "wss://*.walletconnect.com",
@@ -16,7 +15,7 @@ const connectSources = [
   "wss://*.walletconnect.org",
   ...(apiBaseUrl ? [apiBaseUrl] : []),
   bscRpcUrl
-];
+]));
 
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
