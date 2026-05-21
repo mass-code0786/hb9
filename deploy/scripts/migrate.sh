@@ -53,3 +53,5 @@ for migration in "${migrations[@]}"; do
     -c "INSERT INTO schema_migrations (filename) VALUES (:'filename') ON CONFLICT (filename) DO UPDATE SET applied_at = now();" \
     -c "COMMIT;"
 done
+
+npm run hb:verify-schema

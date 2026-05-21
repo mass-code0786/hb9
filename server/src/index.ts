@@ -12,6 +12,8 @@ import { providersRouter } from "./routes/providers.js";
 import { rechargeRouter } from "./routes/recharge.js";
 import { startHbOnchainIndexer } from "./services/halalBusiness/hbOnchainIndexerService.js";
 import { logger } from "./logger.js";
+import { pool } from "./db/pool.js";
+import { formatHbSchemaVerificationFailure, verifyHbProductionSchema } from "./schema/hbProductionSchema.js";
 
 const app = express();
 
@@ -67,12 +69,29 @@ app.use((_req, res) => {
 app.use(errorHandler);
 
 const onListen = () => {
-  startHbOnchainIndexer();
+  try {
+    startHbOnchainIndexer();
+  } catch (error) {
+    logger.warn("hb.indexer.start_failed", { error: error instanceof Error ? error.message : "Indexer start failed" });
+  }
   logger.info("api.started", { host: config.host || "default", port: config.port, rolloutMode: config.hbRolloutMode });
 };
 
-if (config.host) {
-  app.listen(config.port, config.host, onListen);
-} else {
-  app.listen(config.port, onListen);
+async function start() {
+  if (process.env.NODE_ENV === "production") {
+    if (!pool) throw new Error("DATABASE_URL is required in production.");
+    const schemaResult = await verifyHbProductionSchema(pool);
+    if (!schemaResult.ok) throw new Error(formatHbSchemaVerificationFailure(schemaResult));
+  }
+
+  if (config.host) {
+    app.listen(config.port, config.host, onListen);
+  } else {
+    app.listen(config.port, onListen);
+  }
 }
+
+start().catch((error) => {
+  logger.error("api.start_failed", { error: error instanceof Error ? error.message : "API start failed" });
+  process.exit(1);
+});

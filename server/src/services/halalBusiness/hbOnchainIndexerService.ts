@@ -404,7 +404,7 @@ async function tick() {
     const toBlock = Math.min(safeLatest, fromBlock + Math.max(1, config.hbOnchainIndexerBlockStep) - 1);
     await syncHbOnchainRange(fromBlock, toBlock);
   } catch (error) {
-    logger.error("hb.indexer.tick_failed", { category: "indexer", error: error instanceof Error ? error.message : "Indexer tick failed" });
+    logger.warn("hb.indexer.tick_failed", { category: "indexer", error: error instanceof Error ? error.message : "Indexer tick failed" });
     await updateCursor({ status: "failed", error: error instanceof Error ? error.message : "Indexer tick failed" }).catch(() => undefined);
   } finally {
     running = false;
