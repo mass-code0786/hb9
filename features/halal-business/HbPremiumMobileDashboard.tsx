@@ -654,7 +654,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
 
   if (!authenticated) {
     return (
-      <main className="min-h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#020817] text-white [overscroll-behavior-y:contain] [-webkit-overflow-scrolling:touch]">
+      <main className="min-h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#020817] text-white [touch-action:pan-y] [overscroll-behavior-y:auto] [-webkit-overflow-scrolling:touch]">
         <div className="mx-auto w-full max-w-[430px] px-3 py-3">
           <HbLandingPage referralCode={sourceReferralCode || getStoredHbReferral()} onAuthenticated={handleAuthenticated} />
           {error ? <ErrorState message={error} /> : null}
@@ -664,10 +664,10 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   }
 
   return (
-    <main className="relative min-h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#020817] text-white [overscroll-behavior-y:contain] [-webkit-overflow-scrolling:touch]">
+    <main className="relative min-h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#020817] text-white [touch-action:pan-y] [overscroll-behavior-y:auto] [-webkit-overflow-scrolling:touch]">
       <div className="hb-dashboard-bg pointer-events-none absolute inset-0 -z-0 bg-[radial-gradient(circle_at_50%_0%,rgba(0,200,255,0.18),transparent_18rem),radial-gradient(circle_at_90%_22%,rgba(0,123,255,0.14),transparent_18rem),linear-gradient(180deg,#020817_0%,#03111f_46%,#020817_100%)]" />
       <div className="hb-dashboard-bg-grid pointer-events-none absolute inset-0 -z-0 opacity-35 [background-image:linear-gradient(rgba(125,211,252,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(125,211,252,0.035)_1px,transparent_1px)] [background-size:42px_42px]" />
-      <div className="hb-dashboard-dots pointer-events-none absolute inset-0 -z-0 overflow-hidden">
+      <div className="hb-dashboard-dots pointer-events-none absolute inset-0 -z-0 overflow-x-hidden">
         <span className="absolute left-[12%] top-[13%] h-1 w-1 rounded-full bg-cyan-300/45 shadow-[0_0_14px_rgba(0,200,255,0.75)]" />
         <span className="absolute right-[18%] top-[31%] h-1.5 w-1.5 rounded-full bg-blue-300/35 shadow-[0_0_18px_rgba(0,123,255,0.65)]" />
         <span className="absolute bottom-[22%] left-[24%] h-1 w-1 rounded-full bg-cyan-200/35 shadow-[0_0_14px_rgba(0,200,255,0.6)]" />
@@ -678,7 +678,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         <span className="hb-dashboard-streak right-[-30%] top-[64%] [animation-delay:1.8s]" />
       </div>
 
-      <div className="relative z-10 mx-auto min-h-[100dvh] w-full max-w-[430px] px-3.5 pb-[130px] pt-3 [transform:translateZ(0)]">
+      <div className="relative z-10 mx-auto min-h-[100dvh] w-full max-w-[430px] overflow-y-visible px-3.5 pb-[140px] pt-3 [touch-action:pan-y]">
         <header className="sticky top-0 z-20 -mx-3.5 mb-3 border-b border-white/10 bg-[#031226]/70 px-3.5 pb-2.5 pt-2.5 shadow-[0_0_20px_rgba(0,180,255,0.12)] backdrop-blur-xl">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -1452,7 +1452,7 @@ function InfoState({ message }: { message: string }) {
 }
 
 function LoginSuccessToast({ message }: { message: string }) {
-  return <div className="fixed inset-x-3 top-4 z-50 mx-auto max-w-[390px] rounded-2xl border border-cyan-300/30 bg-[#062134]/95 p-3 text-sm font-semibold text-cyan-100 shadow-[0_18px_40px_rgba(0,0,0,0.34)] backdrop-blur-xl">{message}</div>;
+  return <div className="pointer-events-none fixed inset-x-3 top-4 z-50 mx-auto max-w-[390px] rounded-2xl border border-cyan-300/30 bg-[#062134]/95 p-3 text-sm font-semibold text-cyan-100 shadow-[0_18px_40px_rgba(0,0,0,0.34)] backdrop-blur-xl">{message}</div>;
 }
 
 function DashboardSkeleton() {
@@ -1461,8 +1461,8 @@ function DashboardSkeleton() {
 
 function BottomNavigation({ activeTab, onChange }: { activeTab: TabId; onChange: (tab: TabId) => void }) {
   return (
-    <nav className="fixed inset-x-0 bottom-2 z-40 h-[calc(62px+env(safe-area-inset-bottom))] px-4 pb-[env(safe-area-inset-bottom)] [contain:layout_paint] [transform:translateZ(0)]">
-      <div className="mx-auto grid h-[62px] max-w-[410px] grid-cols-5 rounded-[24px] border border-cyan-100/10 bg-[#020b18]/72 p-1.5 shadow-[0_0_24px_rgba(0,180,255,0.16),0_16px_38px_rgba(0,0,0,0.52),inset_0_1px_0_rgba(255,255,255,0.065),inset_0_-12px_28px_rgba(0,123,255,0.07)] backdrop-blur-2xl">
+    <nav className="pointer-events-none fixed inset-x-0 bottom-2 z-40 h-[calc(62px+env(safe-area-inset-bottom))] px-4 pb-[env(safe-area-inset-bottom)] [contain:layout_paint]">
+      <div className="pointer-events-auto mx-auto grid h-[62px] max-w-[410px] grid-cols-5 rounded-[24px] border border-cyan-100/10 bg-[#020b18]/72 p-1.5 shadow-[0_0_24px_rgba(0,180,255,0.16),0_16px_38px_rgba(0,0,0,0.52),inset_0_1px_0_rgba(255,255,255,0.065),inset_0_-12px_28px_rgba(0,123,255,0.07)] backdrop-blur-2xl">
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = activeTab === item.id;

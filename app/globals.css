@@ -14,11 +14,14 @@
 html,
 body {
   min-height: 100%;
+  height: auto !important;
   margin: 0;
-  overflow-y: auto;
   overflow-x: hidden;
+  overflow-y: auto !important;
+  position: static !important;
   scroll-behavior: smooth;
-  overscroll-behavior-y: contain;
+  touch-action: pan-y !important;
+  overscroll-behavior-y: auto;
   -webkit-overflow-scrolling: touch;
   background:
     radial-gradient(circle at 14% 4%, rgba(34, 211, 238, 0.28), transparent 24rem),
@@ -44,10 +47,25 @@ body {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  overflow-y: auto;
+  min-height: 100%;
+  height: auto !important;
   overflow-x: hidden;
-  overscroll-behavior-y: contain;
+  overflow-y: auto !important;
+  position: static !important;
+  touch-action: pan-y !important;
+  overscroll-behavior-y: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+#__next,
+#root,
+body > div:first-child {
+  min-height: 100%;
+  height: auto !important;
+  overflow-y: visible !important;
+  overflow-x: hidden;
+  position: static !important;
+  touch-action: pan-y !important;
 }
 
 button,
@@ -1058,7 +1076,11 @@ select option {
 @media (max-width: 640px) {
   html,
   body {
-    overscroll-behavior-y: contain;
+    height: auto !important;
+    overflow-y: auto !important;
+    position: static !important;
+    touch-action: pan-y !important;
+    overscroll-behavior-y: auto;
     -webkit-overflow-scrolling: touch;
   }
 

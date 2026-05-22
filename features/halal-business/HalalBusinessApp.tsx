@@ -641,7 +641,7 @@ export function HalalBusinessApp() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col px-3 pb-[110px] pt-3 text-slate-50 sm:px-4 md:max-w-5xl md:px-6">
+    <main className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col overflow-y-auto overflow-x-hidden px-3 pb-[140px] pt-3 text-slate-50 [touch-action:pan-y] [overscroll-behavior-y:auto] [-webkit-overflow-scrolling:touch] sm:px-4 md:max-w-5xl md:px-6">
       {showAppChrome ? <header className="sticky top-2 z-30 mb-4 flex items-center justify-between gap-3 rounded-2xl border border-sky-200/10 bg-[#061624]/76 p-2 shadow-[0_0_24px_rgba(56,189,248,0.1)] backdrop-blur-2xl md:static md:bg-transparent md:p-0 md:shadow-none">
         <div className="flex min-w-0 items-center gap-3">
           <Link className="tap-feedback rounded-2xl border border-sky-200/15 bg-[#0b1728]/75 p-3 shadow-[0_0_16px_rgba(56,189,248,0.08)] backdrop-blur-xl hover:bg-[#0b1728]/90" href="/" aria-label="Back to HB9">
@@ -931,11 +931,7 @@ function AuthPanel({ mode, sourceReferralCode, setMode, setError, setNotice, onA
 }
 
 function LoginSuccessToast({ message }: { message: string }) {
-  return (
-    <div className="fixed inset-x-3 top-4 z-50 mx-auto max-w-sm rounded-2xl border border-mint/30 bg-[#052018]/95 p-3 text-sm font-semibold text-mint shadow-[0_18px_40px_rgba(0,0,0,0.32)] backdrop-blur-xl">
-      {message}
-    </div>
-  );
+  return <div className="pointer-events-none fixed inset-x-3 top-4 z-50 mx-auto max-w-sm rounded-2xl border border-mint/30 bg-[#052018]/95 p-3 text-sm font-semibold text-mint shadow-[0_18px_40px_rgba(0,0,0,0.32)] backdrop-blur-xl">{message}</div>;
 }
 
 function StatusTile({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
