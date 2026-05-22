@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw, Volume2, VolumeX } from "lucide-react";
 
-export type HB9VoiceScript = "buy" | "myProductAvailable" | "myProductEmpty" | "activationSuccess";
+export type HB9VoiceScript = "buy" | "myProductAvailable" | "myProductEmpty" | "activationSuccess" | "deposit" | "withdraw";
 
 export type HB9VoiceEvent = {
   script: HB9VoiceScript;
@@ -26,11 +26,29 @@ type HB9VoiceAssistantProps = {
 const VOICE_MUTED_KEY = "hb9.voiceMuted";
 const voiceScripts: Record<HB9VoiceScript | "welcome", string> = {
   welcome: "Welcome to HB9. How can I help you?",
-  buy: "To buy this product, select your package, connect your wallet, confirm USDT BEP20 payment, and wait for activation. After successful purchase, your product will appear in My Product.",
-  myProductAvailable: "Your product is available. Download your unlocked books here. To receive followers, paste your Instagram, Facebook, or Telegram link and send your request.",
-  myProductEmpty: "No active product found. Buy a package to unlock your HB9 digital products.",
+  buy: "To buy this product, choose your package, confirm the USDT BEP20 payment in your wallet, and wait for activation. After purchase, your product will appear in My Product.",
+  myProductAvailable: "Your product is available. You can download unlocked books here, or submit your social link for eligible follower services.",
+  myProductEmpty: "No active product found yet. Buy a package to unlock your HB9 digital products.",
+  deposit: "Deposit USDT BEP20 on BSC Mainnet. Enter the amount, then confirm the transaction in your wallet browser.",
+  withdraw: "Withdraw USDT BEP20 to your wallet. Enter the amount and BEP20 address, review the fee, then submit your withdrawal.",
   activationSuccess: "Congratulations. Your HB9 product is activated successfully. You can now access your product from My Product."
 };
+
+function selectFemaleVoice(voices: SpeechSynthesisVoice[]) {
+  const preferred = [
+    "Google UK English Female",
+    "Google US English",
+    "Microsoft Zira",
+    "Samantha",
+    "Karen",
+    "Moira",
+    "Tessa",
+    "Female"
+  ];
+  return preferred
+    .map((name) => voices.find((voice) => voice.name.toLowerCase().includes(name.toLowerCase())))
+    .find(Boolean) || voices.find((voice) => voice.lang.toLowerCase().startsWith("en") && /female|woman|zira|samantha|karen|moira|tessa|google/i.test(voice.name)) || voices.find((voice) => voice.lang.toLowerCase().startsWith("en")) || null;
+}
 
 export function HB9VoiceAssistant({ activeTab, hasActiveProduct, loading = false, event }: HB9VoiceAssistantProps) {
   const [supported, setSupported] = useState(false);
@@ -38,11 +56,19 @@ export function HB9VoiceAssistant({ activeTab, hasActiveProduct, loading = false
   const [lastMessage, setLastMessage] = useState(voiceScripts.welcome);
   const [fallbackMessage, setFallbackMessage] = useState("");
   const previousEventId = useRef<number | null>(null);
+  const lastPlayedAt = useRef<Record<string, number>>({});
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     setSupported("speechSynthesis" in window && typeof window.SpeechSynthesisUtterance !== "undefined");
     setMuted(window.localStorage.getItem(VOICE_MUTED_KEY) === "true");
+    if ("speechSynthesis" in window) {
+      voicesRef.current = window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
+        voicesRef.current = window.speechSynthesis.getVoices();
+      };
+    }
   }, []);
 
   const stop = useCallback(() => {
@@ -50,21 +76,42 @@ export function HB9VoiceAssistant({ activeTab, hasActiveProduct, loading = false
     window.speechSynthesis.cancel();
   }, []);
 
-  const speak = useCallback((text: string) => {
+  const speak = useCallback((text: string, fallbackOnError = false) => {
     setLastMessage(text);
     setFallbackMessage("");
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    if (typeof window === "undefined" || !("speechSynthesis" in window) || typeof window.SpeechSynthesisUtterance === "undefined") {
+      if (fallbackOnError) setFallbackMessage(text);
+      return;
+    }
     if (window.localStorage.getItem(VOICE_MUTED_KEY) === "true") return;
-    stop();
-    const utterance = new window.SpeechSynthesisUtterance(text);
-    utterance.rate = 0.94;
-    utterance.pitch = 1;
-    utterance.volume = 1;
-    window.speechSynthesis.speak(utterance);
+    try {
+      stop();
+      window.speechSynthesis.resume();
+      const voices = voicesRef.current.length ? voicesRef.current : window.speechSynthesis.getVoices();
+      const utterance = new window.SpeechSynthesisUtterance(text);
+      utterance.voice = selectFemaleVoice(voices);
+      utterance.lang = utterance.voice?.lang || "en-US";
+      utterance.rate = 0.9;
+      utterance.pitch = 1.12;
+      utterance.volume = 1;
+      utterance.onerror = () => {
+        if (fallbackOnError) setFallbackMessage(text);
+      };
+      window.speechSynthesis.speak(utterance);
+      window.setTimeout(() => {
+        if (fallbackOnError && !window.speechSynthesis.speaking && !window.speechSynthesis.pending) setFallbackMessage(text);
+      }, 700);
+    } catch (err) {
+      console.warn("HB9 voice instruction could not play. Showing fallback text instruction.", { err });
+      if (fallbackOnError) setFallbackMessage(text);
+    }
   }, [stop]);
 
   const playScript = useCallback((script: HB9VoiceScript) => {
     const text = voiceScripts[script];
+    const now = Date.now();
+    if (now - (lastPlayedAt.current[script] || 0) < 2500) return;
+    lastPlayedAt.current[script] = now;
     setLastMessage(text);
     setFallbackMessage("");
     if (typeof window === "undefined" || !("speechSynthesis" in window) || typeof window.SpeechSynthesisUtterance === "undefined") {
@@ -72,22 +119,16 @@ export function HB9VoiceAssistant({ activeTab, hasActiveProduct, loading = false
       setFallbackMessage(text);
       return;
     }
-    if (window.localStorage.getItem(VOICE_MUTED_KEY) === "true") {
-      setFallbackMessage(text);
-      return;
-    }
+    window.localStorage.removeItem(VOICE_MUTED_KEY);
+    setMuted(false);
     try {
-      stop();
-      const utterance = new window.SpeechSynthesisUtterance(text);
-      utterance.rate = 0.94;
-      utterance.pitch = 1;
-      utterance.volume = 1;
-      window.speechSynthesis.speak(utterance);
+      window.speechSynthesis.resume();
+      speak(text, true);
     } catch (err) {
       console.warn("HB9 voice instruction could not play. Showing fallback text instruction.", { script, err });
       setFallbackMessage(text);
     }
-  }, [stop]);
+  }, [speak]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -110,7 +151,7 @@ export function HB9VoiceAssistant({ activeTab, hasActiveProduct, loading = false
 
   useEffect(() => {
     if (!fallbackMessage) return;
-    const timeout = window.setTimeout(() => setFallbackMessage(""), 3000);
+    const timeout = window.setTimeout(() => setFallbackMessage(""), 4500);
     return () => window.clearTimeout(timeout);
   }, [fallbackMessage]);
 

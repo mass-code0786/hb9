@@ -659,6 +659,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
           <HbLandingPage referralCode={sourceReferralCode || getStoredHbReferral()} onAuthenticated={handleAuthenticated} />
           {error ? <ErrorState message={error} /> : null}
         </div>
+        <HB9VoiceAssistant activeTab="home" hasActiveProduct={false} loading={loading} event={voiceEvent} />
       </main>
     );
   }
@@ -702,12 +703,12 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         {error && !devDashboardActive ? <ErrorState message={error} /> : null}
         {loading ? <DashboardSkeleton /> : null}
 
-        {!loading && activeTab === "home" ? <HomeScreen walletBalance={totalBalance} balances={walletData.balances} user={dashboardUser} boundWallet={boundWallet} currentPackage={currentPackage} products={devDashboardActive ? completePackageProducts : orderedProducts.length > 0 ? orderedProducts : completePackageProducts} coins={coins} convertingCoin={convertingCoin} onConvert={convertCoin} onTab={handleTabChange} onBuy={openBuyFlow} /> : null}
+        {!loading && activeTab === "home" ? <HomeScreen walletBalance={totalBalance} balances={walletData.balances} user={dashboardUser} boundWallet={boundWallet} currentPackage={currentPackage} products={devDashboardActive ? completePackageProducts : orderedProducts.length > 0 ? orderedProducts : completePackageProducts} coins={coins} convertingCoin={convertingCoin} onConvert={convertCoin} onTab={handleTabChange} onBuy={openBuyFlow} onInstruction={playAssistant} /> : null}
         {!loading && activeTab === "products" ? <MyProductsScreen purchases={purchases} orders={orders} delivery={myProducts} packages={completePackageProducts} onBuy={openPackagesScreen} onPackageBuy={openBuyFlow} onBookDownload={handleBookDownload} onFollowersRequest={handleFollowersRequest} onCustomSoftwareRequest={handleCustomSoftwareRequest} /> : null}
         {!loading && activeTab === "packages" ? <AllPackagesScreen products={completePackageProducts} onBuy={openBuyFlow} onBack={() => setActiveTab("home")} /> : null}
         {!loading && activeTab === "team" ? <TeamScreen user={dashboardUser} summary={referralSummary} /> : null}
         {!loading && activeTab === "income" ? <IncomeScreen income={income} singleLegReserve={singleLegReserve} singleLegProgress={singleLegProgress} summary={incomeSummary} availableBalance={walletData.balances.income} totalWithdrawn={withdrawals.filter((item) => item.status === "paid").reduce((sum, item) => sum + Number(item.amount_usd || 0), 0)} /> : null}
-        {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={walletData.depositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} /> : null}
+        {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={walletData.depositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} onInstruction={playAssistant} /> : null}
       </div>
 
       <BottomNavigation activeTab={activeTab} onChange={handleTabChange} />
@@ -720,10 +721,10 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   );
 }
 
-function HomeScreen({ walletBalance, balances, user, boundWallet, currentPackage, products, coins, convertingCoin, onConvert, onTab, onBuy }: { walletBalance: number; balances: { deposit: string; income: string }; user: HbUser; boundWallet: string; currentPackage: string; products: HbProduct[]; coins: HbCoinBalance[]; convertingCoin: string; onConvert: (coinSymbol: string, usdValue?: number) => void; onTab: (tab: TabId) => void; onBuy: (product: HbProduct) => void }) {
+function HomeScreen({ walletBalance, balances, user, boundWallet, currentPackage, products, coins, convertingCoin, onConvert, onTab, onBuy, onInstruction }: { walletBalance: number; balances: { deposit: string; income: string }; user: HbUser; boundWallet: string; currentPackage: string; products: HbProduct[]; coins: HbCoinBalance[]; convertingCoin: string; onConvert: (coinSymbol: string, usdValue?: number) => void; onTab: (tab: TabId) => void; onBuy: (product: HbProduct) => void; onInstruction: (script: HB9VoiceScript) => void }) {
   const quickButtons = [
-    { label: "Deposit", icon: Plus, action: () => onTab("wallet") },
-    { label: "Withdraw", icon: ArrowDownToLine, action: () => onTab("wallet") },
+    { label: "Deposit", icon: Plus, action: () => { onInstruction("deposit"); onTab("wallet"); } },
+    { label: "Withdraw", icon: ArrowDownToLine, action: () => { onInstruction("withdraw"); onTab("wallet"); } },
     { label: "My Product", icon: PackageCheck, action: () => onTab("products") },
     { label: "Team", icon: Users, action: () => onTab("team") },
     { label: "Transfer", icon: Send, action: () => onTab("wallet") }
@@ -1011,7 +1012,7 @@ function StatusBadgeMini({ status }: { status: "Completed" | "In Progress" | "Pe
   return <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${cls}`}>{status}</span>;
 }
 
-function WalletScreen({ walletBalance, balances, withdrawals, activity, boundWallet, depositAddress, coins, convertingCoin, walletActionBusy, onConvert, onDeposit, onWithdraw }: { walletBalance: number; balances: { deposit: string; income: string }; withdrawals: HbWithdrawal[]; activity: HbWalletActivity[]; boundWallet: string; depositAddress: string; coins: HbCoinBalance[]; convertingCoin: string; walletActionBusy: string; onConvert: (coinSymbol: string, usdValue?: number) => void; onDeposit: (amountUsd: number) => Promise<void>; onWithdraw: (amountUsd: number, walletAddress: string) => Promise<void> }) {
+function WalletScreen({ walletBalance, balances, withdrawals, activity, boundWallet, depositAddress, coins, convertingCoin, walletActionBusy, onConvert, onDeposit, onWithdraw, onInstruction }: { walletBalance: number; balances: { deposit: string; income: string }; withdrawals: HbWithdrawal[]; activity: HbWalletActivity[]; boundWallet: string; depositAddress: string; coins: HbCoinBalance[]; convertingCoin: string; walletActionBusy: string; onConvert: (coinSymbol: string, usdValue?: number) => void; onDeposit: (amountUsd: number) => Promise<void>; onWithdraw: (amountUsd: number, walletAddress: string) => Promise<void>; onInstruction: (script: HB9VoiceScript) => void }) {
   const [walletModal, setWalletModal] = useState<"deposit" | "withdraw" | null>(null);
   const [depositAmount, setDepositAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -1030,8 +1031,8 @@ function WalletScreen({ walletBalance, balances, withdrawals, activity, boundWal
         </div>
       </section>
       <div className="grid grid-cols-4 gap-2">
-        <ActionChip label="Deposit" icon={Plus} onClick={() => setWalletModal("deposit")} />
-        <ActionChip label="Withdraw" icon={ArrowDownToLine} onClick={() => setWalletModal("withdraw")} />
+        <ActionChip label="Deposit" icon={Plus} onClick={() => { onInstruction("deposit"); setWalletModal("deposit"); }} />
+        <ActionChip label="Withdraw" icon={ArrowDownToLine} onClick={() => { onInstruction("withdraw"); setWalletModal("withdraw"); }} />
         <ActionChip label="Ledger" icon={ReceiptText} />
         <ActionChip label="Settings" icon={Settings} />
       </div>

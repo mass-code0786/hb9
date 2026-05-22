@@ -102,6 +102,7 @@ function PackageEcosystemSection({ referralCode, onAuthenticated }: {
   const packages = useMemo(() => buildDefaultHbPackageProducts(), []);
 
   function startBuy(product: HbProduct) {
+    if (typeof window !== "undefined") window.__hb9PlayVoiceInstruction?.("buy");
     setSelectedPackage(product);
   }
 
