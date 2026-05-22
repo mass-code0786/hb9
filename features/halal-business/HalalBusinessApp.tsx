@@ -641,7 +641,7 @@ export function HalalBusinessApp() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-3 pb-32 pt-3 text-slate-50 sm:px-4 md:max-w-5xl md:px-6">
+    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col px-3 pb-[110px] pt-3 text-slate-50 sm:px-4 md:max-w-5xl md:px-6">
       {showAppChrome ? <header className="sticky top-2 z-30 mb-4 flex items-center justify-between gap-3 rounded-2xl border border-sky-200/10 bg-[#061624]/76 p-2 shadow-[0_0_24px_rgba(56,189,248,0.1)] backdrop-blur-2xl md:static md:bg-transparent md:p-0 md:shadow-none">
         <div className="flex min-w-0 items-center gap-3">
           <Link className="tap-feedback rounded-2xl border border-sky-200/15 bg-[#0b1728]/75 p-3 shadow-[0_0_16px_rgba(56,189,248,0.08)] backdrop-blur-xl hover:bg-[#0b1728]/90" href="/" aria-label="Back to HB9">

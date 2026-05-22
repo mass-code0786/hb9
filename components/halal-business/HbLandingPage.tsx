@@ -32,7 +32,7 @@ export function HbLandingPage({ referralCode, onAuthenticated }: HbLandingPagePr
   }, [referralCode]);
 
   return (
-    <section id="top" className="hb-premium-shell relative isolate -mx-3 min-h-dvh overflow-hidden px-3 pb-8 pt-3 text-white sm:-mx-4 sm:px-4 md:-mx-6 md:px-6">
+    <section id="top" className="hb-premium-shell relative isolate -mx-3 min-h-screen overflow-x-hidden px-3 pb-[110px] pt-3 text-white sm:-mx-4 sm:px-4 md:-mx-6 md:px-6">
       <div className="hb-orbit hb-orbit-a" />
       <div className="hb-grid-glow" />
       <div className="hb-particles" aria-hidden="true"><span /><span /><span /></div>

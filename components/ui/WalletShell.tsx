@@ -24,7 +24,7 @@ export function WalletShell({
   header: React.ReactNode;
 }) {
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col overflow-x-hidden px-4 pb-40 pt-4 text-white md:max-w-6xl md:px-6">
+    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col overflow-x-hidden px-4 pb-40 pt-4 text-white md:max-w-6xl md:px-6">
       {header}
       <AnimatePresence mode="wait">
         <motion.section

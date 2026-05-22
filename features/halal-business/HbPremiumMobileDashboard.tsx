@@ -664,10 +664,10 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   }
 
   return (
-    <main className="min-h-screen bg-[#020817] text-white [overscroll-behavior-y:contain] [-webkit-overflow-scrolling:touch]">
-      <div className="hb-dashboard-bg fixed inset-0 -z-0 bg-[radial-gradient(circle_at_50%_0%,rgba(0,200,255,0.18),transparent_18rem),radial-gradient(circle_at_90%_22%,rgba(0,123,255,0.14),transparent_18rem),linear-gradient(180deg,#020817_0%,#03111f_46%,#020817_100%)]" />
-      <div className="hb-dashboard-bg-grid fixed inset-0 -z-0 opacity-35 [background-image:linear-gradient(rgba(125,211,252,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(125,211,252,0.035)_1px,transparent_1px)] [background-size:42px_42px]" />
-      <div className="hb-dashboard-dots pointer-events-none fixed inset-0 -z-0 overflow-hidden">
+    <main className="relative min-h-screen overflow-x-hidden bg-[#020817] text-white [overscroll-behavior-y:contain] [-webkit-overflow-scrolling:touch]">
+      <div className="hb-dashboard-bg pointer-events-none absolute inset-0 -z-0 bg-[radial-gradient(circle_at_50%_0%,rgba(0,200,255,0.18),transparent_18rem),radial-gradient(circle_at_90%_22%,rgba(0,123,255,0.14),transparent_18rem),linear-gradient(180deg,#020817_0%,#03111f_46%,#020817_100%)]" />
+      <div className="hb-dashboard-bg-grid pointer-events-none absolute inset-0 -z-0 opacity-35 [background-image:linear-gradient(rgba(125,211,252,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(125,211,252,0.035)_1px,transparent_1px)] [background-size:42px_42px]" />
+      <div className="hb-dashboard-dots pointer-events-none absolute inset-0 -z-0 overflow-hidden">
         <span className="absolute left-[12%] top-[13%] h-1 w-1 rounded-full bg-cyan-300/45 shadow-[0_0_14px_rgba(0,200,255,0.75)]" />
         <span className="absolute right-[18%] top-[31%] h-1.5 w-1.5 rounded-full bg-blue-300/35 shadow-[0_0_18px_rgba(0,123,255,0.65)]" />
         <span className="absolute bottom-[22%] left-[24%] h-1 w-1 rounded-full bg-cyan-200/35 shadow-[0_0_14px_rgba(0,200,255,0.6)]" />
