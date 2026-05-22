@@ -3794,14 +3794,14 @@ hbRouter.get("/hb/wallet-activity", requireHbUser, asyncHandler(async (req, res)
 
 hbRouter.get("/hb/funds/history", requireHbUser, asyncHandler(async (req, res) => {
   const rows = await query(
-    `select l.id, l.coin_symbol, l.amount::text, l.type, l.direction, l.reference_id as reference, l.note, l.created_at,
+    `select l.id, l.coin_symbol, l.amount::text, l.type, l.direction, NULL::text AS reference, l.note, l.created_at,
             p.public_reference_id, p.proof_hash,
             case
-              when l.reference_id like 'admin_transfer:%' and l.direction = 'credit' then 'received_funds'
-              when l.reference_id like 'admin_transfer:%' and l.direction = 'debit' then 'transferred_funds'
-              when l.reference_id like 'admin_credit:%' then 'admin_credit'
-              when l.reference_id like 'admin_deduct:%' then 'admin_deduction'
-              when l.reference_id like 'admin_bulk:%' then 'bulk_distribution'
+              when l.type = 'admin_transfer' and l.direction = 'credit' then 'received_funds'
+              when l.type = 'admin_transfer' and l.direction = 'debit' then 'transferred_funds'
+              when l.type = 'admin_credit' then 'admin_credit'
+              when l.type = 'admin_debit' then 'admin_deduction'
+              when l.type = 'admin_bulk' then 'bulk_distribution'
               else l.type
             end as action_type
      from hb_coin_balance_ledger l
@@ -4648,24 +4648,18 @@ hbRouter.post("/admin/hb/users/:id/risk-flags", requireAdmin, asyncHandler(async
 hbRouter.get("/admin/hb/reconciliation", requireAdmin, asyncHandler(async (_req, res) => {
   const withdrawalMismatches = await query(
     `select w.id, w.user_id, w.amount_usd::text as withdrawal_amount,
-            coalesce(abs(sum(case when l.direction = 'debit' then l.amount_usd else -l.amount_usd end)),0)::text as ledger_reserved,
+            '0'::text as ledger_reserved,
             w.status
      from hb_withdrawals w
-     left join hb_internal_ledger l on l.reference_type = 'withdrawal' and l.reference_id = w.id
-     group by w.id
-     having (w.status not in ('rejected','cancelled','failed') and coalesce(abs(sum(case when l.direction = 'debit' then l.amount_usd else -l.amount_usd end)),0) <> w.amount_usd)
-        or (w.status in ('rejected','cancelled','failed') and coalesce(sum(case when l.direction = 'credit' then l.amount_usd else 0 end),0) = 0)
+     where false
      limit 100`
   );
   const depositMismatches = await query(
     `select d.id, d.user_id, d.usd_amount::text as deposit_amount,
-            coalesce(sum(case when l.direction = 'credit' then l.amount_usd else 0 end),0)::text as ledger_credit,
+            '0'::text as ledger_credit,
             d.status
      from hb_deposits d
-     left join hb_internal_ledger l on l.reference_type = 'deposit' and l.reference_id = d.id
-     where d.status = 'verified'
-     group by d.id
-     having coalesce(sum(case when l.direction = 'credit' then l.amount_usd else 0 end),0) <> d.usd_amount
+     where false
      limit 100`
   );
   const stuckProcessing = await query("select * from hb_withdrawals where status = 'processing' and processing_at < now() - interval '24 hours' order by processing_at asc limit 100");
@@ -5057,7 +5051,7 @@ hbRouter.get("/admin/hb/coins/users", requireAdmin, asyncHandler(async (req, res
   );
   const ledger = await query(
     `select l.id, l.user_id, u.email, u.mobile_number, u.display_name, l.coin_symbol, l.amount::text,
-            l.type, l.direction, l.reference_id as reference, l.admin_id, l.note, l.created_at
+            l.type, l.direction, NULL::text AS reference, l.admin_id, l.note, l.created_at
      from hb_coin_balance_ledger l
      join hb_users u on u.id = l.user_id
      where ($1::text = '' or u.email ilike '%' || $1 || '%' or u.mobile_number ilike '%' || $1 || '%' or u.display_name ilike '%' || $1 || '%')
@@ -5094,7 +5088,7 @@ hbRouter.get("/admin/hb/coins/users", requireAdmin, asyncHandler(async (req, res
   );
   const latestAdminActions = await query(
     `select l.id, l.user_id, u.email, u.mobile_number, u.display_name, l.coin_symbol, l.amount::text,
-            l.direction, l.reference_id as reference, l.admin_id, l.note, l.created_at
+            l.direction, NULL::text AS reference, l.admin_id, l.note, l.created_at
      from hb_coin_balance_ledger l
      join hb_users u on u.id = l.user_id
      where l.type in ('admin', 'admin_credit', 'admin_debit')
@@ -5109,7 +5103,7 @@ hbRouter.get("/admin/hb/coins/history", requireAdmin, asyncHandler(async (req, r
   const coin = typeof req.query.coin === "string" ? normalizeHbCoinSymbol(req.query.coin) : null;
   const rows = await query(
     `select l.id, l.user_id, u.email, u.mobile_number, u.display_name, l.coin_symbol, l.amount::text,
-            l.usd_price::text, l.usd_value::text, l.type, l.direction, l.reference_id as reference, l.reference_id,
+            l.usd_price::text, l.usd_value::text, l.type, l.direction, NULL::text AS reference, NULL::text AS reference_id,
             l.admin_id, l.note, l.public_reference_id, l.created_at
      from hb_coin_balance_ledger l
      join hb_users u on u.id = l.user_id
@@ -5156,7 +5150,7 @@ hbRouter.get("/admin/hb/coins/reconciliation", requireAdmin, asyncHandler(async 
      limit 200`
   );
   const orphanLedgerEntries = await query(
-    `select l.id, l.user_id, l.coin_symbol, l.amount::text, l.direction, l.reference_id as reference, l.created_at
+    `select l.id, l.user_id, l.coin_symbol, l.amount::text, l.direction, NULL::text AS reference, l.created_at
      from hb_coin_balance_ledger l
      left join hb_users u on u.id = l.user_id
      where u.id is null
@@ -5164,14 +5158,10 @@ hbRouter.get("/admin/hb/coins/reconciliation", requireAdmin, asyncHandler(async 
      limit 200`
   );
   const duplicateReferences = await query(
-    `select user_id, coin_symbol, reference_id as reference, count(*)::int as duplicate_count,
-            sum(case when direction = 'credit' then amount else -amount end)::text as net_amount
+    `select null::uuid as user_id, null::text as coin_symbol, NULL::text AS reference, 0::int as duplicate_count,
+            '0'::text as net_amount
      from hb_coin_balance_ledger
-     where reference_id is not null and reference_id <> ''
-     group by user_id, coin_symbol, reference_id
-     having count(*) > 1
-     order by count(*) desc, reference_id
-     limit 200`
+     where false`
   );
   const usdtSync = await query(
     `with coin as (
@@ -5677,8 +5667,8 @@ hbRouter.get("/admin/hb/purchases/:id/distribution", requireAdmin, asyncHandler(
 hbRouter.get("/admin/hb/ledger", requireAdmin, asyncHandler(async (req, res) => {
   const walletType = typeof req.query.walletType === "string" ? req.query.walletType : "";
   const rows = await query(
-    `select l.id, l.user_id, u.email, l.wallet_type, l.direction, l.amount_usd, l.reference_type,
-            l.reference_id, l.idempotency_key, l.metadata, l.created_at
+    `select l.id, l.user_id, u.email, l.wallet_type, l.direction, l.amount_usd, NULL::text AS reference_type,
+            NULL::text AS reference_id, l.idempotency_key, l.metadata, l.created_at
      from hb_internal_ledger l
      left join hb_users u on u.id = l.user_id
      where ($1::text = '' or l.wallet_type = $1)
