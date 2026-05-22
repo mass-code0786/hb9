@@ -108,6 +108,12 @@ export function HB9VoiceAssistant({ activeTab, hasActiveProduct, loading = false
     playScript(event.script);
   }, [event, playScript, supported]);
 
+  useEffect(() => {
+    if (!fallbackMessage) return;
+    const timeout = window.setTimeout(() => setFallbackMessage(""), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [fallbackMessage]);
+
   useEffect(() => stop, [stop]);
 
   const mutedLabel = muted ? "Unmute HB9 voice assistant" : "Mute HB9 voice assistant";
@@ -116,13 +122,13 @@ export function HB9VoiceAssistant({ activeTab, hasActiveProduct, loading = false
   if (!supported && !fallbackMessage) return null;
 
   return (
-    <div className="fixed bottom-[88px] right-4 z-50 flex items-center gap-2 pb-[env(safe-area-inset-bottom)]">
+    <div className="pointer-events-none fixed bottom-[88px] right-4 z-50 flex items-center gap-2 pb-[env(safe-area-inset-bottom)]">
       {fallbackMessage ? <div className="max-w-[16rem] rounded-2xl border border-cyan-200/20 bg-[#061a31]/88 p-3 text-xs font-semibold leading-5 text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.18)] backdrop-blur-xl">{fallbackMessage}</div> : null}
       {supported ? (
         <>
           <button
             aria-label="Replay HB9 voice assistant message"
-            className="hb-interactive hb-glow-cyan grid h-10 w-10 place-items-center rounded-full border border-cyan-200/20 bg-[#061a31]/72 text-cyan-100 shadow-[0_0_18px_rgba(34,211,238,0.22),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl transition disabled:opacity-45"
+            className="pointer-events-auto hb-interactive hb-glow-cyan grid h-10 w-10 place-items-center rounded-full border border-cyan-200/20 bg-[#061a31]/72 text-cyan-100 shadow-[0_0_18px_rgba(34,211,238,0.22),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl transition disabled:opacity-45"
             disabled={!canReplay}
             onClick={() => speak(lastMessage)}
             title="Replay assistant"
@@ -132,7 +138,7 @@ export function HB9VoiceAssistant({ activeTab, hasActiveProduct, loading = false
           </button>
           <button
             aria-label={mutedLabel}
-            className={`hb-interactive hb-glow-cyan grid h-11 w-11 place-items-center rounded-full border border-cyan-200/25 bg-[#061a31]/78 text-cyan-100 shadow-[0_0_22px_rgba(34,211,238,0.3),inset_0_1px_0_rgba(255,255,255,0.14)] backdrop-blur-xl transition ${muted ? "text-sky-100/48 shadow-[0_0_14px_rgba(148,163,184,0.12)]" : ""}`}
+            className={`pointer-events-auto hb-interactive hb-glow-cyan grid h-11 w-11 place-items-center rounded-full border border-cyan-200/25 bg-[#061a31]/78 text-cyan-100 shadow-[0_0_22px_rgba(34,211,238,0.3),inset_0_1px_0_rgba(255,255,255,0.14)] backdrop-blur-xl transition ${muted ? "text-sky-100/48 shadow-[0_0_14px_rgba(148,163,184,0.12)]" : ""}`}
             onClick={() => {
               const nextMuted = !muted;
               setMuted(nextMuted);
