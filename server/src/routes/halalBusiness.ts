@@ -2167,7 +2167,29 @@ hbRouter.get("/hb/wallet", requireHbUser, asyncHandler(async (req, res) => {
      limit 50`,
     [req.hbUser!.userId]
   );
-  const summary = await getWalletSummary(req.hbUser!.userId);
+  const coinBalances = await query<{ coin_symbol: string; balance: string }>(
+    "select coin_symbol, balance::text from hb_coin_balances where user_id = $1",
+    [req.hbUser!.userId]
+  ).catch(() => []);
+  const usdtBalance = coinBalances.find((item) => item.coin_symbol === "USDT")?.balance || "0";
+  const [pendingDeposits, verifiedDeposits, purchased, pendingWithdrawals] = await Promise.all([
+    query<{ total: string; count: number }>(
+      "select coalesce(sum(usd_amount),0)::text as total, count(*)::int as count from hb_deposits where user_id = $1 and status = 'pending'",
+      [req.hbUser!.userId]
+    ),
+    query<{ total: string; count: number }>(
+      "select coalesce(sum(usd_amount),0)::text as total, count(*)::int as count from hb_deposits where user_id = $1 and status = 'verified'",
+      [req.hbUser!.userId]
+    ),
+    query<{ total: string; count: number }>(
+      "select coalesce(sum(amount_usd),0)::text as total, count(*)::int as count from hb_package_purchases where user_id = $1 and status = 'completed'",
+      [req.hbUser!.userId]
+    ),
+    query<{ total: string; count: number }>(
+      "select coalesce(sum(amount_usd),0)::text as total, count(*)::int as count from hb_withdrawals where user_id = $1 and status in ('pending','approved','processing')",
+      [req.hbUser!.userId]
+    )
+  ]);
   const settings = await getFinancialSettings(req.hbUser!.userId);
   const depositAddress = await getExpectedDepositAddress(req.hbUser!.userId);
   ok(res, {
@@ -2176,7 +2198,12 @@ hbRouter.get("/hb/wallet", requireHbUser, asyncHandler(async (req, res) => {
     deposits,
     withdrawals,
     withdrawalSettings: settings,
-    ...summary
+    availableBalance: usdtBalance,
+    balances: { deposit: usdtBalance, income: "0" },
+    pendingDeposits: pendingDeposits[0] || { total: "0", count: 0 },
+    verifiedDeposits: verifiedDeposits[0] || { total: "0", count: 0 },
+    totalPurchased: purchased[0] || { total: "0", count: 0 },
+    pendingWithdrawals: pendingWithdrawals[0] || { total: "0", count: 0 }
   }, "HB9 wallet loaded");
 }));
 
