@@ -48,6 +48,9 @@ const BSC_ADD_CHAIN_PARAMS = {
   blockExplorerUrls: ["https://bscscan.com"]
 };
 
+let globalAuthPending = false;
+let globalLastAuthClickAt = 0;
+
 function providerMatches(provider: EthereumProvider, id: string) {
   if (id === "metamask") return Boolean(provider.isMetaMask);
   if (id === "tokenpocket") return Boolean(provider.isTokenPocket);
@@ -148,6 +151,8 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
   const [registrationFee, setRegistrationFee] = useState<HbRegistrationFee | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const autoCheckedRef = useRef(false);
+  const authPendingRef = useRef(false);
+  const lastAuthClickAtRef = useRef(0);
 
   const walletConnectConnector = useMemo(() => connectors.find((connector) => connector.id === "walletConnect"), [connectors]);
   const walletBrowserDetected = wallets.length > 0;
@@ -206,6 +211,15 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
   }
 
   async function connectInjected(wallet = wallets[0]) {
+    const now = Date.now();
+    if (authPendingRef.current || globalAuthPending || now - lastAuthClickAtRef.current < 3000 || now - globalLastAuthClickAt < 3000) {
+      setMessage("Please wait a few seconds and try again.");
+      return;
+    }
+    authPendingRef.current = true;
+    globalAuthPending = true;
+    lastAuthClickAtRef.current = now;
+    globalLastAuthClickAt = now;
     setBusy(true);
     setMessage("");
     try {
@@ -225,13 +239,27 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
       setModalOpen(false);
       await finishAuthentication(wallet.provider, nextAddress, nextChainId);
     } catch (err) {
-      setMessage(isUserRejected(err) ? "Wallet connection was cancelled." : err instanceof Error ? err.message : "Wallet connection failed.");
+      const errorMessage = err instanceof Error ? err.message : "";
+      setMessage(isUserRejected(err) ? "Wallet connection was cancelled." : errorMessage.toLowerCase().includes("too many requests") || errorMessage.toLowerCase().includes("rate limit") ? "Please wait a few seconds and try again." : errorMessage || "Wallet connection failed.");
     } finally {
+      window.setTimeout(() => {
+        authPendingRef.current = false;
+        globalAuthPending = false;
+      }, 3000);
       setBusy(false);
     }
   }
 
   async function connectWalletConnect() {
+    const now = Date.now();
+    if (authPendingRef.current || globalAuthPending || now - lastAuthClickAtRef.current < 3000 || now - globalLastAuthClickAt < 3000) {
+      setMessage("Please wait a few seconds and try again.");
+      return;
+    }
+    authPendingRef.current = true;
+    globalAuthPending = true;
+    lastAuthClickAtRef.current = now;
+    globalLastAuthClickAt = now;
     setBusy(true);
     setMessage("");
     try {
@@ -252,13 +280,22 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
       setModalOpen(false);
       await finishAuthentication(provider, nextAddress, nextChainId);
     } catch (err) {
-      setMessage(isUserRejected(err) ? "Wallet connection was cancelled." : err instanceof Error ? err.message : "WalletConnect connection failed.");
+      const errorMessage = err instanceof Error ? err.message : "";
+      setMessage(isUserRejected(err) ? "Wallet connection was cancelled." : errorMessage.toLowerCase().includes("too many requests") || errorMessage.toLowerCase().includes("rate limit") ? "Please wait a few seconds and try again." : errorMessage || "WalletConnect connection failed.");
     } finally {
+      window.setTimeout(() => {
+        authPendingRef.current = false;
+        globalAuthPending = false;
+      }, 3000);
       setBusy(false);
     }
   }
 
   async function connect() {
+    if (busy || authPendingRef.current || globalAuthPending) {
+      setMessage("Please wait a few seconds and try again.");
+      return;
+    }
     if (walletBrowserDetected) {
       await connectInjected(wallets[0]);
       return;
@@ -365,7 +402,7 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
             </div>
             <div className="grid gap-2">
               {wallets.map((wallet) => (
-                <button key={wallet.id} className="flex min-h-12 items-center justify-between rounded-xl border border-sky-200/15 bg-white/[0.04] px-3 text-left text-sm font-semibold text-slate-100" onClick={() => connectInjected(wallet)} type="button">
+              <button key={wallet.id} className="flex min-h-12 items-center justify-between rounded-xl border border-sky-200/15 bg-white/[0.04] px-3 text-left text-sm font-semibold text-slate-100 disabled:opacity-50" onClick={() => connectInjected(wallet)} disabled={busy} type="button">
                   <span>{wallet.name}</span>
                   <Check size={15} className="text-cyan-200" />
                 </button>

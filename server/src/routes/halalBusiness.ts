@@ -41,6 +41,7 @@ const BEP20_TRANSFER_ABI = [
 ];
 const BSC_MAINNET_CHAIN_ID = 56;
 const USDT_BEP20_ADDRESS = "0x55d398326f99059fF775485246999027B3197955";
+const CONFIGURED_USDT_BEP20_ADDRESS = getAddress(config.hbUsdtAddress || config.usdtBep20Contract || USDT_BEP20_ADDRESS);
 const HB_WITHDRAWAL_MIN_USD = 2;
 const HB_WITHDRAWAL_FEE_PERCENT = 10;
 const HB_WITHDRAWAL_MIN_ERROR = "Minimum withdrawal is $2.";
@@ -51,6 +52,9 @@ const bcryptRounds = 12;
 const hbSessionTtlSeconds = 7 * 24 * 60 * 60;
 const maxFailedLoginAttempts = 5;
 const loginLockMs = 15 * 60 * 1000;
+const walletAuthChallengeBuckets = new Map<string, { count: number; resetAt: number }>();
+const walletAuthChallengeWindowMs = 60_000;
+const walletAuthChallengeMax = 10;
 
 function normalizeMobile(value: string) {
   const trimmed = value.trim();
@@ -90,7 +94,7 @@ const depositCreateSchema = z.object({
   asset: z.literal("USDT").default("USDT"),
   network: z.literal("bsc").default("bsc"),
   chainId: z.literal(BSC_MAINNET_CHAIN_ID).default(BSC_MAINNET_CHAIN_ID),
-  tokenAddress: z.string().trim().transform((value) => getAddress(value)).refine((value) => value === getAddress(USDT_BEP20_ADDRESS), "Token address must be USDT BEP20 on BSC Mainnet.").default(USDT_BEP20_ADDRESS),
+  tokenAddress: z.string().trim().transform((value) => getAddress(value)).refine((value) => value === CONFIGURED_USDT_BEP20_ADDRESS, "Token address must be USDT BEP20 on BSC Mainnet.").default(CONFIGURED_USDT_BEP20_ADDRESS),
   walletAddress: z.string().trim().min(10).max(128).optional().or(z.literal("")),
   txHash: z.string().trim().regex(/^(0x)?[a-zA-Z0-9]{12,128}$/).optional().or(z.literal("")),
   idempotencyKey: z.string().trim().min(12).max(120).optional()
@@ -708,7 +712,7 @@ function canonicalOnchainPackageForAmount(amount: string | number) {
 }
 
 function hbUsdtAddress() {
-  return config.hbUsdtAddress || config.usdtBep20Contract || USDT_BEP20_ADDRESS;
+  return CONFIGURED_USDT_BEP20_ADDRESS;
 }
 
 function hbOnchainChainId() {
@@ -721,6 +725,22 @@ function hbBscScanBaseUrl() {
 
 function hbNetworkLabel() {
   return hbOnchainChainId() === 56 ? "BSC Mainnet" : "BSC";
+}
+
+function walletChallengeRateLimit(req: Request, walletAddress: string) {
+  const now = Date.now();
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  const key = `${ip}:${walletAddress.toLowerCase()}`;
+  const bucket = walletAuthChallengeBuckets.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    walletAuthChallengeBuckets.set(key, { count: 1, resetAt: now + walletAuthChallengeWindowMs });
+    return { allowed: true, retryAfter: 0 };
+  }
+  bucket.count += 1;
+  if (bucket.count > walletAuthChallengeMax) {
+    return { allowed: false, retryAfter: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)) };
+  }
+  return { allowed: true, retryAfter: 0 };
 }
 
 function hbRegistrationFeeUsd() {
@@ -2528,7 +2548,7 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
     fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid deposit request");
     return;
   }
-  if (parsed.data.asset !== "USDT" || parsed.data.network !== "bsc" || parsed.data.chainId !== BSC_MAINNET_CHAIN_ID || parsed.data.tokenAddress !== getAddress(USDT_BEP20_ADDRESS)) {
+  if (parsed.data.asset !== "USDT" || parsed.data.network !== "bsc" || parsed.data.chainId !== BSC_MAINNET_CHAIN_ID || parsed.data.tokenAddress !== CONFIGURED_USDT_BEP20_ADDRESS) {
     fail(res, "Only USDT BEP20 deposits are supported.", 400, "Unsupported deposit currency");
     return;
   }
@@ -3967,12 +3987,24 @@ hbRouter.post("/hb/auth/wallet/challenge", asyncHandler(async (req, res) => {
     fail(res, `Switch to ${hbNetworkLabel()} before signing in.`, 400, "Wrong network");
     return;
   }
+  const walletAddress = getAddress(parsed.data.walletAddress);
+  const rate = walletChallengeRateLimit(req, walletAddress);
+  if (!rate.allowed) {
+    logger.warn("hb.wallet_challenge.rate_limited", { walletAddress, retryAfter: rate.retryAfter });
+    res.setHeader("Retry-After", String(rate.retryAfter));
+    res.status(429).json({
+      success: false,
+      data: { retryAfter: rate.retryAfter },
+      message: "Rate limit exceeded",
+      error: "Please wait a few seconds and try again."
+    });
+    return;
+  }
   if (!(await enforceRolloutAccess(res, { walletAddress: parsed.data.walletAddress, referralCode: parsed.data.referralCode, action: "wallet.challenge" }))) return;
   if (!pool) {
     fail(res, "HB9 database is not configured.", 503, "Wallet auth unavailable");
     return;
   }
-  const walletAddress = getAddress(parsed.data.walletAddress);
   const nonce = crypto.randomBytes(24).toString("base64url");
   const issuedAt = new Date().toISOString();
   const domain = requestDomain(req);

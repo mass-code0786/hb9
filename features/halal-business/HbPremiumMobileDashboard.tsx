@@ -187,6 +187,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   const [voiceEvent, setVoiceEvent] = useState<HB9VoiceEvent>(null);
   const [convertingCoin, setConvertingCoin] = useState("");
   const [walletActionBusy, setWalletActionBusy] = useState("");
+  const [activeWalletModal, setActiveWalletModal] = useState<"deposit" | "withdraw" | null>(null);
 
   const devDashboardActive = devMode && HB_DEV_DASHBOARD_BYPASS;
   const authenticated = devDashboardActive || Boolean(token && user);
@@ -420,15 +421,15 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   }
 
   async function submitDeposit(amountUsd: number) {
-    if (devDashboardActive) return;
+    if (devDashboardActive) return false;
     if (!token) {
       setError("Login required to deposit.");
-      return;
+      return false;
     }
     if (amountUsd + Number.EPSILON < 4) {
       setError("");
       setNotice("Minimum deposit is $4");
-      return;
+      return false;
     }
     const config = onchainConfig || await fetchHbOnchainPackageConfig(token);
     setOnchainConfig(config);
@@ -436,16 +437,16 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
     const usdtAddress = config.usdtBep20Address;
     if (!/^0x[a-fA-F0-9]{40}$/.test(receiveAddress || "")) {
       setError("Company receiving wallet is not configured for this network.");
-      return;
+      return false;
     }
     if (!usdtAddress || !/^0x[a-fA-F0-9]{40}$/.test(usdtAddress)) {
       setError("USDT BEP20 contract is not configured.");
-      return;
+      return false;
     }
     const ethereum = (window as unknown as { ethereum?: EthereumProvider }).ethereum;
     if (!ethereum) {
       setError("External wallet not found. Open HB9 in a BSC wallet browser.");
-      return;
+      return false;
     }
     setWalletActionBusy("deposit");
     setError("");
@@ -461,7 +462,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       const signerAddress = await signer.getAddress();
       if (boundWallet && boundWallet.toLowerCase() !== signerAddress.toLowerCase()) {
         setError("Connected wallet does not match this HB9 ID.");
-        return;
+        return false;
       }
       const tx = await new Contract(usdtAddress, ERC20_ABI, signer).transfer(receiveAddress, parseUnits(amountUsd.toFixed(8), 18));
       setNotice("Deposit transaction submitted. Waiting for confirmation...");
@@ -476,8 +477,10 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       });
       setNotice("Deposit submitted for blockchain verification.");
       await refresh(token);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Deposit failed.");
+      return false;
     } finally {
       setWalletActionBusy("");
     }
@@ -754,10 +757,10 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         {!loading && activeTab === "packages" ? <AllPackagesScreen products={completePackageProducts} onBuy={openBuyFlow} onBack={() => setActiveTab("home")} /> : null}
         {!loading && activeTab === "team" ? <TeamScreen user={dashboardUser} summary={referralSummary} /> : null}
         {!loading && activeTab === "income" ? <IncomeScreen income={income} singleLegReserve={singleLegReserve} singleLegProgress={singleLegProgress} summary={incomeSummary} availableBalance={walletData.balances.income} totalWithdrawn={withdrawals.filter((item) => item.status === "paid").reduce((sum, item) => sum + Number(item.amount_usd || 0), 0)} /> : null}
-        {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={walletData.depositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} onInstruction={playAssistant} /> : null}
+        {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={walletData.depositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} onInstruction={playAssistant} onModalChange={setActiveWalletModal} /> : null}
       </div>
 
-      <BottomNavigation activeTab={activeTab} onChange={handleTabChange} />
+      {activeWalletModal !== "deposit" ? <BottomNavigation activeTab={activeTab} onChange={handleTabChange} /> : null}
       <HB9VoiceAssistant activeTab={activeTab} hasActiveProduct={hasActiveProduct} loading={loading} event={voiceEvent} />
       {purchaseReview ? <BuyDialog purchase={purchaseReview} onCancel={() => setPurchaseReview(null)} onConfirm={() => confirmBuy().catch((err) => {
         setError(err instanceof Error ? err.message : "Package purchase failed.");
@@ -1058,15 +1061,20 @@ function StatusBadgeMini({ status }: { status: "Completed" | "In Progress" | "Pe
   return <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${cls}`}>{status}</span>;
 }
 
-function WalletScreen({ walletBalance, balances, withdrawals, activity, boundWallet, depositAddress, coins, convertingCoin, walletActionBusy, onConvert, onDeposit, onWithdraw, onInstruction }: { walletBalance: number; balances: { deposit: string; income: string }; withdrawals: HbWithdrawal[]; activity: HbWalletActivity[]; boundWallet: string; depositAddress: string; coins: HbCoinBalance[]; convertingCoin: string; walletActionBusy: string; onConvert: (coinSymbol: string, usdValue?: number) => void; onDeposit: (amountUsd: number) => Promise<void>; onWithdraw: (amountUsd: number, walletAddress: string) => Promise<void>; onInstruction: (script: HB9VoiceScript) => void }) {
+function WalletScreen({ walletBalance, balances, withdrawals, activity, boundWallet, depositAddress, coins, convertingCoin, walletActionBusy, onConvert, onDeposit, onWithdraw, onInstruction, onModalChange }: { walletBalance: number; balances: { deposit: string; income: string }; withdrawals: HbWithdrawal[]; activity: HbWalletActivity[]; boundWallet: string; depositAddress: string; coins: HbCoinBalance[]; convertingCoin: string; walletActionBusy: string; onConvert: (coinSymbol: string, usdValue?: number) => void; onDeposit: (amountUsd: number) => Promise<boolean>; onWithdraw: (amountUsd: number, walletAddress: string) => Promise<void>; onInstruction: (script: HB9VoiceScript) => void; onModalChange: (modal: "deposit" | "withdraw" | null) => void }) {
   const [walletModal, setWalletModal] = useState<"deposit" | "withdraw" | null>(null);
   const [depositAmount, setDepositAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawWallet, setWithdrawWallet] = useState(boundWallet || "");
   const depositValue = Number(depositAmount || 0);
+  const hasDepositAddress = /^0x[a-fA-F0-9]{40}$/.test(depositAddress || "");
   const withdrawValue = Number(withdrawAmount || 0);
   const withdrawFee = Number((withdrawValue * 0.1).toFixed(8));
   const withdrawNet = Math.max(0, Number((withdrawValue - withdrawFee).toFixed(8)));
+  useEffect(() => {
+    onModalChange(walletModal);
+    return () => onModalChange(null);
+  }, [onModalChange, walletModal]);
   return (
     <div className="space-y-3">
       <section className="relative overflow-hidden rounded-[22px] border border-cyan-300/10 bg-gradient-to-br from-[#071120] to-[#0d1d35] p-4 shadow-[0_0_20px_rgba(0,200,255,0.1),inset_0_1px_0_rgba(255,255,255,0.065),inset_0_-18px_44px_rgba(0,123,255,0.07)]">
@@ -1087,19 +1095,20 @@ function WalletScreen({ walletBalance, balances, withdrawals, activity, boundWal
       <GlassCard className="p-3"><SectionTitle title="Withdrawal History" /><div className="mt-2 space-y-2">{withdrawals.length ? withdrawals.map((item) => <WithdrawalHistoryRow key={item.id} item={item} />) : <EmptyState title="No withdrawal history yet." />}</div></GlassCard>
       <GlassCard className="p-3"><SectionTitle title="Ledger" /><div className="mt-2 space-y-2">{activity.length ? activity.map((item) => <HistoryRow key={item.id} title={item.type.replace(/_/g, " ")} meta={`${item.direction} - ${new Date(item.created_at).toLocaleString()}`} value={money(item.amount_usd)} />) : <EmptyState title="No ledger activity yet." />}</div></GlassCard>
       {walletModal === "deposit" ? (
-        <WalletActionModal title="Deposit USDT BEP20 on BSC Mainnet" onClose={() => setWalletModal(null)} panelClassName="max-h-[85dvh] overflow-hidden" bodyClassName="max-h-[calc(85dvh-5.25rem)] overflow-y-auto overscroll-contain pb-[110px] pr-1">
-          <div>
+        <WalletActionModal title="Deposit USDT BEP20 on BSC Mainnet" onClose={() => setWalletModal(null)} panelClassName="max-h-[85dvh] overflow-hidden" bodyClassName="max-h-[calc(85dvh-5.25rem)] overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+2rem)] pr-1">
+          <div className="space-y-3">
+            <div>
             <InfoLine label="Minimum deposit" value="$4" />
             <InfoLine label="Network" value="BSC Mainnet" />
             <InfoLine label="Token" value="USDT BEP20" />
             <InfoLine label="Connected wallet" value={shortAddress(boundWallet)} />
-            <InfoLine label="Deposit address" value={shortAddress(depositAddress)} />
+            <InfoLine label="Deposit address" value={hasDepositAddress ? shortAddress(depositAddress) : "Not configured"} />
+            {!hasDepositAddress ? <p className="mt-2 rounded-2xl border border-red-300/25 bg-red-400/10 p-3 text-xs font-semibold leading-5 text-red-100">Company receiving wallet is not configured for this network.</p> : null}
             <label className="mt-3 block text-xs font-bold text-sky-100/62">Amount</label>
             <input className="mt-1 w-full rounded-2xl border border-cyan-200/12 bg-[#020817] px-3 py-3 text-sm font-bold outline-none focus:border-cyan-300/45" inputMode="decimal" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} placeholder="4.00" />
             {depositValue > 0 && depositValue < 4 ? <p className="mt-2 text-xs font-semibold text-red-200">Minimum deposit is $4</p> : null}
-          </div>
-          <div className="sticky bottom-0 -mx-4 mt-4 border-t border-cyan-200/10 bg-[#061426]/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 backdrop-blur-xl">
-            <button className="hb-interactive hb-glow-cyan w-full rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-black text-[#031326] disabled:cursor-not-allowed disabled:opacity-50" disabled={walletActionBusy === "deposit" || depositValue < 4} onClick={async () => { await onDeposit(depositValue); setWalletModal(null); }} type="button">{walletActionBusy === "deposit" ? "Submitting..." : "Submit Deposit"}</button>
+            </div>
+            <button className="hb-interactive hb-glow-cyan w-full rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-black text-[#031326] disabled:cursor-not-allowed disabled:opacity-50" disabled={walletActionBusy === "deposit" || depositValue < 4 || !hasDepositAddress} onClick={async () => { const submitted = await onDeposit(depositValue); if (submitted) setWalletModal(null); }} type="button">{walletActionBusy === "deposit" ? "Submitting..." : "Submit Deposit"}</button>
           </div>
         </WalletActionModal>
       ) : null}

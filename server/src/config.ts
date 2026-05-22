@@ -20,7 +20,7 @@ loadEnv({ path: resolve(process.cwd(), ".env"), quiet: true });
 const defaultAdminSessionSecret = "hb9-admin-dev-secret";
 const rawAdminSessionSecret = process.env.HB_SESSION_SECRET || process.env.JWT_SECRET || process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD_HASH || defaultAdminSessionSecret;
 const usdtBep20MainnetAddress = "0x55d398326f99059fF775485246999027B3197955";
-const hbTreasuryDepositAddress = process.env.HB_TREASURY_DEPOSIT_ADDRESS || process.env.COMPANY_EVM_RECEIVE_ADDRESS || "";
+const hbTreasuryDepositAddress = process.env.HB9_COMPANY_RECEIVING_WALLET_BSC || process.env.HB_TREASURY_DEPOSIT_ADDRESS || process.env.COMPANY_EVM_RECEIVE_ADDRESS || "";
 const hbRegistrationTreasuryWallet = process.env.HB9_TREASURY_WALLET || hbTreasuryDepositAddress;
 const hbWithdrawalVaultAddress = process.env.HB_WITHDRAWAL_VAULT_ADDRESS || process.env.HB_WITHDRAWAL_TREASURY_ADDRESS || "";
 const defaultHbOnchainIndexerBlockStep = process.env.NODE_ENV === "production" ? 100 : 500;
@@ -50,7 +50,7 @@ export const config = {
   hb9RegistrationFeeUsd: Number(process.env.HB9_REGISTRATION_FEE_USD || 0.05),
   hb9TreasuryWallet: hbRegistrationTreasuryWallet,
   hb9BnbUsdPrice: Number(process.env.HB9_BNB_USD_PRICE || process.env.BNB_USD_PRICE || 600),
-  usdtBep20Contract: process.env.USDT_TOKEN_ADDRESS || process.env.NEXT_PUBLIC_USDT_TOKEN_ADDRESS || process.env.USDT_BEP20_CONTRACT || process.env.NEXT_PUBLIC_USDT_BEP20_ADDRESS || usdtBep20MainnetAddress,
+  usdtBep20Contract: process.env.HB9_USDT_BEP20_ADDRESS || process.env.USDT_TOKEN_ADDRESS || process.env.NEXT_PUBLIC_USDT_TOKEN_ADDRESS || process.env.USDT_BEP20_CONTRACT || process.env.NEXT_PUBLIC_USDT_BEP20_ADDRESS || usdtBep20MainnetAddress,
   bscRpcUrl: process.env.BSC_MAINNET_RPC_URL || process.env.BSC_RPC_URL || process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bsc-dataseed.binance.org",
   ethRpcUrl: process.env.ETH_RPC_URL || process.env.NEXT_PUBLIC_ETH_RPC_URL || "",
   polygonRpcUrl: process.env.POLYGON_RPC_URL || process.env.NEXT_PUBLIC_POLYGON_RPC_URL || "",
@@ -86,7 +86,7 @@ export const config = {
   hbReferralRegistryAddress: process.env.HB_REFERRAL_REGISTRY_ADDRESS || "",
   hbTreasurySplitterAddress: process.env.HB_TREASURY_SPLITTER_ADDRESS || "",
   hbIncomeDistributorAddress: process.env.HB_INCOME_DISTRIBUTOR_ADDRESS || "",
-  hbUsdtAddress: process.env.NEXT_PUBLIC_HB_USDT_ADDRESS || process.env.USDT_TOKEN_ADDRESS || process.env.NEXT_PUBLIC_USDT_TOKEN_ADDRESS || process.env.USDT_BEP20_CONTRACT || process.env.NEXT_PUBLIC_USDT_BEP20_ADDRESS || "",
+  hbUsdtAddress: process.env.HB9_USDT_BEP20_ADDRESS || process.env.NEXT_PUBLIC_HB_USDT_ADDRESS || process.env.USDT_TOKEN_ADDRESS || process.env.NEXT_PUBLIC_USDT_TOKEN_ADDRESS || process.env.USDT_BEP20_CONTRACT || process.env.NEXT_PUBLIC_USDT_BEP20_ADDRESS || "",
   hbExplorerBaseUrl: process.env.HB_EXPLORER_BASE_URL || process.env.NEXT_PUBLIC_BSCSCAN_URL || "https://bscscan.com",
   hbOnchainStartBlock: Number(process.env.HB_ONCHAIN_START_BLOCK || 0)
   ,
@@ -153,8 +153,8 @@ if (process.env.NODE_ENV === "production") {
     "API_BASE_URL",
     "BSC_MAINNET_RPC_URL",
     "BSCSCAN_API_KEY",
-    "USDT_TOKEN_ADDRESS",
-    "HB_TREASURY_DEPOSIT_ADDRESS",
+    process.env.HB9_USDT_BEP20_ADDRESS ? "HB9_USDT_BEP20_ADDRESS" : "USDT_TOKEN_ADDRESS",
+    process.env.HB9_COMPANY_RECEIVING_WALLET_BSC ? "HB9_COMPANY_RECEIVING_WALLET_BSC" : "HB_TREASURY_DEPOSIT_ADDRESS",
     "HB9_TREASURY_WALLET",
     process.env.HB_WITHDRAWAL_VAULT_ADDRESS ? "HB_WITHDRAWAL_VAULT_ADDRESS" : "HB_WITHDRAWAL_TREASURY_ADDRESS",
     "HB_PACKAGE_MANAGER_ADDRESS",
@@ -165,10 +165,10 @@ if (process.env.NODE_ENV === "production") {
   if (config.hbChainId !== 56) {
     throw new Error("NEXT_PUBLIC_HB_CHAIN_ID/HB_CHAIN_ID must be 56 for BSC Mainnet.");
   }
-  if ((process.env.USDT_TOKEN_ADDRESS || "").toLowerCase() !== usdtBep20MainnetAddress.toLowerCase()) {
-    throw new Error("USDT_TOKEN_ADDRESS must be BSC Mainnet USDT BEP20.");
+  if ((process.env.HB9_USDT_BEP20_ADDRESS || process.env.USDT_TOKEN_ADDRESS || "").toLowerCase() !== usdtBep20MainnetAddress.toLowerCase()) {
+    throw new Error("HB9_USDT_BEP20_ADDRESS/USDT_TOKEN_ADDRESS must be BSC Mainnet USDT BEP20.");
   }
-  requireProductionAddress("HB_TREASURY_DEPOSIT_ADDRESS");
+  requireProductionAddress(process.env.HB9_COMPANY_RECEIVING_WALLET_BSC ? "HB9_COMPANY_RECEIVING_WALLET_BSC" : "HB_TREASURY_DEPOSIT_ADDRESS");
   requireProductionAddress("HB9_TREASURY_WALLET");
   if (process.env.HB_WITHDRAWAL_VAULT_ADDRESS) requireProductionAddress("HB_WITHDRAWAL_VAULT_ADDRESS");
   else requireProductionAddress("HB_WITHDRAWAL_TREASURY_ADDRESS");
