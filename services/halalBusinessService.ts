@@ -609,14 +609,16 @@ export function fetchHbPublicLanding() {
   return hbRequest<HbPublicLanding>("/hb/public/landing");
 }
 
-export function requestHbWalletChallenge(input: { walletAddress: string; chainId: number; referralCode?: string }) {
+export type HbWalletAuthMode = "login" | "signup";
+
+export function requestHbWalletChallenge(input: { walletAddress: string; chainId: number; referralCode?: string; authMode?: HbWalletAuthMode }) {
   return hbRequest<{ nonce: string; message: string; chainId: number; expiresInSeconds: number }>("/hb/auth/wallet/challenge", undefined, {
     method: "POST",
     body: JSON.stringify(input)
   });
 }
 
-export function verifyHbWalletSignature(input: { walletAddress: string; chainId: number; nonce: string; signature: string }) {
+export function verifyHbWalletSignature(input: { walletAddress: string; chainId: number; nonce: string; signature: string; authMode?: HbWalletAuthMode }) {
   return hbRequest<HbWalletAuthResponse>("/hb/auth/wallet/verify", undefined, {
     method: "POST",
     body: JSON.stringify(input)

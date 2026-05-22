@@ -160,6 +160,7 @@ const treasurySettingsSchema = z.object({
 const walletChallengeSchema = z.object({
   walletAddress: z.string().trim().refine(isAddress, "walletAddress must be a valid EVM address.").transform((value) => getAddress(value)),
   chainId: z.number().int().positive(),
+  authMode: z.enum(["login", "signup"]).optional(),
   referralCode: z.string().trim().min(3).max(40).optional().or(z.literal(""))
 });
 
@@ -167,7 +168,8 @@ const walletVerifySchema = z.object({
   nonce: z.string().trim().min(16).max(160),
   walletAddress: z.string().trim().refine(isAddress, "walletAddress must be a valid EVM address.").transform((value) => getAddress(value)),
   chainId: z.number().int().positive(),
-  signature: z.string().trim().min(20).max(300)
+  signature: z.string().trim().min(20).max(300),
+  authMode: z.enum(["login", "signup"]).optional()
 });
 
 const registrationFeeVerifySchema = z.object({
@@ -3906,6 +3908,7 @@ hbRouter.post("/hb/auth/wallet/challenge", asyncHandler(async (req, res) => {
   logger.info("hb.wallet_challenge.payload", {
     walletAddress: typeof req.body?.walletAddress === "string" ? req.body.walletAddress : null,
     chainId: req.body?.chainId ?? null,
+    authMode: typeof req.body?.authMode === "string" ? req.body.authMode : null,
     hasReferralCode: Boolean(req.body?.referralCode)
   });
   const parsed = walletChallengeSchema.safeParse(req.body);
@@ -4030,6 +4033,12 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
     );
     let user = userRows.rows[0];
     if (!user) {
+      if (parsed.data.authMode === "login") {
+        await client.query("update hb_wallet_auth_challenges set signature = $2, status = 'rejected' where id = $1", [challenge.id, parsed.data.signature]);
+        await client.query("commit");
+        fail(res, "Please sign up first.", 404, "Wallet is not registered");
+        return;
+      }
       const sponsorCode = (challenge.sponsor_referral_code || "").trim().toUpperCase();
       const sponsor = sponsorCode ? await findSponsorByReferral(client, sponsorCode) : null;
       const code = referralCode();
@@ -4070,6 +4079,12 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
         [user.id, JSON.stringify({ walletAddress, sponsorCode: sponsor?.referral_code || null })]
       );
     } else {
+      if (parsed.data.authMode === "signup") {
+        await client.query("update hb_wallet_auth_challenges set user_id = $2, signature = $3, status = 'rejected' where id = $1", [challenge.id, user.id, parsed.data.signature]);
+        await client.query("commit");
+        fail(res, "You are already registered.", 409, "You are already registered.");
+        return;
+      }
       await client.query(
         `update hb_users
          set hb9_wallet_address = coalesce(hb9_wallet_address, $2),

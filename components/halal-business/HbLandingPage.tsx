@@ -42,7 +42,7 @@ export function HbLandingPage({ referralCode, onAuthenticated }: HbLandingPagePr
           <HalalBusinessLogo size="sm" showText />
         </div>
         <div className="w-[9.8rem] shrink-0 sm:w-auto">
-          <ExternalWalletConnect compact minimal authenticate referralCode={referralCode} onAuthenticated={onAuthenticated} />
+          <ExternalWalletConnect compact minimal referralCode={referralCode} buttonLabel="Connect Wallet" />
         </div>
       </nav>
 
@@ -76,10 +76,10 @@ function HeroSection({ referralCode, sponsorPreview, onAuthenticated }: {
         ) : null}
         <div className="mx-auto mt-6 flex w-full max-w-xs flex-col items-center gap-3 sm:mt-7 sm:max-w-sm">
           <div className="w-full">
-            <ExternalWalletConnect minimal hero authenticate referralCode={referralCode} onAuthenticated={onAuthenticated} />
+            <ExternalWalletConnect minimal hero authenticate authMode="login" referralCode={referralCode} buttonLabel="Login" showConnectedAddress={false} onAuthenticated={onAuthenticated} />
           </div>
           <div className="w-full">
-            <ExternalWalletConnect minimal hero heroTone="secondary" authenticate referralCode={referralCode} buttonLabel="Sign Up" onAuthenticated={onAuthenticated} />
+            <ExternalWalletConnect minimal hero heroTone="secondary" authenticate authMode="signup" referralCode={referralCode} buttonLabel="Sign Up" showConnectedAddress={false} onAuthenticated={onAuthenticated} />
           </div>
         </div>
         <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-white/[0.08] bg-[#06111f]/46 p-4 text-left shadow-[0_24px_80px_rgba(0,0,0,0.22)] backdrop-blur-2xl sm:mt-9 sm:p-5">

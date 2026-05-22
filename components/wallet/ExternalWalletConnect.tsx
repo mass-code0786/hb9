@@ -5,7 +5,7 @@ import { Check, LogOut, QrCode, Wallet, Wifi, WifiOff, X } from "lucide-react";
 import { useConnect, useConnectors } from "wagmi";
 import { parseEther } from "ethers";
 import type { Connector } from "wagmi";
-import { isHbDevDashboardBypassEnabled, requestHbWalletChallenge, saveHbDevWallet, verifyHbRegistrationFee, verifyHbWalletSignature, type HbRegistrationFee, type HbUser } from "@/services/halalBusinessService";
+import { isHbDevDashboardBypassEnabled, requestHbWalletChallenge, saveHbDevWallet, verifyHbRegistrationFee, verifyHbWalletSignature, type HbRegistrationFee, type HbUser, type HbWalletAuthMode } from "@/services/halalBusinessService";
 import { walletConnectProjectId } from "@/lib/wagmiConfig";
 
 type EthereumProvider = {
@@ -126,14 +126,16 @@ async function switchToBsc(provider: EthereumProvider) {
   return parseChainId(await provider.request({ method: "eth_chainId" }));
 }
 
-export function ExternalWalletConnect({ compact = false, minimal = false, hero = false, heroTone = "primary", authenticate = false, referralCode = "", buttonLabel = "Connect Wallet", onAuthenticated }: {
+export function ExternalWalletConnect({ compact = false, minimal = false, hero = false, heroTone = "primary", authenticate = false, authMode = "login", referralCode = "", buttonLabel = "Connect Wallet", showConnectedAddress = true, onAuthenticated }: {
   compact?: boolean;
   minimal?: boolean;
   hero?: boolean;
   heroTone?: "primary" | "secondary";
   authenticate?: boolean;
+  authMode?: HbWalletAuthMode;
   referralCode?: string;
   buttonLabel?: string;
+  showConnectedAddress?: boolean;
   onAuthenticated?: (token: string, user: HbUser) => void;
 }) {
   const connectors = useConnectors();
@@ -170,13 +172,13 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
       return;
     }
     if (!authenticate) return;
-    const challenge = await requestHbWalletChallenge({ walletAddress: nextAddress, chainId: nextChainId || BSC_CHAIN_ID, referralCode });
+    const challenge = await requestHbWalletChallenge({ walletAddress: nextAddress, chainId: nextChainId || BSC_CHAIN_ID, referralCode, authMode });
     const signature = await provider.request({ method: "personal_sign", params: [challenge.message, nextAddress] });
     if (typeof signature !== "string") {
       setMessage("Wallet signature was cancelled.");
       return;
     }
-    const response = await verifyHbWalletSignature({ walletAddress: nextAddress, chainId: challenge.chainId, nonce: challenge.nonce, signature });
+    const response = await verifyHbWalletSignature({ walletAddress: nextAddress, chainId: challenge.chainId, nonce: challenge.nonce, signature, authMode });
     if (response.registrationFeeRequired && response.registrationFee) {
       setRegistrationFee(response.registrationFee);
       setMessage(`${response.registrationFee.message}. ${response.registrationFee.note}.`);
@@ -328,7 +330,7 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
           title="External wallet connection for package purchases, USDT BEP20 approvals, contract interactions, wallet proof, and BscScan transaction proof."
         >
           <Wallet size={15} />
-          <span className="truncate">{busy ? "Please wait" : connected ? shortAddress(address) : walletBrowserDetected ? buttonLabel : "Choose Wallet"}</span>
+          <span className="truncate">{busy ? "Please wait" : connected && showConnectedAddress ? shortAddress(address) : buttonLabel}</span>
         </button>
         {!minimal ? (
           <span className={`status-pill shrink-0 ${onBsc ? "status-pill-success" : connected ? "status-pill-warning" : ""}`}>
