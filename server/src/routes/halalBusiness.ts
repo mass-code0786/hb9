@@ -3747,14 +3747,14 @@ hbRouter.get("/hb/wallet-activity", requireHbUser, asyncHandler(async (req, res)
     `select *
      from (
        select l.id::text, l.reference_type as type, l.direction, l.amount_usd::text, l.metadata,
-              null::text as reference,
+              NULL::text AS reference,
               p.public_reference_id, p.proof_hash, p.chain_tx_hash, p.onchain_status, l.created_at
        from hb_internal_ledger l
        left join hb_ledger_proofs p on p.ledger_entry_id = l.id and p.source_table = 'hb_internal_ledger'
        where l.user_id = $1
        union all
        select l.id::text, l.income_type as type, 'credit' as direction, l.amount_usd::text, l.metadata,
-              null::text as reference,
+              NULL::text AS reference,
               p.public_reference_id, p.proof_hash, p.chain_tx_hash, p.onchain_status, l.created_at
        from hb_income_ledger l
        left join hb_ledger_proofs p on p.ledger_entry_id = l.id and p.source_table = 'hb_income_ledger'
@@ -3769,7 +3769,7 @@ hbRouter.get("/hb/wallet-activity", requireHbUser, asyncHandler(async (req, res)
                 else l.type
               end as type,
               l.direction, l.amount::text as amount_usd, l.metadata,
-              null::text as reference,
+              NULL::text AS reference,
               p.public_reference_id, p.proof_hash, p.chain_tx_hash, p.onchain_status, l.created_at
        from hb_coin_balance_ledger l
        left join hb_ledger_proofs p on p.ledger_entry_id = l.id and p.source_table = 'hb_coin_balance_ledger'
