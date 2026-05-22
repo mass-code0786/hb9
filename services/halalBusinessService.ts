@@ -309,7 +309,15 @@ export type HbOnchainPackageConfig = {
   treasurySplitterAddress?: string | null;
   incomeDistributorAddress?: string | null;
   usdtBep20Address?: string | null;
-  packages: Array<HbPackage & { onchainPackageId: number | null }>;
+  packages: Array<HbPackage & {
+    packageId?: number | null;
+    onchainPackageId: number | null;
+    onchainPrice?: string | number | null;
+    treasuryWallet?: string | null;
+    tokenType?: "USDT BEP20" | string;
+    tokenAddress?: string | null;
+    active?: boolean;
+  }>;
 };
 
 export type HbRegistrationFee = {

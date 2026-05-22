@@ -514,11 +514,18 @@ export function HalalBusinessApp() {
     }
     const packageConfig = config.packages.find((item) => item.id === product.package_id || Number(item.amount_usd) === Number(product.package_price));
     if (!packageConfig?.onchainPackageId) {
-      setError("This package is not mapped to an on-chain package ID.");
+      console.error("HB9 package contract mapping missing.", { product, packages: config.packages });
+      setError("Package temporarily unavailable.");
       return true;
     }
     if (!config.packageManagerAddress || !config.usdtBep20Address) {
-      setError("Contract not configured yet");
+      console.error("HB9 package contract config incomplete.", {
+        product,
+        packageConfig,
+        hasPackageManager: Boolean(config.packageManagerAddress),
+        hasUsdtBep20: Boolean(config.usdtBep20Address)
+      });
+      setError("Package temporarily unavailable.");
       return true;
     }
     const ethereum = (window as unknown as { ethereum?: EthereumProvider }).ethereum;
@@ -578,7 +585,13 @@ export function HalalBusinessApp() {
     const usdtBep20Address = config.usdtBep20Address;
     const onchainPackageId = packageConfig.onchainPackageId;
     if (!packageManagerAddress || !usdtBep20Address || onchainPackageId === null || onchainPackageId === undefined) {
-      setError("Contract not configured yet");
+      console.error("HB9 package purchase confirmation config incomplete.", {
+        product,
+        packageConfig,
+        hasPackageManager: Boolean(packageManagerAddress),
+        hasUsdtBep20: Boolean(usdtBep20Address)
+      });
+      setError("Package temporarily unavailable.");
       return;
     }
     if (config.dryRun) {

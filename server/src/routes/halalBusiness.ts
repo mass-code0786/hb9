@@ -689,6 +689,28 @@ function onchainPackageIdForAmount(amount: string | number) {
   return null;
 }
 
+const hbCanonicalOnchainPackages = [
+  { onchainPackageId: 1, amountUsd: 4, name: "$4 Starter", sortOrder: 1 },
+  { onchainPackageId: 2, amountUsd: 20, name: "$20 Growth", sortOrder: 2 },
+  { onchainPackageId: 3, amountUsd: 100, name: "$100 Popular", sortOrder: 3 },
+  { onchainPackageId: 4, amountUsd: 500, name: "$500 Automation", sortOrder: 4 },
+  { onchainPackageId: 5, amountUsd: 2500, name: "$2500 AI Business", sortOrder: 5 },
+  { onchainPackageId: 6, amountUsd: 12500, name: "$12500 Enterprise", sortOrder: 6 }
+] as const;
+
+function canonicalOnchainPackageForId(packageId: number) {
+  return hbCanonicalOnchainPackages.find((pkg) => pkg.onchainPackageId === packageId) || null;
+}
+
+function canonicalOnchainPackageForAmount(amount: string | number) {
+  const normalized = Number(amount);
+  return hbCanonicalOnchainPackages.find((pkg) => pkg.amountUsd === normalized) || null;
+}
+
+function hbUsdtAddress() {
+  return config.hbUsdtAddress || config.usdtBep20Contract || USDT_BEP20_ADDRESS;
+}
+
 function hbOnchainChainId() {
   return config.hbChainId || 56;
 }
@@ -821,7 +843,7 @@ function hbEnvContractRows() {
     { key: "referral_registry", chain_id, contract_address: config.hbReferralRegistryAddress || null, start_block: config.hbOnchainStartBlock ? String(config.hbOnchainStartBlock) : null, enabled: Boolean(config.hbReferralRegistryAddress), source: "env" },
     { key: "treasury_splitter", chain_id, contract_address: config.hbTreasurySplitterAddress || null, start_block: config.hbOnchainStartBlock ? String(config.hbOnchainStartBlock) : null, enabled: Boolean(config.hbTreasurySplitterAddress), source: "env" },
     { key: "income_distributor", chain_id, contract_address: config.hbIncomeDistributorAddress || null, start_block: config.hbOnchainStartBlock ? String(config.hbOnchainStartBlock) : null, enabled: Boolean(config.hbIncomeDistributorAddress), source: "env" },
-    { key: "usdt_bep20", chain_id, contract_address: config.hbUsdtAddress || null, start_block: null, enabled: Boolean(config.hbUsdtAddress), source: "env" }
+    { key: "usdt_bep20", chain_id, contract_address: hbUsdtAddress(), start_block: null, enabled: Boolean(hbUsdtAddress()), source: "env" }
   ];
 }
 
@@ -1958,6 +1980,8 @@ hbRouter.get("/hb/onchain/config", requireHbUser, asyncHandler(async (_req, res)
   ).catch(() => []);
   const mergedContracts = mergeEnvOnchainContracts(contracts);
   const contractMap = Object.fromEntries(mergedContracts.map((row) => [row.key, row]));
+  const packageRowsByAmount = new Map(packages.map((pkg) => [Number(pkg.amount_usd), pkg]));
+  const treasuryWallet = contractMap.treasury_splitter?.contract_address || config.hbTreasuryDepositAddress || config.hb9TreasuryWallet || "";
   ok(res, {
     mode: packagePurchaseMode(),
     dryRun: config.hbOnchainDryRun,
@@ -1968,7 +1992,23 @@ hbRouter.get("/hb/onchain/config", requireHbUser, asyncHandler(async (_req, res)
     treasurySplitterAddress: contractMap.treasury_splitter?.contract_address || "",
     incomeDistributorAddress: contractMap.income_distributor?.contract_address || "",
     usdtBep20Address: contractMap.usdt_bep20?.contract_address || "",
-    packages: packages.map((pkg) => ({ ...pkg, onchainPackageId: onchainPackageIdForAmount(pkg.amount_usd) }))
+    packages: hbCanonicalOnchainPackages.map((canonical) => {
+      const row = packageRowsByAmount.get(canonical.amountUsd);
+      return {
+        id: row?.id || `hb-package-${canonical.amountUsd}`,
+        name: row?.name || canonical.name,
+        amount_usd: row?.amount_usd || String(canonical.amountUsd),
+        status: row?.status || "available",
+        sort_order: row?.sort_order || canonical.sortOrder,
+        packageId: canonical.onchainPackageId,
+        onchainPackageId: canonical.onchainPackageId,
+        onchainPrice: String(BigInt(canonical.amountUsd) * 10n ** 18n),
+        treasuryWallet,
+        tokenType: "USDT BEP20",
+        tokenAddress: contractMap.usdt_bep20?.contract_address || hbUsdtAddress(),
+        active: row?.status ? row.status === "available" : true
+      };
+    })
   }, "HB9 on-chain package config loaded");
 }));
 
@@ -2909,6 +2949,12 @@ hbRouter.post("/hb/onchain/purchases/track", requireHbUser, asyncHandler(async (
     fail(res, "A package activation is already pending for this ID.", 409, "Activation already pending");
     return;
   }
+  const canonicalPackage = canonicalOnchainPackageForId(parsed.data.onchainPackageId);
+  if (!canonicalPackage) {
+    logger.error("hb.onchain.package_mapping_missing", { onchainPackageId: parsed.data.onchainPackageId });
+    fail(res, "Package temporarily unavailable.", 503, "Package unavailable");
+    return;
+  }
   const amountRows = await query<{ amount_usd: string }>(
     `select amount_usd::text
      from hb_packages
@@ -2916,7 +2962,7 @@ hbRouter.post("/hb/onchain/purchases/track", requireHbUser, asyncHandler(async (
      limit 1`,
     [[4, 20, 100, 500, 2500, 12500].filter((amount) => onchainPackageIdForAmount(amount) === parsed.data.onchainPackageId)]
   );
-  const amountUsd = amountRows[0]?.amount_usd || "0";
+  const amountUsd = amountRows[0]?.amount_usd || String(canonicalPackage.amountUsd);
   const rows = await query(
     `insert into hb_onchain_purchase_events
       (tx_hash, chain_id, contract_address, onchain_package_id, buyer_user_id, buyer_address,

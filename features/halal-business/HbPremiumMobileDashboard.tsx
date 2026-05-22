@@ -78,6 +78,14 @@ const HB_WITHDRAWAL_MIN_USD = 2;
 const HB_WITHDRAWAL_MIN_ERROR = "Minimum withdrawal is $2.";
 const HB9_COIN_PRICE_USD = 0.13;
 const HB9_TO_USDT_MIN_USD = 500;
+const PACKAGE_AMOUNT_TO_ONCHAIN_ID: Record<number, number> = {
+  4: 1,
+  20: 2,
+  100: 3,
+  500: 4,
+  2500: 5,
+  12500: 6
+};
 
 function readCachedProducts() {
   if (typeof window === "undefined") return buildDefaultHbPackageProducts();
@@ -121,6 +129,26 @@ function chainLabel(chainId: number | string) {
 
 function txUrl(config: HbOnchainPackageConfig, txHash: string) {
   return `${(config.explorerBaseUrl || "https://bscscan.com").replace(/\/$/, "")}/tx/${txHash}`;
+}
+
+function onchainPackageIdForProduct(product: HbProduct) {
+  return PACKAGE_AMOUNT_TO_ONCHAIN_ID[Number(product.package_price)] || null;
+}
+
+function packageConfigForProduct(config: HbOnchainPackageConfig, product: HbProduct): OnchainPackageItem | null {
+  const amount = Number(product.package_price);
+  const configured = config.packages.find((item) => item.id === product.package_id || Number(item.amount_usd) === amount || item.onchainPackageId === onchainPackageIdForProduct(product));
+  if (configured) return configured;
+  const onchainPackageId = onchainPackageIdForProduct(product);
+  if (!onchainPackageId) return null;
+  return {
+    id: product.package_id || `hb-package-${amount}`,
+    name: product.package_name || product.title,
+    amount_usd: amount,
+    status: "available",
+    sort_order: onchainPackageId,
+    onchainPackageId
+  };
 }
 
 export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolean }) {
@@ -549,20 +577,32 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
     setNotice("");
     const config = onchainConfig || await fetchHbOnchainPackageConfig(token);
     setOnchainConfig(config);
+    const packageConfig = packageConfigForProduct(config, product);
     if (config.mode !== "onchain" && config.mode !== "hybrid") {
+      if (!packageConfig?.onchainPackageId) {
+        console.error("HB9 package contract mapping missing for internal review flow.", { product, packages: config.packages });
+        setError("Package temporarily unavailable.");
+        return;
+      }
       setPurchaseReview({
         product,
         config,
-        packageConfig: config.packages.find((item) => item.id === product.package_id || Number(item.amount_usd) === Number(product.package_price)) || config.packages[0],
+        packageConfig,
         buyerAddress: boundWallet,
         sponsorRef: user.sponsor_referral_code || user.source_referral_code || "",
         stage: "review"
       });
       return;
     }
-    const packageConfig = config.packages.find((item) => item.id === product.package_id || Number(item.amount_usd) === Number(product.package_price));
     if (!packageConfig?.onchainPackageId || !config.packageManagerAddress || !config.usdtBep20Address) {
-      setError("This package is not mapped to an on-chain package contract yet.");
+      console.error("HB9 package on-chain config incomplete.", {
+        product,
+        packageConfig,
+        hasPackageManager: Boolean(config.packageManagerAddress),
+        hasUsdtBep20: Boolean(config.usdtBep20Address),
+        packages: config.packages
+      });
+      setError("Package temporarily unavailable.");
       return;
     }
     const ethereum = (window as unknown as { ethereum?: EthereumProvider }).ethereum;
@@ -607,7 +647,13 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       return;
     }
     if (!config.packageManagerAddress || !config.usdtBep20Address || onchainPackageId === null || onchainPackageId === undefined) {
-      setError("Contract not configured yet.");
+      console.error("HB9 package purchase confirmation config incomplete.", {
+        product,
+        packageConfig,
+        hasPackageManager: Boolean(config.packageManagerAddress),
+        hasUsdtBep20: Boolean(config.usdtBep20Address)
+      });
+      setError("Package temporarily unavailable.");
       return;
     }
     if (config.dryRun) {
