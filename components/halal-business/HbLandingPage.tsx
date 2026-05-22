@@ -1,20 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { HalalBusinessLogo } from "@/components/brand/HalalBusinessLogo";
-import { PackageIllustration, type PackageIllustrationType } from "@/components/packages/PackageIllustration";
+import { buildDefaultHbPackageProducts, HbPackageProductCard, money } from "@/components/halal-business/HbPackageCards";
 import { ExternalWalletConnect } from "@/components/wallet/ExternalWalletConnect";
-import { fetchHbSponsorPreview, type HbSponsorPreview, type HbUser } from "@/services/halalBusinessService";
-import {
-  BrainCircuit,
-  Check,
-  MessageCircle,
-  Network,
-  Rocket,
-  Sparkles,
-  WalletCards
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { fetchHbSponsorPreview, type HbProduct, type HbSponsorPreview, type HbUser } from "@/services/halalBusinessService";
 
 type HbLandingPageProps = {
   referralCode: string;
@@ -27,64 +17,6 @@ const heroDetails = [
   "Digital products are delivered within seconds after successful activation, creating a fast and seamless onboarding experience for users worldwide.",
   "The ecosystem is designed for transparency, speed, decentralized access, and modern digital business operations."
 ];
-
-const packageCards = [
-  {
-    price: "$4 Package",
-    badge: "Starter Access",
-    theme: "startup",
-    illustration: "starter",
-    icon: Rocket,
-    features: ["4 Business Idea Books", "Digital Startup Guides", "Instant Product Delivery"]
-  },
-  {
-    price: "$20 Package",
-    badge: "Growth Access",
-    theme: "growth",
-    illustration: "growth",
-    icon: WalletCards,
-    features: ["20 Business Idea Books", "Money Management Books", "Social Media Growth Kit", "700 Social Media Followers", "Instant Delivery"]
-  },
-  {
-    price: "$100 Package",
-    badge: "Creator Expansion",
-    theme: "creator",
-    illustration: "creator",
-    icon: Sparkles,
-    features: ["100 Story Templates", "Business Idea Collection", "Money Management Books", "Branding Resources", "4000 Social Media Followers"]
-  },
-  {
-    price: "$500 Package",
-    badge: "Automation Suite",
-    theme: "automation",
-    illustration: "whatsapp",
-    icon: MessageCircle,
-    features: ["All $100 Features", "WhatsApp Automatic Message Software", "CRM-style Messaging System", "Automation Features"]
-  },
-  {
-    price: "$2500 Package",
-    badge: "AI Business Suite",
-    theme: "ai",
-    illustration: "ai_ads",
-    icon: BrainCircuit,
-    features: ["All $500 Features", "AI Calling Agent Software", "Meta Auto Ads Run AI Software", "AI Automation Ecosystem"]
-  },
-  {
-    price: "$12500 Package",
-    badge: "Enterprise Access",
-    theme: "enterprise",
-    illustration: "enterprise",
-    icon: Network,
-    features: ["All $2500 Features", "3 Custom Software Projects", "Centralized or Decentralized Solutions", "Premium Business Infrastructure", "Custom Development Support"]
-  }
-] satisfies Array<{
-  price: string;
-  badge: string;
-  theme: string;
-  illustration: PackageIllustrationType;
-  icon: LucideIcon;
-  features: string[];
-}>;
 
 export function HbLandingPage({ referralCode, onAuthenticated }: HbLandingPageProps) {
   const [sponsorPreview, setSponsorPreview] = useState<HbSponsorPreview>(null);
@@ -116,7 +48,7 @@ export function HbLandingPage({ referralCode, onAuthenticated }: HbLandingPagePr
 
       <div className="relative z-10 mx-auto max-w-6xl">
         <HeroSection referralCode={referralCode} sponsorPreview={sponsorPreview} onAuthenticated={onAuthenticated} />
-        <PackageEcosystemSection />
+        <PackageEcosystemSection referralCode={referralCode} onAuthenticated={onAuthenticated} />
       </div>
     </section>
   );
@@ -162,11 +94,15 @@ function HeroSection({ referralCode, sponsorPreview, onAuthenticated }: {
   );
 }
 
-function PackageEcosystemSection() {
-  const [message, setMessage] = useState("");
+function PackageEcosystemSection({ referralCode, onAuthenticated }: {
+  referralCode: string;
+  onAuthenticated: (token: string, user: HbUser) => void;
+}) {
+  const [selectedPackage, setSelectedPackage] = useState<HbProduct | null>(null);
+  const packages = useMemo(() => buildDefaultHbPackageProducts(), []);
 
-  function showActivationMessage() {
-    setMessage("Package activation coming soon");
+  function startBuy(product: HbProduct) {
+    setSelectedPackage(product);
   }
 
   return (
@@ -174,42 +110,33 @@ function PackageEcosystemSection() {
       <div className="hb-package-orb hb-package-orb-a" aria-hidden="true" />
       <div className="hb-package-orb hb-package-orb-b" aria-hidden="true" />
 
-      <div className="packages-grid">
-        {packageCards.map((card) => (
-          <article key={card.price} className={`package-card hb-package-card hb-product-card hb-product-card-${card.theme}`}>
-            <div className="hb-package-media">
-              <div className="hb-product-visual">
-                <PackageIllustration type={card.illustration} />
-              </div>
-            </div>
+      <div className="mb-4 flex items-end justify-between gap-3 px-1">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-cyan-100/55">HB9 Premium</p>
+          <h2 className="mt-1 text-2xl font-black text-white">Available Packages</h2>
+        </div>
+        <span className="shrink-0 rounded-full border border-cyan-200/12 bg-cyan-300/8 px-2.5 py-1 text-[10px] font-bold text-cyan-100/75">All 6 packages</span>
+      </div>
 
-            <div className="hb-package-content">
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <h3 className="text-2xl font-semibold tracking-normal text-white">{card.price}</h3>
-                <div className="hb-product-icon" aria-hidden="true">
-                  <card.icon className="h-6 w-6" />
-                </div>
-              </div>
-
-              <ul className="space-y-2.5">
-                {card.features.map((feature) => (
-                  <li key={feature} className="flex gap-2 text-sm leading-5 text-sky-50/72">
-                    <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-cyan-300/14 text-cyan-100 ring-1 ring-cyan-200/20">
-                      <Check className="h-3 w-3" />
-                    </span>
-                    <span>{feature}</span>
-                  </li>
-                ))}
-              </ul>
-
-              <button onClick={showActivationMessage} className="hb-package-cta relative z-10 mt-5 text-center" type="button">
-                Activate Package
-              </button>
-            </div>
-          </article>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {packages.map((product) => (
+          <HbPackageProductCard key={product.id} product={product} cta="Buy Now" onBuy={() => startBuy(product)} compact />
         ))}
       </div>
-      {message ? <div className="mx-auto mt-4 max-w-sm text-center text-xs leading-5 text-yellow-100">{message}</div> : null}
+
+      {selectedPackage ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 px-3 pb-3 backdrop-blur-sm">
+          <div className="w-full max-w-[430px] rounded-[1.6rem] border border-cyan-200/15 bg-[#071827]/95 p-4 shadow-[0_0_40px_rgba(34,211,238,0.18)] backdrop-blur-2xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-200">Buy package</p>
+            <h2 className="mt-2 text-2xl font-semibold">{money(selectedPackage.package_price)} {selectedPackage.package_name}</h2>
+            <p className="mt-2 text-sm leading-6 text-sky-100/62">Connect or verify your wallet to continue with this HB9 package.</p>
+            <div className="mt-4">
+              <ExternalWalletConnect minimal hero authenticate referralCode={referralCode} buttonLabel="Connect Wallet" onAuthenticated={onAuthenticated} />
+            </div>
+            <button className="mt-3 w-full rounded-2xl border border-cyan-200/18 bg-cyan-300/10 px-4 py-3 text-sm font-bold text-cyan-100" onClick={() => setSelectedPackage(null)} type="button">Cancel</button>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -312,6 +312,24 @@ export type HbOnchainPackageConfig = {
   packages: Array<HbPackage & { onchainPackageId: number | null }>;
 };
 
+export type HbRegistrationFee = {
+  required: boolean;
+  amountUSD: number;
+  amountBNB: number;
+  treasuryWallet: string;
+  chainId: number;
+  network: string;
+  message: string;
+  note: string;
+};
+
+export type HbWalletAuthResponse = {
+  token: string;
+  user: HbUser;
+  registrationFeeRequired?: boolean;
+  registrationFee?: HbRegistrationFee;
+};
+
 export type HbProductAllocation = {
   id: string;
   amount_usd: string | number;
@@ -383,7 +401,7 @@ export type HbFollowersRequest = {
   package_id?: string | null;
   package_name?: string | null;
   package_price?: string | number | null;
-  platform: "Instagram" | "Facebook" | "Telegram";
+  platform: HbFollowersPlatform;
   submitted_link: string;
   followers_count: number;
   status: "pending" | "processing" | "completed" | "rejected";
@@ -391,6 +409,8 @@ export type HbFollowersRequest = {
   created_at: string;
   completed_at?: string | null;
 };
+
+export type HbFollowersPlatform = "Instagram" | "Facebook" | "YouTube" | "Telegram" | "X/Twitter" | "TikTok";
 
 export type HbSoftwareAccess = {
   software_key: string;
@@ -597,7 +617,14 @@ export function requestHbWalletChallenge(input: { walletAddress: string; chainId
 }
 
 export function verifyHbWalletSignature(input: { walletAddress: string; chainId: number; nonce: string; signature: string }) {
-  return hbRequest<{ token: string; user: HbUser }>("/hb/auth/wallet/verify", undefined, {
+  return hbRequest<HbWalletAuthResponse>("/hb/auth/wallet/verify", undefined, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function verifyHbRegistrationFee(token: string, input: { txHash: string }) {
+  return hbRequest<{ user: HbUser; registrationFeeRequired: false; txHash: string; amountBNB: string | number; amountUSD: string | number; walletAddress: string; status: "verified" }>("/hb/auth/registration-fee/verify", token, {
     method: "POST",
     body: JSON.stringify(input)
   });
@@ -804,7 +831,7 @@ export function downloadHbBook(token: string, bookId: string) {
   });
 }
 
-export function createHbFollowersRequest(token: string, input: { packagePurchaseId: string; platform: "Instagram" | "Facebook" | "Telegram"; submittedLink: string }) {
+export function createHbFollowersRequest(token: string, input: { packagePurchaseId: string; platform: HbFollowersPlatform; submittedLink: string }) {
   return hbRequest<HbFollowersRequest>("/hb/followers-request", token, {
     method: "POST",
     body: JSON.stringify(input)

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { ArrowLeft, BriefcaseBusiness, CheckCircle2, Copy, DollarSign, FileSearch, LayoutDashboard, LogOut, PackageCheck, Sparkles, Target, Users, Wallet } from "lucide-react";
 import { motion } from "framer-motion";
 import { BrowserProvider, Contract, encodeBytes32String, parseUnits, ZeroAddress } from "ethers";
@@ -111,6 +112,7 @@ const HB_BYPASS_AUTH = isHbBypassEnabled();
 const HB_ROLLOUT_MODE = process.env.NEXT_PUBLIC_HB_ROLLOUT_MODE || "closed_beta";
 const HB_LAUNCH_STATUS = process.env.NEXT_PUBLIC_HB_LAUNCH_STATUS || "Controlled mainnet rollout preparation";
 const HB_MOCK_STATE_KEY = "hb9.mock.state";
+const LOGIN_SUCCESS_MESSAGE = "Login successful.";
 const PACKAGE_MANAGER_ABI = ["function buyPackage(uint256 packageId,address sponsorAddress,bytes32 referralCode)"];
 const ERC20_ABI = ["function approve(address spender,uint256 amount) returns (bool)"];
 const devUser: HbUser = {
@@ -197,6 +199,7 @@ function LaunchStatusBanner({ rolloutMode, chainStatus, notice, maintenance }: {
 }
 
 export function HalalBusinessApp() {
+  const pathname = usePathname();
   const [token, setToken] = useState("");
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authSurface, setAuthSurface] = useState<"landing" | "auth">("landing");
@@ -234,6 +237,7 @@ export function HalalBusinessApp() {
   const [onchainPurchase, setOnchainPurchase] = useState<OnchainPurchaseReview | null>(null);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [loginToast, setLoginToast] = useState("");
   const [error, setError] = useState("");
   const [sourceReferralCode, setSourceReferralCode] = useState("");
   const [activationSuccess, setActivationSuccess] = useState<{ packageName: string; referralCode: string; sponsor: string } | null>(null);
@@ -307,6 +311,16 @@ export function HalalBusinessApp() {
   useEffect(() => {
     if (view === "products" || view === "profile") setView("home");
   }, [view]);
+
+  useEffect(() => {
+    if (!loginToast) return;
+    const timeout = window.setTimeout(() => setLoginToast(""), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [loginToast]);
+
+  useEffect(() => {
+    setLoginToast("");
+  }, [pathname, view]);
 
   async function refreshUser(activeToken = token) {
     if (HB_BYPASS_AUTH) return;
@@ -409,6 +423,21 @@ export function HalalBusinessApp() {
   const currentPackage = purchases[0]?.package_name || orders[0]?.package_name || readMockState().currentPackage || "None";
   const isActive = HB_BYPASS_AUTH || dashboardUser.status === "active";
   const showAppChrome = authenticated || authSurface !== "landing";
+
+  function showLoginToast() {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("hb9.loginSuccess");
+      window.sessionStorage.removeItem("hb9.loginSuccess");
+    }
+    setLoginToast(LOGIN_SUCCESS_MESSAGE);
+  }
+
+  function handleAuthenticated(nextToken: string, nextUser: HbUser) {
+    saveHbToken(nextToken);
+    setToken(nextToken);
+    setUser(nextUser);
+    showLoginToast();
+  }
 
   function applyMockState(nextState: HbMockState) {
     saveMockState(nextState);
@@ -649,11 +678,7 @@ export function HalalBusinessApp() {
         authSurface === "landing" ? (
           <HbLandingPage
             referralCode={sourceReferralCode || getStoredHbReferral()}
-            onAuthenticated={(nextToken, nextUser) => {
-              saveHbToken(nextToken);
-              setToken(nextToken);
-              setUser(nextUser);
-            }}
+            onAuthenticated={handleAuthenticated}
           />
         ) : (
           <AuthPanel
@@ -662,11 +687,7 @@ export function HalalBusinessApp() {
             setMode={setAuthMode}
             setError={setError}
             setNotice={setNotice}
-            onAuthenticated={(nextToken, nextUser) => {
-              saveHbToken(nextToken);
-              setToken(nextToken);
-              setUser(nextUser);
-            }}
+            onAuthenticated={handleAuthenticated}
           />
         )
       ) : (
@@ -819,6 +840,7 @@ export function HalalBusinessApp() {
       )}
 
       {notice ? <div className="mt-4 rounded-2xl border border-mint/30 bg-mint/10 p-4 text-sm text-mint">{notice}</div> : null}
+      {loginToast ? <LoginSuccessToast message={loginToast} /> : null}
       <ErrorText error={error} />
     </main>
   );
@@ -862,7 +884,6 @@ function AuthPanel({ mode, sourceReferralCode, setMode, setError, setNotice, onA
     try {
       const response = await loginHb({ identifier, password });
       onAuthenticated(response.token, response.user);
-      setNotice("Login successful.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed.");
     } finally {
@@ -906,6 +927,14 @@ function AuthPanel({ mode, sourceReferralCode, setMode, setError, setNotice, onA
         </div>
       ) : null}
     </Panel>
+  );
+}
+
+function LoginSuccessToast({ message }: { message: string }) {
+  return (
+    <div className="fixed inset-x-3 top-4 z-50 mx-auto max-w-sm rounded-2xl border border-mint/30 bg-[#052018]/95 p-3 text-sm font-semibold text-mint shadow-[0_18px_40px_rgba(0,0,0,0.32)] backdrop-blur-xl">
+      {message}
+    </div>
   );
 }
 

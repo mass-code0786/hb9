@@ -99,6 +99,24 @@ async function verifyEvmTransaction(input: VerificationRequest, chainId: number,
   const confirmations = currentBlock - receipt.blockNumber + 1;
   assertConfirmations(confirmations);
 
+  if (input.tokenSymbol === "BNB") {
+    const to = transaction.to || "";
+    if (!sameEvmAddress(to, expectedRecipient)) throw new VerificationError("Matching BNB transfer to the treasury wallet was not found.");
+    const amount = ethers.formatEther(transaction.value);
+    assertAmount(amount, input.requiredAmount);
+    return {
+      chainId,
+      network: input.network,
+      tokenSymbol: "BNB",
+      tokenContract: null,
+      fromAddress: normalizeEvmAddress(transaction.from),
+      toAddress: normalizeEvmAddress(to),
+      verifiedAmount: amount,
+      confirmations,
+      verifiedAt: new Date().toISOString(),
+      verificationStatus: "verified" as const
+    };
+  }
   if (input.tokenSymbol !== "USDT") throw new VerificationError(`Token ${input.tokenSymbol} is not supported for verification.`);
   if (chainId !== 56) throw new VerificationError("USDT verification is only supported for BEP20 on BSC.");
   const expectedContract = config.usdtBep20Contract;

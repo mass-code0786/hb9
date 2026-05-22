@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, LogOut, QrCode, Wallet, Wifi, WifiOff, X } from "lucide-react";
 import { useConnect, useConnectors } from "wagmi";
+import { parseEther } from "ethers";
 import type { Connector } from "wagmi";
-import { isHbDevDashboardBypassEnabled, requestHbWalletChallenge, saveHbDevWallet, verifyHbWalletSignature, type HbUser } from "@/services/halalBusinessService";
+import { isHbDevDashboardBypassEnabled, requestHbWalletChallenge, saveHbDevWallet, verifyHbRegistrationFee, verifyHbWalletSignature, type HbRegistrationFee, type HbUser } from "@/services/halalBusinessService";
 import { walletConnectProjectId } from "@/lib/wagmiConfig";
 
 type EthereumProvider = {
@@ -108,6 +109,10 @@ function isUserRejected(err: unknown) {
   return code === 4001 || message.includes("user rejected") || message.includes("user denied") || message.includes("cancel");
 }
 
+function toHexQuantity(value: bigint) {
+  return `0x${value.toString(16)}`;
+}
+
 async function switchToBsc(provider: EthereumProvider) {
   const currentChain = parseChainId(await provider.request({ method: "eth_chainId" }).catch(() => "0x0"));
   if (currentChain === BSC_CHAIN_ID) return BSC_CHAIN_ID;
@@ -138,6 +143,7 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
   const [chainId, setChainId] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [registrationFee, setRegistrationFee] = useState<HbRegistrationFee | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const autoCheckedRef = useRef(false);
 
@@ -171,6 +177,28 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
       return;
     }
     const response = await verifyHbWalletSignature({ walletAddress: nextAddress, chainId: challenge.chainId, nonce: challenge.nonce, signature });
+    if (response.registrationFeeRequired && response.registrationFee) {
+      setRegistrationFee(response.registrationFee);
+      setMessage(`${response.registrationFee.message}. ${response.registrationFee.note}.`);
+      const txHash = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{
+          from: nextAddress,
+          to: response.registrationFee.treasuryWallet,
+          value: toHexQuantity(parseEther(String(response.registrationFee.amountBNB)))
+        }]
+      });
+      if (typeof txHash !== "string") {
+        setMessage("Activation fee transaction was cancelled.");
+        return;
+      }
+      setMessage("Activation fee submitted. Waiting for on-chain verification...");
+      const activated = await verifyHbRegistrationFee(response.token, { txHash });
+      onAuthenticated?.(response.token, activated.user);
+      setRegistrationFee(null);
+      setMessage("");
+      return;
+    }
     onAuthenticated?.(response.token, response.user);
     setMessage("");
   }
@@ -314,7 +342,13 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
           </button>
         ) : null}
       </div>
-      {message ? <div className="mt-2 text-xs leading-5 text-yellow-100">{message}</div> : null}
+      {registrationFee ? (
+        <div className="mt-2 rounded-xl border border-yellow-200/20 bg-yellow-300/10 p-3 text-xs leading-5 text-yellow-100">
+          <div className="font-black">One-time activation fee: ${registrationFee.amountUSD} in BNB</div>
+          <div>Paid directly to Treasury Wallet</div>
+          <div className="mt-1 break-all font-mono text-[10px] text-yellow-50/75">{registrationFee.treasuryWallet}</div>
+        </div>
+      ) : message ? <div className="mt-2 text-xs leading-5 text-yellow-100">{message}</div> : null}
       {modalOpen && !walletBrowserDetected ? (
         <div className="fixed inset-0 z-50 grid place-items-end bg-black/70 px-3 pb-3 backdrop-blur-sm sm:place-items-center sm:p-6" role="dialog" aria-modal="true" aria-label="Choose wallet">
           <div className="w-full max-w-md rounded-2xl border border-sky-200/15 bg-[#07111f] p-4 text-slate-100 shadow-[0_0_40px_rgba(34,211,238,0.16)]">

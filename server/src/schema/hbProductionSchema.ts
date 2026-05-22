@@ -169,6 +169,13 @@ export const hbRequiredSchema: RequiredTable[] = [
   { table: "hb_financial_settings", columns: ["key", "value", "updated_at"] },
   { table: "hb_withdrawal_limits", columns: ["id", "user_id", "min_withdrawal_usd", "fee_percent", "daily_limit_usd", "cooldown_minutes", "active", "created_at", "updated_at"] },
   { table: "hb_production_controls", columns: ["key", "value", "updated_by", "updated_at"] },
+  {
+    table: "hb_registration_activation_fees",
+    columns: [
+      "id", "user_id", "wallet_address", "treasury_wallet", "tx_hash", "amount_bnb", "amount_usd",
+      "status", "verification_status", "failure_reason", "chain_id", "confirmations", "verified_at", "created_at", "updated_at"
+    ]
+  },
   { table: "hb_treasury_settings", columns: ["id", "key", "wallet_address", "network", "chain_id", "label", "updated_by", "created_at", "updated_at"] },
   { table: "hb_risk_flags", columns: ["id", "user_id", "flag", "reason", "active", "created_by", "created_at", "updated_at"] },
   { table: "hb_activation_logs", columns: ["id", "user_id", "package_purchase_id", "previous_status", "new_status", "created_at"] },
