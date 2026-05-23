@@ -804,6 +804,13 @@ export function createHbDeposit(token: string, input: { amountUsd: number; amoun
   });
 }
 
+export function verifyHbDeposit(token: string, depositId: string, txHash: string) {
+  return hbRequest<HbDeposit>(`/hb/deposits/${encodeURIComponent(depositId)}/verify`, token, {
+    method: "POST",
+    body: JSON.stringify({ txHash })
+  });
+}
+
 export function fetchHbDeposits(token: string) {
   return hbRequest<{ items: HbDeposit[] }>("/hb/deposits", token);
 }

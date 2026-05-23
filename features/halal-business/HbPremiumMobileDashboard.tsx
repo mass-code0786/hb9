@@ -30,6 +30,7 @@ import {
   fetchHbReferrals,
   fetchHbWallet,
   fetchHbWalletActivity,
+  verifyHbDeposit,
   createHbDevDashboardUser,
   getHbDevWallet,
   getHbToken,
@@ -460,26 +461,26 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   }
 
   async function submitDeposit(amountUsd: number) {
-    if (devDashboardActive) return false;
+    if (devDashboardActive) return null;
     if (!token) {
       setError("Login required to deposit.");
-      return false;
+      return null;
     }
     if (amountUsd + Number.EPSILON < 4) {
       setError("");
       setNotice("Minimum deposit is $4");
-      return false;
+      return null;
     }
     const receiveAddress = treasuryDepositAddress;
     if (!/^0x[a-fA-F0-9]{40}$/.test(receiveAddress || "")) {
       setError("Treasury wallet not configured");
-      return false;
+      return null;
     }
     setWalletActionBusy("deposit");
     setError("");
     setNotice("");
     try {
-      await createHbDeposit(token, {
+      const deposit = await createHbDeposit(token, {
         amountUsd,
         amount: amountUsd,
         network: "bsc",
@@ -489,11 +490,41 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         treasuryWallet: receiveAddress,
         idempotencyKey: `hb-ui-deposit-${Date.now()}-${crypto.randomUUID()}`
       });
-      setNotice("Deposit request created. Send only USDT BEP20 on BSC Mainnet to the treasury address.");
+      setNotice("Deposit request created. Send USDT BEP20 to treasury wallet.");
+      await refresh(token);
+      return deposit;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Deposit failed.");
+      return null;
+    } finally {
+      setWalletActionBusy("");
+    }
+  }
+
+  async function submitDepositTxHash(depositId: string, txHash: string) {
+    if (devDashboardActive) return false;
+    if (!token) {
+      setError("Login required to verify deposit.");
+      return false;
+    }
+    if (!depositId) {
+      setError("Create a pending deposit request before submitting a transaction hash.");
+      return false;
+    }
+    if (!/^(0x)?[a-zA-Z0-9]{12,128}$/.test(txHash.trim())) {
+      setError("Enter a valid transaction hash.");
+      return false;
+    }
+    setWalletActionBusy("deposit-verify");
+    setError("");
+    setNotice("");
+    try {
+      await verifyHbDeposit(token, depositId, txHash.trim());
+      setNotice("Transaction hash submitted. Deposit verification is in progress.");
       await refresh(token);
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Deposit failed.");
+      setError(err instanceof Error ? err.message : "Deposit verification failed.");
       return false;
     } finally {
       setWalletActionBusy("");
@@ -780,7 +811,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         {!loading && activeTab === "packages" ? <AllPackagesScreen products={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openBuyFlow} onBack={() => setActiveTab("home")} /> : null}
         {!loading && activeTab === "team" ? <TeamScreen user={dashboardUser} summary={referralSummary} /> : null}
         {!loading && activeTab === "income" ? <IncomeScreen income={income} singleLegReserve={singleLegReserve} singleLegProgress={singleLegProgress} summary={incomeSummary} availableBalance={walletData.balances.income} totalWithdrawn={withdrawals.filter((item) => item.status === "paid").reduce((sum, item) => sum + Number(item.amount_usd || 0), 0)} /> : null}
-        {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} deposits={walletData.deposits} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={treasuryDepositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} onRefresh={() => token ? refresh(token) : Promise.resolve()} onInstruction={playAssistant} onModalChange={setActiveWalletModal} /> : null}
+        {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} deposits={walletData.deposits} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={treasuryDepositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} onConvert={convertCoin} onDeposit={submitDeposit} onVerifyDeposit={submitDepositTxHash} onWithdraw={submitWithdrawal} onRefresh={() => token ? refresh(token) : Promise.resolve()} onInstruction={playAssistant} onModalChange={setActiveWalletModal} /> : null}
       </div>
 
       {activeWalletModal !== "deposit" ? <BottomNavigation activeTab={activeTab} onChange={handleTabChange} /> : null}
@@ -1084,10 +1115,12 @@ function StatusBadgeMini({ status }: { status: "Completed" | "In Progress" | "Pe
   return <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${cls}`}>{status}</span>;
 }
 
-function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity, boundWallet, depositAddress, coins, convertingCoin, walletActionBusy, onConvert, onDeposit, onWithdraw, onRefresh, onInstruction, onModalChange }: { walletBalance: number; balances: { deposit: string; income: string }; deposits: HbDeposit[]; withdrawals: HbWithdrawal[]; activity: HbWalletActivity[]; boundWallet: string; depositAddress: string; coins: HbCoinBalance[]; convertingCoin: string; walletActionBusy: string; onConvert: (coinSymbol: string, usdValue?: number) => void; onDeposit: (amountUsd: number) => Promise<boolean>; onWithdraw: (amountUsd: number, walletAddress: string) => Promise<void>; onRefresh: () => Promise<void>; onInstruction: (script: HB9VoiceScript) => void; onModalChange: (modal: "deposit" | "withdraw" | null) => void }) {
+function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity, boundWallet, depositAddress, coins, convertingCoin, walletActionBusy, onConvert, onDeposit, onVerifyDeposit, onWithdraw, onRefresh, onInstruction, onModalChange }: { walletBalance: number; balances: { deposit: string; income: string }; deposits: HbDeposit[]; withdrawals: HbWithdrawal[]; activity: HbWalletActivity[]; boundWallet: string; depositAddress: string; coins: HbCoinBalance[]; convertingCoin: string; walletActionBusy: string; onConvert: (coinSymbol: string, usdValue?: number) => void; onDeposit: (amountUsd: number) => Promise<HbDeposit | null>; onVerifyDeposit: (depositId: string, txHash: string) => Promise<boolean>; onWithdraw: (amountUsd: number, walletAddress: string) => Promise<void>; onRefresh: () => Promise<void>; onInstruction: (script: HB9VoiceScript) => void; onModalChange: (modal: "deposit" | "withdraw" | null) => void }) {
   const [walletModal, setWalletModal] = useState<"deposit" | "withdraw" | null>(null);
   const [depositAmount, setDepositAmount] = useState("");
   const [depositSessionCreated, setDepositSessionCreated] = useState(false);
+  const [activeDepositId, setActiveDepositId] = useState("");
+  const [depositTxHash, setDepositTxHash] = useState("");
   const [depositCopied, setDepositCopied] = useState(false);
   const [confirmedDepositId, setConfirmedDepositId] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -1098,6 +1131,8 @@ function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity
   const withdrawFee = Number((withdrawValue * 0.1).toFixed(8));
   const withdrawNet = Math.max(0, Number((withdrawValue - withdrawFee).toFixed(8)));
   const recentDeposits = deposits.slice(0, 4);
+  const latestPendingDeposit = deposits.find((item) => item.status === "pending");
+  const txHashDepositId = activeDepositId || latestPendingDeposit?.id || "";
   const activeDepositWatch = walletModal === "deposit" && deposits.some((item) => item.status === "pending");
   const latestConfirmedDeposit = recentDeposits.find((item) => item.status === "verified" && item.credited_at);
   useEffect(() => {
@@ -1166,14 +1201,19 @@ function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity
             <label className="mt-3 block text-xs font-bold text-sky-100/62">Amount</label>
             <input className="mt-1 w-full rounded-2xl border border-cyan-200/12 bg-[#020817] px-3 py-3 text-sm font-bold outline-none focus:border-cyan-300/45" inputMode="decimal" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} placeholder="4.00" />
             {depositValue > 0 && depositValue < 4 ? <p className="mt-2 text-xs font-semibold text-red-200">Minimum deposit is $4</p> : null}
-            {depositSessionCreated ? <p className="mt-3 rounded-2xl border border-cyan-300/25 bg-cyan-300/10 p-3 text-xs font-semibold leading-5 text-cyan-100">Pending deposit request created. Send the exact USDT BEP20 amount to the treasury wallet above, then wait for BSC Mainnet confirmation.</p> : null}
+            {depositSessionCreated ? <p className="mt-3 rounded-2xl border border-cyan-300/25 bg-cyan-300/10 p-3 text-xs font-semibold leading-5 text-cyan-100">Deposit request created. Send USDT BEP20 to treasury wallet.</p> : null}
+            {depositSessionCreated || latestPendingDeposit ? <div className="mt-3 rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 p-3">
+              <label className="block text-xs font-bold text-sky-100/62">Transaction hash</label>
+              <input className="mt-1 w-full rounded-2xl border border-cyan-200/12 bg-[#020817] px-3 py-3 font-mono text-xs font-bold outline-none focus:border-cyan-300/45" value={depositTxHash} onChange={(event) => setDepositTxHash(event.target.value)} placeholder="0x..." />
+              <button className="hb-interactive hb-glow-cyan mt-3 w-full rounded-2xl border border-cyan-200/16 bg-cyan-300/12 px-4 py-3 text-sm font-black text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50" disabled={walletActionBusy === "deposit-verify" || !txHashDepositId || !depositTxHash.trim()} onClick={async () => { const verified = await onVerifyDeposit(txHashDepositId, depositTxHash); if (verified) setDepositTxHash(""); }} type="button">{walletActionBusy === "deposit-verify" ? "Submitting..." : "I have paid / Submit Tx Hash"}</button>
+            </div> : null}
             {latestConfirmedDeposit ? <p className="mt-3 rounded-2xl border border-emerald-300/25 bg-emerald-300/10 p-3 text-xs font-black leading-5 text-emerald-100">Deposit confirmed and credited to your main wallet.</p> : null}
             {recentDeposits.length ? <div className="mt-3 space-y-2 rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 p-3">
               <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-[0.14em] text-sky-100/50"><span>Realtime deposit status</span><RefreshCw className={activeDepositWatch ? "animate-spin text-cyan-100" : "text-sky-100/45"} size={13} /></div>
               {recentDeposits.map((item) => <DepositStatusRow key={item.id} item={item} />)}
             </div> : null}
             </div>
-            <button className="hb-interactive hb-glow-cyan w-full rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-black text-[#031326] disabled:cursor-wait disabled:opacity-70" disabled={walletActionBusy === "deposit"} onClick={async () => { const submitted = await onDeposit(depositValue); if (submitted) setDepositSessionCreated(true); }} type="button">{walletActionBusy === "deposit" ? "Creating request..." : depositSessionCreated ? "Create Another Deposit Request" : "Submit Deposit"}</button>
+            <button className="hb-interactive hb-glow-cyan w-full rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-black text-[#031326] disabled:cursor-wait disabled:opacity-70" disabled={walletActionBusy === "deposit"} onClick={async () => { const deposit = await onDeposit(depositValue); if (deposit) { setDepositSessionCreated(true); setActiveDepositId(deposit.id); } }} type="button">{walletActionBusy === "deposit" ? "Creating request..." : depositSessionCreated ? "Create Another Deposit Request" : "Submit Deposit"}</button>
           </div>
         </WalletActionModal>
       ) : null}

@@ -133,6 +133,10 @@ const depositVerifySchema = z.object({
   txHash: z.string().trim().regex(/^(0x)?[a-zA-Z0-9]{12,128}$/)
 });
 
+const depositTxHashSchema = z.object({
+  txHash: z.string().trim().regex(/^(0x)?[a-zA-Z0-9]{12,128}$/)
+});
+
 const nowPaymentsCreateSchema = z.object({
   amountUsd: z.number().min(4).max(1000000),
   payCurrency: z.literal("usdtbsc").default("usdtbsc")
@@ -2702,7 +2706,7 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
       ok(res, depositResponse(existingByIdempotency.rows[0]), "Deposit already exists");
       return;
     }
-    if (!parsed.data.txHash) {
+    {
       const depositRows = await client.query(
         `insert into hb_deposits
           (user_id, wallet_address, network, asset, amount, usd_amount, tx_hash, status, verification_status,
@@ -2716,126 +2720,6 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
       ok(res, depositResponse(depositRows.rows[0]), "Deposit session created", 201);
       return;
     }
-    const duplicateTx = await client.query("select id, user_id, status from hb_deposits where lower(tx_hash) = lower($1) limit 1", [parsed.data.txHash]);
-    if (duplicateTx.rows[0]) {
-      await client.query("rollback");
-      logHbDepositValidationFailed("This deposit transaction hash has already been submitted.", req.body, { userId, txHash: parsed.data.txHash, existingDepositId: duplicateTx.rows[0].id, existingUserId: duplicateTx.rows[0].user_id });
-      logger.warn("hb.deposit.duplicate_tx", { txHash: parsed.data.txHash, userId, existingDepositId: duplicateTx.rows[0].id, existingUserId: duplicateTx.rows[0].user_id });
-      fail(res, "This deposit transaction hash has already been submitted.", 409, "Duplicate deposit blocked");
-      return;
-    }
-    if (await txHashAlreadyUsed(parsed.data.txHash)) {
-      await client.query("rollback");
-      logHbDepositValidationFailed("This transaction hash has already been used.", req.body, { userId, txHash: parsed.data.txHash, scope: "global_payment_reference" });
-      logger.warn("hb.deposit.duplicate_tx", { txHash: parsed.data.txHash, userId, scope: "global_payment_reference" });
-      fail(res, "This transaction hash has already been used.", 409, "Duplicate transaction blocked");
-      return;
-    }
-    const existing = await client.query("select * from hb_deposits where user_id = $1 and lower(tx_hash) = lower($2) limit 1", [userId, parsed.data.txHash]);
-    if (existing.rows[0]) {
-      await client.query("commit");
-      ok(res, depositResponse(existing.rows[0]), "Deposit already exists");
-      return;
-    }
-    const depositRows = await client.query<{ id: string }>(
-      `insert into hb_deposits
-        (user_id, wallet_address, network, asset, amount, usd_amount, tx_hash, status, verification_status,
-         idempotency_key, provider, payment_status)
-       values ($1,$2,'bsc','USDT',$3,$3,$4,'pending','pending',$5,'onchain','submitted')
-       returning id`,
-      [userId, expectedAddress, parsed.data.amountUsd, parsed.data.txHash, idempotencyKey]
-    );
-    const depositId = depositRows.rows[0]?.id;
-    if (!depositId) throw new Error("Deposit could not be created.");
-    await client.query("commit");
-
-    let verification: BlockchainVerification;
-    try {
-      verification = await verifyBlockchainTransaction({
-        txHash: parsed.data.txHash,
-        network: "bsc",
-        tokenSymbol: "USDT",
-        requiredAmount: parsed.data.amountUsd,
-        expectedRecipient: expectedAddress
-      });
-    } catch (err) {
-      const publicError = publicVerificationError(err);
-      const nextStatus = err instanceof VerificationError && err.publicReason === "Transaction does not have enough confirmations yet." ? "pending" : "failed";
-      logger.warn("hb.deposit.verification_failed", { txHash: parsed.data.txHash, userId, depositId, status: nextStatus, reason: publicError.message });
-      await query(
-        `update hb_deposits
-         set status = $2, verification_status = $3, failure_reason = $4, updated_at = now()
-         where id = $1`,
-        [depositId, nextStatus, nextStatus === "pending" ? "pending" : "failed", publicError.message]
-      );
-      const rows = await query<Record<string, unknown>>("select * from hb_deposits where id = $1", [depositId]);
-      if (nextStatus === "pending") {
-        ok(res, depositResponse(rows[0]), "Deposit submitted and awaiting confirmations", 202);
-      } else {
-        logHbDepositValidationFailed(publicError.message, req.body, { userId, txHash: parsed.data.txHash, depositId, status: nextStatus });
-        fail(res, publicError.message, publicError.status, "Deposit verification failed");
-      }
-      return;
-    }
-
-    const creditClient = await pool.connect();
-    try {
-      await creditClient.query("begin");
-      await creditClient.query("select pg_advisory_xact_lock(hashtext($1))", [`deposit-credit:${depositId}`]);
-      const locked = await creditClient.query<{ id: string; user_id: string; usd_amount: string; status: string; ledger_entry_id: string | null }>(
-        "select id, user_id, usd_amount::text, status, ledger_entry_id from hb_deposits where id = $1 for update",
-        [depositId]
-      );
-      const deposit = locked.rows[0];
-      if (!deposit) throw new Error("Deposit was not found.");
-      if (deposit.status !== "verified" || !deposit.ledger_entry_id) {
-        const ledgerRows = await creditClient.query<{ id: string }>(
-          `insert into hb_internal_ledger (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
-           values ($1,'deposit','credit',$2,'deposit',$3,$4,$5::jsonb)
-           on conflict (idempotency_key) do nothing
-           returning id`,
-          [deposit.user_id, deposit.usd_amount, deposit.id, `hb:ledger:deposit:${deposit.id}:onchain_credit`, JSON.stringify({ provider: "onchain", txHash: parsed.data.txHash, verification })]
-        );
-        const ledgerId = ledgerRows.rows[0]?.id || deposit.ledger_entry_id;
-        await createLedgerProof(creditClient, "hb_internal_ledger", ledgerId, { chainTxHash: parsed.data.txHash, onchainStatus: "confirmed" });
-        const coinLedgerId = await applyHbCoinAdjustment({
-          client: creditClient,
-          userId: deposit.user_id,
-          coinSymbol: "USDT",
-          amount: deposit.usd_amount,
-          direction: "credit",
-          type: "deposit_credit",
-          reference: deposit.id,
-          note: "Verified USDT BEP20 deposit credit",
-          idempotencyKey: `hb:coin:deposit:${deposit.id}:credit`,
-          metadata: { txHash: parsed.data.txHash }
-        });
-        await createLedgerProof(creditClient, "hb_coin_balance_ledger", coinLedgerId, { chainTxHash: parsed.data.txHash, onchainStatus: "confirmed" });
-        await creditClient.query(
-          `update hb_deposits
-           set status = 'verified', verification_status = 'verified', verified_at = now(), credited_at = now(),
-               ledger_entry_id = coalesce(ledger_entry_id, $2), failure_reason = null,
-               chain_id = $3, from_address = $4, to_address = $5, confirmations = $6,
-               onchain_tx_hash = $7, onchain_status = 'confirmed', updated_at = now()
-           where id = $1`,
-          [deposit.id, ledgerId, verification.chainId, verification.fromAddress, verification.toAddress, verification.confirmations, parsed.data.txHash]
-        );
-        await creditClient.query(
-          `insert into hb_audit_logs (user_id, action, entity_type, entity_id, metadata)
-           values ($1,'hb.deposit.onchain.credited','hb_deposit',$2,$3::jsonb)`,
-          [deposit.user_id, deposit.id, JSON.stringify({ txHash: parsed.data.txHash, amountUsd: deposit.usd_amount, coinLedgerId })]
-        );
-      }
-      await creditClient.query("commit");
-    } catch (err) {
-      await creditClient.query("rollback");
-      throw err;
-    } finally {
-      creditClient.release();
-    }
-    const rows = await query<Record<string, unknown>>("select * from hb_deposits where id = $1", [depositId]);
-    logger.info("hb.deposit.credited", { txHash: parsed.data.txHash, userId, depositId, amountUsd: parsed.data.amountUsd });
-    ok(res, depositResponse(rows[0]), "Deposit verified and credited", 201);
   } catch (err) {
     console.error("HB9_DEPOSIT_FATAL", err, hbDepositRequestFields(req.body));
     if (client) {
@@ -2853,8 +2737,175 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
   }
 }
 
+async function verifyExistingHbDeposit(req: Request, res: Response) {
+  console.log("HB9_DEPOSIT_VERIFY_REQUEST", { depositId: req.params.id || req.body?.depositId, body: req.body });
+  if (!pool) {
+    fail(res, "Database is not configured.", 500, "Deposit verification failed");
+    return;
+  }
+  const depositId = req.params.id || req.body?.depositId || "";
+  if (!z.string().uuid().safeParse(depositId).success) {
+    fail(res, "Deposit id is required.", 400, "Invalid deposit verification request");
+    return;
+  }
+  const parsed = depositTxHashSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const validationError = validationErrorMessage(parsed.error);
+    console.error("HB9_DEPOSIT_VALIDATION_FAILED", validationError, { depositId, body: req.body });
+    fail(res, validationError, 400, "Invalid deposit verification request");
+    return;
+  }
+  const userId = req.hbUser!.userId;
+  const txHash = parsed.data.txHash;
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtext($1))", [`deposit-verify:${depositId}`]);
+    const locked = await client.query<{
+      id: string;
+      user_id: string;
+      usd_amount: string;
+      wallet_address: string | null;
+      status: string;
+      ledger_entry_id: string | null;
+    }>(
+      "select id, user_id, usd_amount::text, wallet_address, status, ledger_entry_id from hb_deposits where id = $1 and user_id = $2 for update",
+      [depositId, userId]
+    );
+    const deposit = locked.rows[0];
+    if (!deposit) {
+      await client.query("rollback");
+      fail(res, "Deposit was not found.", 404, "Deposit not found");
+      return;
+    }
+    if (deposit.status === "verified" && deposit.ledger_entry_id) {
+      await client.query("commit");
+      const rows = await query<Record<string, unknown>>("select * from hb_deposits where id = $1", [depositId]);
+      ok(res, depositResponse(rows[0]), "Deposit already verified");
+      return;
+    }
+    if (!deposit.wallet_address || !isValidBep20Address(deposit.wallet_address)) {
+      await client.query("rollback");
+      fail(res, "Treasury wallet not configured", 503, "Deposit provider not configured");
+      return;
+    }
+    if (await txHashAlreadyUsed(txHash, depositId)) {
+      await client.query("rollback");
+      console.error("HB9_DEPOSIT_VALIDATION_FAILED", "This transaction hash has already been used.", { depositId, userId, txHash });
+      fail(res, "This transaction hash has already been used.", 409, "Duplicate transaction blocked");
+      return;
+    }
+    await client.query(
+      `update hb_deposits
+       set tx_hash = $2, provider = 'onchain', payment_status = 'submitted', verification_status = 'pending', failure_reason = null, updated_at = now()
+       where id = $1`,
+      [depositId, txHash]
+    );
+    await client.query("commit");
+
+    let verification: BlockchainVerification;
+    try {
+      verification = await verifyBlockchainTransaction({
+        txHash,
+        network: "bsc",
+        tokenSymbol: "USDT",
+        requiredAmount: Number(deposit.usd_amount),
+        expectedRecipient: deposit.wallet_address
+      });
+    } catch (err) {
+      const publicError = publicVerificationError(err);
+      const nextStatus = err instanceof VerificationError && err.publicReason === "Transaction does not have enough confirmations yet." ? "pending" : "failed";
+      console.error("HB9_DEPOSIT_VALIDATION_FAILED", publicError.message, { depositId, userId, txHash, status: nextStatus });
+      logger.warn("hb.deposit.verification_failed", { txHash, userId, depositId, status: nextStatus, reason: publicError.message });
+      await query(
+        `update hb_deposits
+         set status = $2, verification_status = $3, failure_reason = $4, updated_at = now()
+         where id = $1`,
+        [depositId, nextStatus, nextStatus === "pending" ? "pending" : "failed", publicError.message]
+      );
+      const rows = await query<Record<string, unknown>>("select * from hb_deposits where id = $1", [depositId]);
+      if (nextStatus === "pending") {
+        ok(res, depositResponse(rows[0]), "Deposit submitted and awaiting confirmations", 202);
+      } else {
+        fail(res, publicError.message, publicError.status, "Deposit verification failed");
+      }
+      return;
+    }
+
+    const creditClient = await pool.connect();
+    try {
+      await creditClient.query("begin");
+      await creditClient.query("select pg_advisory_xact_lock(hashtext($1))", [`deposit-credit:${depositId}`]);
+      const creditLocked = await creditClient.query<{ id: string; user_id: string; usd_amount: string; status: string; ledger_entry_id: string | null }>(
+        "select id, user_id, usd_amount::text, status, ledger_entry_id from hb_deposits where id = $1 for update",
+        [depositId]
+      );
+      const creditDeposit = creditLocked.rows[0];
+      if (!creditDeposit) throw new Error("Deposit was not found.");
+      if (creditDeposit.status !== "verified" || !creditDeposit.ledger_entry_id) {
+        const ledgerRows = await creditClient.query<{ id: string }>(
+          `insert into hb_internal_ledger (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
+           values ($1,'deposit','credit',$2,'deposit',$3,$4,$5::jsonb)
+           on conflict (idempotency_key) do nothing
+           returning id`,
+          [creditDeposit.user_id, creditDeposit.usd_amount, creditDeposit.id, `hb:ledger:deposit:${creditDeposit.id}:onchain_credit`, JSON.stringify({ provider: "onchain", txHash, verification })]
+        );
+        const ledgerId = ledgerRows.rows[0]?.id || creditDeposit.ledger_entry_id;
+        await createLedgerProof(creditClient, "hb_internal_ledger", ledgerId, { chainTxHash: txHash, onchainStatus: "confirmed" });
+        const coinLedgerId = await applyHbCoinAdjustment({
+          client: creditClient,
+          userId: creditDeposit.user_id,
+          coinSymbol: "USDT",
+          amount: creditDeposit.usd_amount,
+          direction: "credit",
+          type: "deposit_credit",
+          reference: creditDeposit.id,
+          note: "Verified USDT BEP20 deposit credit",
+          idempotencyKey: `hb:coin:deposit:${creditDeposit.id}:credit`,
+          metadata: { txHash }
+        });
+        await createLedgerProof(creditClient, "hb_coin_balance_ledger", coinLedgerId, { chainTxHash: txHash, onchainStatus: "confirmed" });
+        await creditClient.query(
+          `update hb_deposits
+           set status = 'verified', verification_status = 'verified', verified_at = now(), credited_at = now(),
+               ledger_entry_id = coalesce(ledger_entry_id, $2), failure_reason = null,
+               chain_id = $3, from_address = $4, to_address = $5, confirmations = $6,
+               onchain_tx_hash = $7, onchain_status = 'confirmed', updated_at = now()
+           where id = $1`,
+          [creditDeposit.id, ledgerId, verification.chainId, verification.fromAddress, verification.toAddress, verification.confirmations, txHash]
+        );
+        await creditClient.query(
+          `insert into hb_audit_logs (user_id, action, entity_type, entity_id, metadata)
+           values ($1,'hb.deposit.onchain.credited','hb_deposit',$2,$3::jsonb)`,
+          [creditDeposit.user_id, creditDeposit.id, JSON.stringify({ txHash, amountUsd: creditDeposit.usd_amount, coinLedgerId })]
+        );
+      }
+      await creditClient.query("commit");
+    } catch (err) {
+      await creditClient.query("rollback");
+      throw err;
+    } finally {
+      creditClient.release();
+    }
+    const rows = await query<Record<string, unknown>>("select * from hb_deposits where id = $1", [depositId]);
+    logger.info("hb.deposit.credited", { txHash, userId, depositId, amountUsd: deposit.usd_amount });
+    ok(res, depositResponse(rows[0]), "Deposit verified and credited", 201);
+  } catch (err) {
+    try {
+      await client.query("rollback");
+    } catch {
+      // ignore rollback after commit
+    }
+    console.error("HB9_DEPOSIT_FATAL", err, { depositId, txHash: req.body?.txHash });
+    fail(res, err instanceof Error ? err.message : "Deposit verification failed.", 500, "Deposit verification failed");
+  } finally {
+    client.release();
+  }
+}
+
 hbRouter.post("/hb/deposits", requireHbUser, asyncHandler(createAndVerifyHbDeposit));
 hbRouter.post("/hb/deposits/create", requireHbUser, asyncHandler(createAndVerifyHbDeposit));
+hbRouter.post("/hb/deposits/:id/verify", requireHbUser, asyncHandler(verifyExistingHbDeposit));
 
 hbRouter.post("/hb/deposits/verify", requireHbUser, asyncHandler(async (req, res) => {
   const parsed = depositVerifySchema.safeParse(req.body);
@@ -2862,16 +2913,9 @@ hbRouter.post("/hb/deposits/verify", requireHbUser, asyncHandler(async (req, res
     fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid deposit verification request");
     return;
   }
-  const rows = await query<{ usd_amount: string; wallet_address: string | null }>(
-    "select usd_amount::text, wallet_address from hb_deposits where id = $1 and user_id = $2 limit 1",
-    [parsed.data.depositId, req.hbUser!.userId]
-  );
-  if (!rows[0]) {
-    fail(res, "Deposit was not found.", 404, "Deposit not found");
-    return;
-  }
-  req.body = { amountUsd: Number(rows[0].usd_amount), asset: "USDT", network: "bsc", chainId: BSC_MAINNET_CHAIN_ID, tokenAddress: USDT_BEP20_ADDRESS, txHash: parsed.data.txHash, walletAddress: rows[0].wallet_address || "", idempotencyKey: `hb:deposit-verify:${parsed.data.depositId}` };
-  await createAndVerifyHbDeposit(req, res);
+  req.params.id = parsed.data.depositId;
+  req.body = { txHash: parsed.data.txHash };
+  await verifyExistingHbDeposit(req, res);
 }));
 
 hbRouter.post("/hb/withdrawals", requireHbUser, asyncHandler(async (req, res) => {
