@@ -110,16 +110,23 @@ export async function applyIncomeCap(input: {
 
   const cap = await getDailyCapForUser(client, userId);
   await client.query("select pg_advisory_xact_lock(hashtext($1))", [`hb:daily-income-cap:${userId}:${cap.cap_date}`]);
-  await client.query(
-    `insert into hb_daily_income_caps
-      (user_id, cap_date, package_amount, daily_cap_amount, credited_amount, capped_amount)
-     values ($1,$2::date,$3::numeric,$4::numeric,0,0)
-     on conflict (user_id, cap_date) do update
-     set package_amount = greatest(hb_daily_income_caps.package_amount, excluded.package_amount),
-         daily_cap_amount = greatest(hb_daily_income_caps.daily_cap_amount, excluded.daily_cap_amount),
-         updated_at = now()`,
+  const capUpdateRows = await client.query<{ id: string }>(
+    `update hb_daily_income_caps
+     set package_amount = greatest(package_amount, $3::numeric),
+         daily_cap_amount = greatest(daily_cap_amount, $4::numeric),
+         updated_at = now()
+     where user_id = $1 and cap_date = $2::date
+     returning id`,
     [userId, cap.cap_date, cap.package_amount, cap.daily_cap_amount]
   );
+  if (!capUpdateRows.rows[0]) {
+    await client.query(
+      `insert into hb_daily_income_caps
+        (user_id, cap_date, package_amount, daily_cap_amount, credited_amount, capped_amount)
+       values ($1,$2::date,$3::numeric,$4::numeric,0,0)`,
+      [userId, cap.cap_date, cap.package_amount, cap.daily_cap_amount]
+    );
+  }
 
   const capRows = await client.query<{
     package_amount: string;
@@ -163,22 +170,30 @@ export async function applyIncomeCap(input: {
   await createLedgerProof(client, "hb_income_ledger", incomeLedgerId);
 
   if (Number(split.credited_amount) > 0) {
-    const internalLedgerRows = await client.query<{ id: string }>(
-      `insert into hb_internal_ledger
-        (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
-       values ($1,'deposit','credit',$2,$3,$4,$5,$6::jsonb)
-       on conflict (idempotency_key) do nothing
-       returning id`,
-      [
-        userId,
-        split.credited_amount,
-        incomeType,
-        incomeLedgerId,
-        `hb:wallet:income_cap:${incomeLedgerId}`,
-        JSON.stringify({ ...(input.metadata || {}), incomeLedgerId, incomeType, capDate: cap.cap_date, originalAmount: incomeAmount, cappedAmount: split.capped_amount })
-      ]
+    const internalIdempotencyKey = `hb:wallet:income_cap:${incomeLedgerId}`;
+    const existingInternalLedgerRows = await client.query<{ id: string }>(
+      "select id from hb_internal_ledger where idempotency_key = $1 limit 1",
+      [internalIdempotencyKey]
     );
-    await createLedgerProof(client, "hb_internal_ledger", internalLedgerRows.rows[0]?.id || null);
+    let internalLedgerId = existingInternalLedgerRows.rows[0]?.id || null;
+    if (!internalLedgerId) {
+      const internalLedgerRows = await client.query<{ id: string }>(
+        `insert into hb_internal_ledger
+          (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
+         values ($1,'deposit','credit',$2,$3,$4,$5,$6::jsonb)
+         returning id`,
+        [
+          userId,
+          split.credited_amount,
+          incomeType,
+          incomeLedgerId,
+          internalIdempotencyKey,
+          JSON.stringify({ ...(input.metadata || {}), incomeLedgerId, incomeType, capDate: cap.cap_date, originalAmount: incomeAmount, cappedAmount: split.capped_amount })
+        ]
+      );
+      internalLedgerId = internalLedgerRows.rows[0]?.id || null;
+    }
+    await createLedgerProof(client, "hb_internal_ledger", internalLedgerId);
 
     const coinIdempotencyKey = `hb:coin:income_cap:${incomeLedgerId}`;
     const existingCoinLedgerRows = await client.query<{ id: string }>(
@@ -208,14 +223,20 @@ export async function applyIncomeCap(input: {
       ]
     );
     if (coinLedgerRows.rows[0]) {
-      await client.query(
-        `insert into hb_coin_balances (user_id, coin_symbol, balance)
-         values ($1,'USDT',$2)
-         on conflict (user_id, coin_symbol) do update
-         set balance = hb_coin_balances.balance + $2::numeric,
-             updated_at = now()`,
+      const balanceRows = await client.query<{ id: string }>(
+        `update hb_coin_balances
+         set balance = balance + $2::numeric,
+             updated_at = now()
+         where user_id = $1 and coin_symbol = 'USDT'
+         returning id`,
         [userId, split.credited_amount]
       );
+      if (!balanceRows.rows[0]) {
+        await client.query(
+          "insert into hb_coin_balances (user_id, coin_symbol, balance) values ($1,'USDT',$2)",
+          [userId, split.credited_amount]
+        );
+      }
     }
   }
 

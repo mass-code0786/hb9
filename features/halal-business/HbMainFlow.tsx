@@ -85,6 +85,7 @@ export function HbMainFlow({ tab, walletAddress }: { tab: HbMainTab; walletAddre
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [buyPrompt, setBuyPrompt] = useState<{ type: "confirm" | "insufficient"; product: HbProduct } | null>(null);
+  const [buySubmitting, setBuySubmitting] = useState(false);
 
   const activeToken = token || getHbToken();
   const currentUser = user;
@@ -156,10 +157,12 @@ export function HbMainFlow({ tab, walletAddress }: { tab: HbMainTab; walletAddre
   }
 
   async function confirmBuy(productId: string) {
+    console.log("HB9_CONFIRM_BUY_CLICK", { productId });
     if (!activeToken) {
       setError("Create or log in to HB9 before buying an activation product.");
       return;
     }
+    setBuySubmitting(true);
     setError("");
     setNotice("");
     try {
@@ -169,6 +172,7 @@ export function HbMainFlow({ tab, walletAddress }: { tab: HbMainTab; walletAddre
     } catch (err) {
       setError(err instanceof Error ? err.message : "Product purchase failed.");
     } finally {
+      setBuySubmitting(false);
       setBuyPrompt(null);
     }
   }
@@ -194,6 +198,7 @@ export function HbMainFlow({ tab, walletAddress }: { tab: HbMainTab; walletAddre
       {buyPrompt ? (
         <BuyPrompt
           prompt={buyPrompt}
+          busy={buySubmitting}
           onCancel={() => setBuyPrompt(null)}
           onGoWallet={() => {
             setBuyPrompt(null);
@@ -246,8 +251,9 @@ function HbProducts({ products, loading, onBuy }: { products: HbProduct[]; loadi
   );
 }
 
-function BuyPrompt({ prompt, onCancel, onConfirm, onGoWallet }: {
+function BuyPrompt({ prompt, busy, onCancel, onConfirm, onGoWallet }: {
   prompt: { type: "confirm" | "insufficient"; product: HbProduct };
+  busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
   onGoWallet: () => void;
@@ -263,11 +269,11 @@ function BuyPrompt({ prompt, onCancel, onConfirm, onGoWallet }: {
             : `You are buying ${prompt.product.title} for ${money(prompt.product.package_price)}. This will activate your HB9 ID and start package distribution.`}
         </p>
         <div className="mt-5 grid grid-cols-2 gap-3">
-          <button className="rounded-2xl border border-sky-200/15 bg-[#0b1728]/75 px-4 py-3 font-semibold text-slate-100 transition hover:bg-[#0b1728]/90" onClick={onCancel} type="button">Cancel</button>
+          <button className="rounded-2xl border border-sky-200/15 bg-[#0b1728]/75 px-4 py-3 font-semibold text-slate-100 transition hover:bg-[#0b1728]/90 disabled:opacity-60" onClick={onCancel} disabled={busy} type="button">Cancel</button>
           {isInsufficient ? (
             <button className="rounded-2xl bg-gradient-to-r from-sky-300 via-cyan-400 to-sky-500 px-4 py-3 font-semibold text-[#031524] shadow-[0_14px_34px_rgba(56,189,248,0.24)]" onClick={onGoWallet} type="button">Go to Wallet</button>
           ) : (
-            <button className="rounded-2xl bg-gradient-to-r from-sky-300 via-cyan-400 to-sky-500 px-4 py-3 font-semibold text-[#031524] shadow-[0_14px_34px_rgba(56,189,248,0.24)]" onClick={onConfirm} type="button">Confirm Buy</button>
+            <button className="rounded-2xl bg-gradient-to-r from-sky-300 via-cyan-400 to-sky-500 px-4 py-3 font-semibold text-[#031524] shadow-[0_14px_34px_rgba(56,189,248,0.24)] disabled:opacity-70" onClick={onConfirm} disabled={busy} type="button">{busy ? "Processing" : "Confirm Buy"}</button>
           )}
         </div>
       </div>

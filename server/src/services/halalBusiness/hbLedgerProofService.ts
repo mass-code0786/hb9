@@ -89,6 +89,11 @@ export async function createLedgerProof(
   );
   const previousProofHash = previousRows.rows[0]?.proof_hash || null;
   const publicRef = publicReferenceId(sourceTable, ledgerEntryId);
+  const existingPublicRef = await client.query<{ id: string; public_reference_id: string; proof_hash: string }>(
+    "select id, public_reference_id, proof_hash from hb_ledger_proofs where public_reference_id = $1 limit 1",
+    [publicRef]
+  );
+  if (existingPublicRef.rows[0]) return existingPublicRef.rows[0];
   const type = proofType(row, sourceTable);
   const userId = row.user_id || null;
   const payload = {
@@ -118,7 +123,6 @@ export async function createLedgerProof(
       (public_reference_id, source_table, ledger_entry_id, user_id, masked_user_id, proof_type, amount_usd, status,
        reference_type, reference_id, proof_hash, previous_proof_hash, proof_payload_json, chain_tx_hash, onchain_status)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15)
-     on conflict (public_reference_id) do nothing
      returning id, public_reference_id, proof_hash`,
     [
       publicRef,

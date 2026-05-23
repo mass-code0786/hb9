@@ -134,32 +134,32 @@ async function evaluateWithClient(client: pg.PoolClient, userId: string): Promis
     };
   }
 
-  const incomeRows = await client.query<{ id: string }>(
-    `insert into hb_income_ledger
-      (earner_user_id, source_user_id, income_type, amount_usd, status, idempotency_key, metadata)
-     values ($1,$1,'salary_income',$2,'credited',$3,$4::jsonb)
-     on conflict (idempotency_key) do nothing
-     returning id`,
-    [
-      userId,
-      salaryAmountUsd,
-      `hb:salary:${userId}:income`,
-      JSON.stringify({
-        salaryAmountUsd,
-        selfPackageOk,
-        direct100Count,
-        team100Count,
-        teamCountingRule: "Team count uses distinct referred team users up to 15 levels; direct Level-1 users are included once if qualified."
-      })
-    ]
+  const incomeIdempotencyKey = `hb:salary:${userId}:income`;
+  const existingIncomeRows = await client.query<{ id: string }>(
+    "select id from hb_income_ledger where idempotency_key = $1 limit 1",
+    [incomeIdempotencyKey]
   );
-  let incomeLedgerId = incomeRows.rows[0]?.id || null;
+  let incomeLedgerId = existingIncomeRows.rows[0]?.id || null;
   if (!incomeLedgerId) {
-    const existingIncomeRows = await client.query<{ id: string }>(
-      "select id from hb_income_ledger where idempotency_key = $1 limit 1",
-      [`hb:salary:${userId}:income`]
+    const incomeRows = await client.query<{ id: string }>(
+      `insert into hb_income_ledger
+        (earner_user_id, source_user_id, income_type, amount_usd, status, idempotency_key, metadata)
+       values ($1,$1,'salary_income',$2,'credited',$3,$4::jsonb)
+       returning id`,
+      [
+        userId,
+        salaryAmountUsd,
+        incomeIdempotencyKey,
+        JSON.stringify({
+          salaryAmountUsd,
+          selfPackageOk,
+          direct100Count,
+          team100Count,
+          teamCountingRule: "Team count uses distinct referred team users up to 15 levels; direct Level-1 users are included once if qualified."
+        })
+      ]
     );
-    incomeLedgerId = existingIncomeRows.rows[0]?.id || null;
+    incomeLedgerId = incomeRows.rows[0]?.id || null;
   }
   if (!incomeLedgerId) throw new Error("Salary income ledger could not be created.");
   await createLedgerProof(client, "hb_income_ledger", incomeLedgerId);

@@ -26,13 +26,19 @@ export async function placeUserInGlobalSingleLeg(input: {
   if (Number(packageAmount) < 20) return null;
   await client.query("select pg_advisory_xact_lock(hashtext('hb:single-leg:global-position'))");
   const userRows = await client.query<{ sponsor_user_id: string | null }>("select sponsor_user_id from hb_users where id = $1 limit 1", [userId]);
+  const existingPositionRows = await client.query<{ position_number: string }>(
+    `update hb_single_leg_positions
+     set package_amount = greatest(package_amount, $2::numeric),
+         sponsor_user_id = coalesce(sponsor_user_id, $3)
+     where user_id = $1
+     returning position_number::text`,
+    [userId, String(packageAmount), userRows.rows[0]?.sponsor_user_id || null]
+  );
+  if (existingPositionRows.rows[0]) return Number(existingPositionRows.rows[0].position_number || 0);
   const positionRows = await client.query<{ position_number: string }>(
     `insert into hb_single_leg_positions
       (user_id, position_number, sponsor_user_id, package_amount, activated_at)
      values ($1, (select coalesce(max(position_number), 0) + 1 from hb_single_leg_positions), $2, $3, now())
-     on conflict (user_id) do update
-     set package_amount = greatest(hb_single_leg_positions.package_amount, excluded.package_amount),
-         sponsor_user_id = coalesce(hb_single_leg_positions.sponsor_user_id, excluded.sponsor_user_id)
      returning position_number::text`,
     [userId, userRows.rows[0]?.sponsor_user_id || null, String(packageAmount)]
   );
@@ -68,32 +74,45 @@ async function paySingleLegReward(input: {
   actualDirectReferrals: number;
 }) {
   const { client, userId, slab, actualSingleLegMembers, actualDirectReferrals } = input;
-  const rewardRows = await client.query<{ id: string; status: string; ledger_reference: string | null }>(
-    `insert into hb_single_leg_rewards
-      (user_id, slab_number, target_members, reward_amount, required_direct_referrals,
-       actual_single_leg_members, actual_direct_referrals, status)
-     values ($1,$2,$3,$4,$5,$6,$7,'qualified')
-     on conflict (user_id, slab_number) do update
-     set actual_single_leg_members = excluded.actual_single_leg_members,
-         actual_direct_referrals = excluded.actual_direct_referrals,
-         status = case when hb_single_leg_rewards.status = 'paid' then 'paid' else excluded.status end,
+  let rewardRows = await client.query<{ id: string; status: string; ledger_reference: string | null }>(
+    `update hb_single_leg_rewards
+     set actual_single_leg_members = $3,
+         actual_direct_referrals = $4,
+         status = case when status = 'paid' then 'paid' else 'qualified' end,
          updated_at = now()
+     where user_id = $1 and slab_number = $2
      returning id, status, ledger_reference`,
-    [userId, slab.slabNumber, slab.targetMembers, slab.rewardAmount, slab.requiredDirectReferrals, actualSingleLegMembers, actualDirectReferrals]
+    [userId, slab.slabNumber, actualSingleLegMembers, actualDirectReferrals]
   );
+  if (!rewardRows.rows[0]) {
+    rewardRows = await client.query<{ id: string; status: string; ledger_reference: string | null }>(
+      `insert into hb_single_leg_rewards
+        (user_id, slab_number, target_members, reward_amount, required_direct_referrals,
+         actual_single_leg_members, actual_direct_referrals, status)
+       values ($1,$2,$3,$4,$5,$6,$7,'qualified')
+       returning id, status, ledger_reference`,
+    [userId, slab.slabNumber, slab.targetMembers, slab.rewardAmount, slab.requiredDirectReferrals, actualSingleLegMembers, actualDirectReferrals]
+    );
+  }
   const reward = rewardRows.rows[0];
   if (!reward || reward.status === "paid") return reward?.ledger_reference || null;
 
-  const incomeRows = await client.query<{ id: string }>(
-    `insert into hb_income_ledger
-      (earner_user_id, source_user_id, income_type, amount_usd, status, idempotency_key, metadata)
-     values ($1,$1,'single_leg_income',$2,'credited',$3,$4::jsonb)
-     on conflict (idempotency_key) do nothing
-     returning id`,
+  const incomeIdempotencyKey = `hb:single_leg:${userId}:slab:${slab.slabNumber}:income`;
+  const existingIncomeRows = await client.query<{ id: string }>(
+    "select id from hb_income_ledger where idempotency_key = $1 limit 1",
+    [incomeIdempotencyKey]
+  );
+  let incomeLedgerId = existingIncomeRows.rows[0]?.id || null;
+  if (!incomeLedgerId) {
+    const incomeRows = await client.query<{ id: string }>(
+      `insert into hb_income_ledger
+        (earner_user_id, source_user_id, income_type, amount_usd, status, idempotency_key, metadata)
+       values ($1,$1,'single_leg_income',$2,'credited',$3,$4::jsonb)
+       returning id`,
     [
       userId,
       slab.rewardAmount,
-      `hb:single_leg:${userId}:slab:${slab.slabNumber}:income`,
+      incomeIdempotencyKey,
       JSON.stringify({
         slabNumber: slab.slabNumber,
         targetMembers: slab.targetMembers,
@@ -102,14 +121,8 @@ async function paySingleLegReward(input: {
         actualDirectReferrals
       })
     ]
-  );
-  let incomeLedgerId = incomeRows.rows[0]?.id || null;
-  if (!incomeLedgerId) {
-    const existingIncomeRows = await client.query<{ id: string }>(
-      "select id from hb_income_ledger where idempotency_key = $1 limit 1",
-      [`hb:single_leg:${userId}:slab:${slab.slabNumber}:income`]
     );
-    incomeLedgerId = existingIncomeRows.rows[0]?.id || null;
+    incomeLedgerId = incomeRows.rows[0]?.id || null;
   }
   if (!incomeLedgerId) throw new Error("Single-leg income ledger could not be created.");
   await createLedgerProof(client, "hb_income_ledger", incomeLedgerId);
@@ -166,18 +179,25 @@ export async function evaluateSingleLegRewards(userId: string, client?: pg.PoolC
       const targetMet = singleLegMembers >= slab.targetMembers;
       const referralsMet = directReferrals >= slab.requiredDirectReferrals;
       const status = targetMet && referralsMet ? "qualified" : "locked";
-      await activeClient.query(
-        `insert into hb_single_leg_rewards
-          (user_id, slab_number, target_members, reward_amount, required_direct_referrals,
-           actual_single_leg_members, actual_direct_referrals, status)
-         values ($1,$2,$3,$4,$5,$6,$7,$8)
-         on conflict (user_id, slab_number) do update
-         set actual_single_leg_members = excluded.actual_single_leg_members,
-             actual_direct_referrals = excluded.actual_direct_referrals,
-             status = case when hb_single_leg_rewards.status = 'paid' then 'paid' else excluded.status end,
-             updated_at = now()`,
-        [userId, slab.slabNumber, slab.targetMembers, slab.rewardAmount, slab.requiredDirectReferrals, singleLegMembers, directReferrals, status]
+      const updatedRewardRows = await activeClient.query<{ id: string }>(
+        `update hb_single_leg_rewards
+         set actual_single_leg_members = $3,
+             actual_direct_referrals = $4,
+             status = case when status = 'paid' then 'paid' else $5 end,
+             updated_at = now()
+         where user_id = $1 and slab_number = $2
+         returning id`,
+        [userId, slab.slabNumber, singleLegMembers, directReferrals, status]
       );
+      if (!updatedRewardRows.rows[0]) {
+        await activeClient.query(
+          `insert into hb_single_leg_rewards
+            (user_id, slab_number, target_members, reward_amount, required_direct_referrals,
+             actual_single_leg_members, actual_direct_referrals, status)
+           values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [userId, slab.slabNumber, slab.targetMembers, slab.rewardAmount, slab.requiredDirectReferrals, singleLegMembers, directReferrals, status]
+        );
+      }
       if (targetMet && referralsMet) {
         await paySingleLegReward({ client: activeClient, userId, slab, actualSingleLegMembers: singleLegMembers, actualDirectReferrals: directReferrals });
       }
@@ -281,41 +301,53 @@ export async function reserveSingleLegIncome(input: {
   packageId: string;
 }) {
   const { client, purchaseId, buyerUserId, packageId } = input;
-  const ledgerRows = await client.query<{ id: string }>(
-    `insert into hb_income_ledger
-      (earner_user_id, source_user_id, package_purchase_id, income_type, amount_usd, status, idempotency_key, metadata)
-     select null, $2, $1, 'single_leg', round(amount_usd * 0.15, 8), 'company_allocated', $4, $5::jsonb
-     from hb_package_purchases
-     where id = $1
-     on conflict (idempotency_key) do update set idempotency_key = excluded.idempotency_key
-     returning id`,
-    [
-      purchaseId,
-      buyerUserId,
-      packageId,
-      `hb:distribution:${purchaseId}:single_leg_reserve`,
-      JSON.stringify({
-        algorithmVersion: "pending",
-        note: "TODO: final single-leg algorithm is not implemented. Funds are reserved only."
-      })
-    ]
+  const ledgerIdempotencyKey = `hb:distribution:${purchaseId}:single_leg_reserve`;
+  const existingLedgerRows = await client.query<{ id: string }>(
+    "select id from hb_income_ledger where idempotency_key = $1 limit 1",
+    [ledgerIdempotencyKey]
   );
-  const ledgerId = ledgerRows.rows[0]?.id || null;
+  let ledgerId = existingLedgerRows.rows[0]?.id || null;
+  if (!ledgerId) {
+    const ledgerRows = await client.query<{ id: string }>(
+      `insert into hb_income_ledger
+        (earner_user_id, source_user_id, package_purchase_id, income_type, amount_usd, status, idempotency_key, metadata)
+       select null, $2, $1, 'single_leg', round(amount_usd * 0.15, 8), 'company_allocated', $4, $5::jsonb
+       from hb_package_purchases
+       where id = $1
+       returning id`,
+      [
+        purchaseId,
+        buyerUserId,
+        packageId,
+        ledgerIdempotencyKey,
+        JSON.stringify({
+          algorithmVersion: "pending",
+          note: "TODO: final single-leg algorithm is not implemented. Funds are reserved only."
+        })
+      ]
+    );
+    ledgerId = ledgerRows.rows[0]?.id || null;
+  }
   await createLedgerProof(client, "hb_income_ledger", ledgerId);
 
-  await client.query(
-    `insert into hb_single_leg_reserve
-      (package_purchase_id, buyer_user_id, package_id, amount_usd, ledger_entry_id, metadata)
-     select $1, $2, $3, round(amount_usd * 0.15, 8), $4, $5::jsonb
-     from hb_package_purchases
-     where id = $1
-     on conflict (package_purchase_id) do nothing`,
-    [
-      purchaseId,
-      buyerUserId,
-      packageId,
-      ledgerId,
-      JSON.stringify({ algorithmVersion: "pending" })
-    ]
+  const existingReserveRows = await client.query<{ id: string }>(
+    "select id from hb_single_leg_reserve where package_purchase_id = $1 limit 1",
+    [purchaseId]
   );
+  if (!existingReserveRows.rows[0]) {
+    await client.query(
+      `insert into hb_single_leg_reserve
+        (package_purchase_id, buyer_user_id, package_id, amount_usd, ledger_entry_id, metadata)
+       select $1, $2, $3, round(amount_usd * 0.15, 8), $4, $5::jsonb
+       from hb_package_purchases
+       where id = $1`,
+      [
+        purchaseId,
+        buyerUserId,
+        packageId,
+        ledgerId,
+        JSON.stringify({ algorithmVersion: "pending" })
+      ]
+    );
+  }
 }

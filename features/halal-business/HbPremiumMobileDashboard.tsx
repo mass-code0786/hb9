@@ -287,6 +287,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   const [loginToast, setLoginToast] = useState("");
   const [depositToast, setDepositToast] = useState("");
   const [purchaseReview, setPurchaseReview] = useState<PurchaseReview | null>(null);
+  const [purchaseConfirming, setPurchaseConfirming] = useState(false);
   const [buyLoadingProductId, setBuyLoadingProductId] = useState("");
   const [lastBuyProduct, setLastBuyProduct] = useState<HbProduct | null>(null);
   const [voiceEvent, setVoiceEvent] = useState<HB9VoiceEvent>(null);
@@ -783,8 +784,17 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   }
 
   async function confirmBuy() {
+    console.log("HB9_CONFIRM_BUY_CLICK", purchaseReview ? { productId: purchaseReview.product.id, packageId: purchaseReview.product.package_id, mode: purchaseReview.purchaseMode } : null);
     if (!token || !purchaseReview) return;
-    await executeBuy(purchaseReview);
+    setPurchaseConfirming(true);
+    try {
+      await executeBuy(purchaseReview);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Package purchase failed.");
+      setPurchaseReview((current) => current ? { ...current, stage: "review" } : current);
+    } finally {
+      setPurchaseConfirming(false);
+    }
   }
 
   async function executeBuy(review: PurchaseReview) {
@@ -914,10 +924,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
 
       {activeWalletModal !== "deposit" && !purchaseReview ? <BottomNavigation activeTab={activeTab} onChange={handleTabChange} /> : null}
       <HB9VoiceAssistant activeTab={activeTab} hasActiveProduct={hasActiveProduct} loading={loading} event={voiceEvent} />
-      {purchaseReview ? <BuyDialog purchase={purchaseReview} onCancel={() => setPurchaseReview(null)} onConfirm={() => confirmBuy().catch((err) => {
-        setError(err instanceof Error ? err.message : "Package purchase failed.");
-        setPurchaseReview((current) => current ? { ...current, stage: "review" } : current);
-      })} /> : null}
+      {purchaseReview ? <BuyDialog purchase={purchaseReview} busy={purchaseConfirming} onCancel={() => setPurchaseReview(null)} onConfirm={confirmBuy} /> : null}
     </main>
   );
 }
@@ -1652,8 +1659,8 @@ function ActionChip({ label, icon: Icon, onClick }: { label: string; icon: Eleme
   return <button className="hb-interactive hb-glow-teal flex min-h-[58px] flex-col items-center justify-center gap-1.5 rounded-[1rem] border border-cyan-200/12 bg-[linear-gradient(160deg,rgba(8,34,64,0.82),rgba(3,14,29,0.84))] text-center shadow-[0_0_14px_rgba(34,211,238,0.09),inset_0_1px_0_rgba(255,255,255,0.05)] transition duration-200 active:scale-95" onClick={onClick} type="button"><Icon size={15} className="text-cyan-100" /><span className="max-w-full truncate px-1 text-[9px] font-bold text-sky-100/75">{label}</span></button>;
 }
 
-function BuyDialog({ purchase, onCancel, onConfirm }: { purchase: PurchaseReview; onCancel: () => void; onConfirm: () => void }) {
-  const busy = purchase.stage === "approving" || purchase.stage === "submitting";
+function BuyDialog({ purchase, busy: confirming, onCancel, onConfirm }: { purchase: PurchaseReview; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+  const busy = confirming || purchase.stage === "approving" || purchase.stage === "submitting";
   const internal = purchase.purchaseMode === "internal";
   const stageText = purchase.stage === "approving" ? "Confirm USDT approval in your wallet." : purchase.stage === "submitting" ? "Confirm package purchase transaction." : purchase.stage === "pending" ? internal ? "Processing purchase from your main wallet." : "Tx pending. Activation updates after indexed event." : purchase.stage === "activated" ? "Activation completed." : "Review package before confirming.";
   return (

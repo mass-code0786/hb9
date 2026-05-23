@@ -604,6 +604,21 @@ async function hbRequest<T>(path: string, token?: string, init: RequestInit = {}
   return envelope.data as T;
 }
 
+async function hbRequestWithTimeout<T>(path: string, token: string | undefined, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await hbRequest<T>(path, token, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Purchase request timed out. Please check your wallet activity and try again.");
+    }
+    throw err;
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
+}
+
 export function getHbToken() {
   if (typeof window === "undefined") return "";
   return window.localStorage.getItem(HB_TOKEN_KEY) || "";
@@ -854,17 +869,37 @@ export function fetchHbWithdrawals(token: string) {
 }
 
 export function purchaseHbPackage(token: string, packageId: string) {
-  return hbRequest<{ purchaseId: string; status: string; activated: boolean }>(`/hb/packages/${packageId}/purchase`, token, {
+  const payload = { idempotencyKey: `hb-ui-${Date.now()}-${crypto.randomUUID()}` };
+  console.log("HB9_PURCHASE_REQUEST payload", payload);
+  return hbRequestWithTimeout<{ purchaseId: string; status: string; activated: boolean }>(`/hb/packages/${packageId}/purchase`, token, {
     method: "POST",
-    body: JSON.stringify({ idempotencyKey: `hb-ui-${Date.now()}-${crypto.randomUUID()}` })
-  });
+    body: JSON.stringify(payload)
+  }, 15_000)
+    .then((response) => {
+      console.log("HB9_PURCHASE_RESPONSE", response);
+      return response;
+    })
+    .catch((err) => {
+      console.error("HB9_PURCHASE_ERROR", err);
+      throw err;
+    });
 }
 
 export function buyHbProduct(token: string, productId: string) {
-  return hbRequest<{ order: { id: string; order_number: string }; packagePurchaseId: string; activated: boolean }>(`/hb/products/${productId}/buy`, token, {
+  const payload = { idempotencyKey: `hb-product-ui-${Date.now()}-${crypto.randomUUID()}` };
+  console.log("HB9_PURCHASE_REQUEST payload", payload);
+  return hbRequestWithTimeout<{ order: { id: string; order_number: string }; packagePurchaseId: string; activated: boolean }>(`/hb/products/${productId}/buy`, token, {
     method: "POST",
-    body: JSON.stringify({ idempotencyKey: `hb-product-ui-${Date.now()}-${crypto.randomUUID()}` })
-  });
+    body: JSON.stringify(payload)
+  }, 15_000)
+    .then((response) => {
+      console.log("HB9_PURCHASE_RESPONSE", response);
+      return response;
+    })
+    .catch((err) => {
+      console.error("HB9_PURCHASE_ERROR", err);
+      throw err;
+    });
 }
 
 export function fetchHbPurchases(token: string) {

@@ -22,11 +22,17 @@ async function insertIncomeLedger(input: {
   idempotencyKey: string;
   metadata: Record<string, unknown>;
 }) {
+  const existingRows = await input.client.query<{ id: string }>(
+    "select id from hb_income_ledger where idempotency_key = $1 limit 1",
+    [input.idempotencyKey]
+  );
+  if (existingRows.rows[0]) {
+    return existingRows.rows[0].id;
+  }
   const rows = await input.client.query<{ id: string }>(
     `insert into hb_income_ledger
       (earner_user_id, source_user_id, package_purchase_id, income_type, amount_usd, status, level_depth, idempotency_key, metadata)
      select $1, $2, $3, $4, ${input.amountSql}, $5, $6, $7, $8::jsonb
-     on conflict (idempotency_key) do update set idempotency_key = excluded.idempotency_key
      returning id`,
     [
       input.earnerUserId,
@@ -57,18 +63,17 @@ async function insertIncomeLedger(input: {
 }
 
 export async function distributePackagePurchase({ client, purchaseId, buyerUserId, packageId, amountUsd }: DistributionInput) {
-  await client.query(
-    `insert into hb_distribution_runs (package_purchase_id, user_id, package_id, amount_usd)
-     values ($1,$2,$3,$4)
-     on conflict (package_purchase_id) do nothing`,
-    [purchaseId, buyerUserId, packageId, amountUsd]
-  );
-
   const runRows = await client.query<{ id: string }>(
     "select id from hb_distribution_runs where package_purchase_id = $1",
     [purchaseId]
   );
-  if (!runRows.rows[0]) throw new Error("Distribution marker could not be created.");
+  if (!runRows.rows[0]) {
+    await client.query(
+      `insert into hb_distribution_runs (package_purchase_id, user_id, package_id, amount_usd)
+       values ($1,$2,$3,$4)`,
+      [purchaseId, buyerUserId, packageId, amountUsd]
+    );
+  }
 
   const sponsorRows = await client.query<{ sponsor_user_id: string | null }>(
     "select sponsor_user_id from hb_users where id = $1",
@@ -149,14 +154,19 @@ export async function distributePackagePurchase({ client, purchaseId, buyerUserI
         minimumPackageUsd: 4
       }
     });
-    await client.query(
-      `insert into hb_level_income_records
-        (package_purchase_id, buyer_user_id, receiver_user_id, package_id, level_number, amount_usd, status, ledger_entry_id)
-       select $1, $2, $3, $4, $5, round(amount_usd * $8::numeric, 8), $6, $7
-       from hb_package_purchases
-       where id = $1
-       on conflict (package_purchase_id, level_number) do nothing`,
-      [purchaseId, buyerUserId, receiverId, packageId, row.level_no, unlocked ? "credited" : "locked", ledgerId, levelPercent]
+    const existingLevelRows = await client.query<{ id: string }>(
+      "select id from hb_level_income_records where package_purchase_id = $1 and level_number = $2 limit 1",
+      [purchaseId, row.level_no]
     );
+    if (!existingLevelRows.rows[0]) {
+      await client.query(
+        `insert into hb_level_income_records
+          (package_purchase_id, buyer_user_id, receiver_user_id, package_id, level_number, amount_usd, status, ledger_entry_id)
+         select $1, $2, $3, $4, $5, round(amount_usd * $8::numeric, 8), $6, $7
+         from hb_package_purchases
+         where id = $1`,
+        [purchaseId, buyerUserId, receiverId, packageId, row.level_no, unlocked ? "credited" : "locked", ledgerId, levelPercent]
+      );
+    }
   }
 }

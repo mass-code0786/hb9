@@ -235,6 +235,7 @@ export function HalalBusinessApp() {
   const [onchainConfig, setOnchainConfig] = useState<HbOnchainPackageConfig | null>(null);
   const [connectedWallet, setConnectedWallet] = useState("");
   const [onchainPurchase, setOnchainPurchase] = useState<OnchainPurchaseReview | null>(null);
+  const [onchainPurchaseConfirming, setOnchainPurchaseConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
   const [loginToast, setLoginToast] = useState("");
@@ -594,65 +595,71 @@ export function HalalBusinessApp() {
   }
 
   async function confirmOnchainPurchase() {
+    console.log("HB9_CONFIRM_BUY_CLICK", onchainPurchase ? { productId: onchainPurchase.product.id, packageId: onchainPurchase.product.package_id, mode: "onchain" } : null);
     if (!token || !onchainPurchase) return;
+    setOnchainPurchaseConfirming(true);
     const ethereum = (window as unknown as { ethereum?: EthereumProvider }).ethereum;
-    if (!ethereum) {
-      setError("External wallet not found. Open this page with a BSC-compatible wallet browser.");
-      return;
-    }
-    setError("");
-    setNotice("");
-    const { product, config, packageConfig, sponsorRef, buyerAddress } = onchainPurchase;
-    const packageManagerAddress = config.packageManagerAddress;
-    const usdtBep20Address = config.usdtBep20Address;
-    const onchainPackageId = packageConfig.onchainPackageId;
-    if (!packageManagerAddress || !usdtBep20Address || onchainPackageId === null || onchainPackageId === undefined) {
-      console.error("HB9 package purchase confirmation config incomplete.", {
-        product,
-        packageConfig,
-        hasPackageManager: Boolean(packageManagerAddress),
-        hasUsdtBep20: Boolean(usdtBep20Address)
-      });
-      setError(!onchainPackageId ? "Blockchain package mapping missing" : "Package configuration missing");
-      return;
-    }
-    if (config.dryRun) {
-      const dryRunHash = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32))).map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
-      setOnchainPurchase((current) => current ? { ...current, stage: "pending", txHash: dryRunHash } : current);
+    try {
+      if (!ethereum) {
+        setError("External wallet not found. Open this page with a BSC-compatible wallet browser.");
+        return;
+      }
+      setError("");
+      setNotice("");
+      const { product, config, packageConfig, sponsorRef, buyerAddress } = onchainPurchase;
+      const packageManagerAddress = config.packageManagerAddress;
+      const usdtBep20Address = config.usdtBep20Address;
+      const onchainPackageId = packageConfig.onchainPackageId;
+      if (!packageManagerAddress || !usdtBep20Address || onchainPackageId === null || onchainPackageId === undefined) {
+        console.error("HB9 package purchase confirmation config incomplete.", {
+          product,
+          packageConfig,
+          hasPackageManager: Boolean(packageManagerAddress),
+          hasUsdtBep20: Boolean(usdtBep20Address)
+        });
+        setError(!onchainPackageId ? "Blockchain package mapping missing" : "Package configuration missing");
+        return;
+      }
+      if (config.dryRun) {
+        const dryRunHash = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32))).map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+        setOnchainPurchase((current) => current ? { ...current, stage: "pending", txHash: dryRunHash } : current);
+        await trackHbOnchainPurchase(token, {
+          txHash: dryRunHash,
+          productId: product.id,
+          packageId: product.package_id,
+          onchainPackageId,
+          buyerAddress,
+          referralCode: sponsorRef
+        });
+        setNotice("Purchase completed.");
+        await waitForActivation(product.package_name || product.title);
+        return;
+      }
+      setOnchainPurchase((current) => current ? { ...current, stage: "approving" } : current);
+      const browserProvider = new BrowserProvider(ethereum);
+      const signer = await browserProvider.getSigner();
+      const amount = parseUnits(String(product.package_price), 18);
+      const usdt = new Contract(usdtBep20Address, ERC20_ABI, signer);
+      const approval = await usdt.approve(packageManagerAddress, amount);
+      await approval.wait();
+      setOnchainPurchase((current) => current ? { ...current, stage: "submitting" } : current);
+      const manager = new Contract(packageManagerAddress, PACKAGE_MANAGER_ABI, signer);
+      const referralCode = sponsorRef ? encodeBytes32String(sponsorRef.slice(0, 31)) : "0x0000000000000000000000000000000000000000000000000000000000000000";
+      const tx = await manager.buyPackage(onchainPackageId, ZeroAddress, referralCode);
+      setOnchainPurchase((current) => current ? { ...current, stage: "pending", txHash: tx.hash } : current);
       await trackHbOnchainPurchase(token, {
-        txHash: dryRunHash,
+        txHash: tx.hash,
         productId: product.id,
         packageId: product.package_id,
         onchainPackageId,
         buyerAddress,
         referralCode: sponsorRef
       });
-      setNotice("Purchase completed.");
+      setNotice("Package purchase submitted. Activation will update after the PackagePurchased event is indexed.");
       await waitForActivation(product.package_name || product.title);
-      return;
+    } finally {
+      setOnchainPurchaseConfirming(false);
     }
-    setOnchainPurchase((current) => current ? { ...current, stage: "approving" } : current);
-    const browserProvider = new BrowserProvider(ethereum);
-    const signer = await browserProvider.getSigner();
-    const amount = parseUnits(String(product.package_price), 18);
-    const usdt = new Contract(usdtBep20Address, ERC20_ABI, signer);
-    const approval = await usdt.approve(packageManagerAddress, amount);
-    await approval.wait();
-    setOnchainPurchase((current) => current ? { ...current, stage: "submitting" } : current);
-    const manager = new Contract(packageManagerAddress, PACKAGE_MANAGER_ABI, signer);
-    const referralCode = sponsorRef ? encodeBytes32String(sponsorRef.slice(0, 31)) : "0x0000000000000000000000000000000000000000000000000000000000000000";
-    const tx = await manager.buyPackage(onchainPackageId, ZeroAddress, referralCode);
-    setOnchainPurchase((current) => current ? { ...current, stage: "pending", txHash: tx.hash } : current);
-    await trackHbOnchainPurchase(token, {
-      txHash: tx.hash,
-      productId: product.id,
-      packageId: product.package_id,
-      onchainPackageId,
-      buyerAddress,
-      referralCode: sponsorRef
-    });
-    setNotice("Package purchase submitted. Activation will update after the PackagePurchased event is indexed.");
-    await waitForActivation(product.package_name || product.title);
   }
 
   async function waitForActivation(packageName: string) {
@@ -859,6 +866,7 @@ export function HalalBusinessApp() {
           {onchainPurchase ? (
             <OnchainPurchaseDialog
               purchase={onchainPurchase}
+              busy={onchainPurchaseConfirming}
               onCancel={() => setOnchainPurchase(null)}
               onConfirm={async () => {
                 try {
@@ -1136,8 +1144,8 @@ function ActivationSuccessDialog({ success, onClose }: { success: { packageName:
   );
 }
 
-function OnchainPurchaseDialog({ purchase, onCancel, onConfirm }: { purchase: OnchainPurchaseReview; onCancel: () => void; onConfirm: () => void }) {
-  const busy = purchase.stage === "approving" || purchase.stage === "submitting";
+function OnchainPurchaseDialog({ purchase, busy: confirming, onCancel, onConfirm }: { purchase: OnchainPurchaseReview; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+  const busy = confirming || purchase.stage === "approving" || purchase.stage === "submitting";
   const txUrl = purchase.txHash ? bscScanTxUrl(purchase.config, purchase.txHash) : "";
   const stageText = purchase.stage === "approving"
     ? "Confirm USDT approval in your external wallet."

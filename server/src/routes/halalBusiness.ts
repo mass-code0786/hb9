@@ -1018,14 +1018,22 @@ async function applyHbCoinAdjustment(input: {
     [input.userId, input.coinSymbol, amount, input.type, input.direction, input.reference || null, input.adminId || null, input.note || null, input.idempotencyKey, JSON.stringify(input.metadata || {}), input.usdPrice ?? null, input.usdValue ?? null]
   );
   if (!ledgerRows.rows[0]) return null;
-  await input.client.query(
-    `insert into hb_coin_balances (user_id, coin_symbol, balance)
-     values ($1,$2,case when $3 = 'credit' then $4::numeric else 0 end)
-     on conflict (user_id, coin_symbol) do update
-     set balance = hb_coin_balances.balance + case when $3 = 'credit' then $4::numeric else -$4::numeric end,
-         updated_at = now()`,
-    [input.userId, input.coinSymbol, input.direction, amount]
+  const balanceDelta = input.direction === "credit" ? amount : -amount;
+  const balanceUpdateRows = await input.client.query<{ id: string }>(
+    `update hb_coin_balances
+     set balance = balance + $3::numeric,
+         updated_at = now()
+     where user_id = $1 and coin_symbol = $2
+     returning id`,
+    [input.userId, input.coinSymbol, balanceDelta]
   );
+  if (!balanceUpdateRows.rows[0]) {
+    await input.client.query(
+      `insert into hb_coin_balances (user_id, coin_symbol, balance)
+       values ($1,$2,$3::numeric)`,
+      [input.userId, input.coinSymbol, balanceDelta]
+    );
+  }
   return ledgerRows.rows[0].id;
 }
 
@@ -3619,6 +3627,7 @@ hbRouter.post("/hb/packages/:id/purchase", requireHbUser, asyncHandler(async (re
   const client = await pool.connect();
   try {
     await client.query("begin");
+    await client.query("set local statement_timeout = '15000ms'");
     await client.query("select pg_advisory_xact_lock(hashtext($1))", [idempotencyKey]);
     const existingPurchaseRows = await client.query<{ id: string; status: string; amount_usd: string; ledger_entry_id: string | null }>(
       `select id, status, amount_usd::text, ledger_entry_id
@@ -3757,6 +3766,7 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
   const client = await pool.connect();
   try {
     await client.query("begin");
+    await client.query("set local statement_timeout = '15000ms'");
     await client.query("select pg_advisory_xact_lock(hashtext($1))", [idempotencyKey]);
     const existingRows = await client.query<{ id: string; order_number: string; package_purchase_id: string | null }>(
       "select id, order_number, package_purchase_id from hb_product_orders where buyer_user_id = $1 and idempotency_key = $2 limit 1",
@@ -5576,15 +5586,21 @@ hbRouter.post("/admin/hb/onchain-purchases/sync-event", requireAdmin, asyncHandl
       fail(res, "On-chain package amount does not match a supported package.", 400, "On-chain sync failed");
       return;
     }
-    const eventRows = await client.query<{ id: string; buyer_user_id: string | null }>(
-      `insert into hb_onchain_purchase_events
-        (contract_event_id, tx_hash, chain_id, contract_address, block_number, log_index, onchain_package_id,
-         buyer_address, sponsor_address, referral_code, amount_usd, status, raw_event, synced_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'confirmed',$12::jsonb,now())
-       on conflict (contract_event_id) do update
-       set status = 'confirmed', block_number = excluded.block_number, log_index = excluded.log_index,
-           raw_event = excluded.raw_event, synced_at = now(), updated_at = now()
+    let eventRows = await client.query<{ id: string; buyer_user_id: string | null }>(
+      `update hb_onchain_purchase_events
+       set status = 'confirmed', block_number = $2, log_index = $3,
+           raw_event = $4::jsonb, synced_at = now(), updated_at = now()
+       where contract_event_id = $1
        returning id, buyer_user_id`,
+      [parsed.data.contractEventId, parsed.data.blockNumber, parsed.data.logIndex, JSON.stringify(parsed.data.rawEvent || parsed.data)]
+    );
+    if (!eventRows.rows[0]) {
+      eventRows = await client.query<{ id: string; buyer_user_id: string | null }>(
+        `insert into hb_onchain_purchase_events
+          (contract_event_id, tx_hash, chain_id, contract_address, block_number, log_index, onchain_package_id,
+           buyer_address, sponsor_address, referral_code, amount_usd, status, raw_event, synced_at)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'confirmed',$12::jsonb,now())
+         returning id, buyer_user_id`,
       [
         parsed.data.contractEventId,
         parsed.data.txHash,
@@ -5599,7 +5615,8 @@ hbRouter.post("/admin/hb/onchain-purchases/sync-event", requireAdmin, asyncHandl
         parsed.data.amountUsd,
         JSON.stringify(parsed.data.rawEvent || parsed.data)
       ]
-    );
+      );
+    }
     let buyerUserId = eventRows.rows[0]?.buyer_user_id || null;
     if (!buyerUserId) {
       const userRows = await client.query<{ id: string }>(
@@ -5615,20 +5632,27 @@ hbRouter.post("/admin/hb/onchain-purchases/sync-event", requireAdmin, asyncHandl
       return;
     }
     await client.query("update hb_onchain_purchase_events set buyer_user_id = $2, status = 'confirmed', synced_at = now(), updated_at = now() where contract_event_id = $1", [parsed.data.contractEventId, buyerUserId]);
-    const purchaseRows = await client.query<{ id: string }>(
-      `insert into hb_package_purchases
-        (user_id, package_id, amount_usd, status, idempotency_key, contract_purchase_tx_hash, contract_event_id,
-         block_number, log_index, onchain_package_id, onchain_buyer_address, onchain_sponsor_address, onchain_status, synced_at,
-         public_reference_id, onchain_tx_hash, chain_id, payout_mode)
-       values ($1,$2,$3,'completed',$4,$5,$6,$7,$8,$9,$10,$11,'confirmed',now(),$12,$5,$13,'onchain')
-       on conflict (idempotency_key) do update
+    const purchaseIdempotencyKey = `hb:onchain:purchase:${parsed.data.contractEventId}`;
+    let purchaseRows = await client.query<{ id: string }>(
+      `update hb_package_purchases
        set onchain_status = 'confirmed', synced_at = now()
+       where idempotency_key = $1
        returning id`,
+      [purchaseIdempotencyKey]
+    );
+    if (!purchaseRows.rows[0]) {
+      purchaseRows = await client.query<{ id: string }>(
+        `insert into hb_package_purchases
+          (user_id, package_id, amount_usd, status, idempotency_key, contract_purchase_tx_hash, contract_event_id,
+           block_number, log_index, onchain_package_id, onchain_buyer_address, onchain_sponsor_address, onchain_status, synced_at,
+           public_reference_id, onchain_tx_hash, chain_id, payout_mode)
+         values ($1,$2,$3,'completed',$4,$5,$6,$7,$8,$9,$10,$11,'confirmed',now(),$12,$5,$13,'onchain')
+         returning id`,
       [
         buyerUserId,
         selectedPackage.id,
         selectedPackage.amount_usd,
-        `hb:onchain:purchase:${parsed.data.contractEventId}`,
+        purchaseIdempotencyKey,
         parsed.data.txHash,
         parsed.data.contractEventId,
         parsed.data.blockNumber,
@@ -5639,7 +5663,8 @@ hbRouter.post("/admin/hb/onchain-purchases/sync-event", requireAdmin, asyncHandl
         `HBC-${parsed.data.contractEventId.slice(0, 18).toUpperCase()}`,
         hbOnchainChainId()
       ]
-    );
+      );
+    }
     const previousRows = await client.query<{ status: string }>("select status from hb_users where id = $1 for update", [buyerUserId]);
     if (previousRows.rows[0]?.status === "inactive") {
       await client.query("update hb_users set status = 'active', activated_at = now(), updated_at = now() where id = $1", [buyerUserId]);
