@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState, type ElementType, type ReactNode } from "
 import { usePathname } from "next/navigation";
 import { ArrowDownToLine, Banknote, Bell, Box, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign, Copy, Download, Eye, Home, Layers3, PackageCheck, Plus, ReceiptText, RefreshCw, Send, Settings, Sparkles, TrendingUp, Users, Wallet } from "lucide-react";
 import { BrowserProvider, Contract, encodeBytes32String, parseUnits, ZeroAddress } from "ethers";
-import { QRCodeSVG } from "qrcode.react";
+import { createPublicClient, encodeFunctionData, http, parseUnits as viemParseUnits, type Hash } from "viem";
+import { bsc } from "viem/chains";
 import { HbLandingPage } from "@/components/halal-business/HbLandingPage";
 import { HbAllPackagesList, HbPackageProductCard, HbPackageVisual, buildDefaultHbPackageProducts, featuresForHbPackageAmount } from "@/components/halal-business/HbPackageCards";
 import { HB9Logo } from "@/components/brand/HB9Logo";
@@ -55,11 +56,13 @@ import {
   type HbWithdrawal
 } from "@/services/halalBusinessService";
 import { captureHbReferralFromUrl, getStoredHbReferral } from "@/lib/referral";
+import { BSC_RPC_URL, USDT_CONTRACT } from "@/lib/config";
 
 type TabId = "home" | "products" | "team" | "income" | "wallet" | "packages";
 type EthereumProvider = { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> };
 type OnchainPackageItem = HbOnchainPackageConfig["packages"][number];
 type PurchaseStage = "review" | "approving" | "submitting" | "pending" | "activated";
+type DepositPaymentStatus = "idle" | "pending_wallet_signature" | "pending_blockchain_confirmation" | "confirmed" | "failed";
 type PurchaseReview = {
   product: HbProduct;
   config: HbOnchainPackageConfig;
@@ -79,6 +82,14 @@ const HB_PACKAGE_INACTIVE = "Package inactive";
 
 const PACKAGE_MANAGER_ABI = ["function buyPackage(uint256 packageId,address sponsorAddress,bytes32 referralCode)"];
 const ERC20_ABI = ["function approve(address spender,uint256 amount) returns (bool)", "function transfer(address to,uint256 amount) returns (bool)"];
+const ERC20_TRANSFER_ABI = [{
+  type: "function",
+  name: "transfer",
+  stateMutability: "nonpayable",
+  inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }],
+  outputs: [{ name: "", type: "bool" }]
+}] as const;
+const bscPublicClient = createPublicClient({ chain: bsc, transport: http(BSC_RPC_URL) });
 const HB_DEV_DASHBOARD_BYPASS = isHbDevDashboardBypassEnabled();
 const LOGIN_SUCCESS_MESSAGE = "Login successful.";
 const HB_WITHDRAWAL_MIN_USD = 2;
@@ -141,6 +152,37 @@ function txUrl(config: HbOnchainPackageConfig, txHash: string) {
 function resolveClientTreasuryWallet(apiWallet?: string | null) {
   const configured = apiWallet || process.env.NEXT_PUBLIC_BSC_TREASURY_WALLET || process.env.NEXT_PUBLIC_COMPANY_RECEIVING_WALLET_BSC || "";
   return /^0x[a-fA-F0-9]{40}$/.test(configured) ? configured : "";
+}
+
+async function switchConnectedWalletToBsc(ethereum: EthereumProvider) {
+  const chainId = await ethereum.request({ method: "eth_chainId" }).catch(() => "0x0");
+  const current = typeof chainId === "string" ? Number.parseInt(chainId, 16) : Number(chainId);
+  if (current === 56) return;
+  await ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x38" }] });
+}
+
+async function sendConnectedWalletUsdtTransfer(input: { from: string; to: string; amount: number; tokenAddress?: string; onSubmitted?: (txHash: string) => void }) {
+  const ethereum = (window as unknown as { ethereum?: EthereumProvider }).ethereum;
+  if (!ethereum) throw new Error("External wallet not found. Open HB9 in a BSC wallet browser.");
+  await ethereum.request({ method: "eth_requestAccounts" });
+  await switchConnectedWalletToBsc(ethereum);
+  const txHash = await ethereum.request({
+    method: "eth_sendTransaction",
+    params: [{
+      from: input.from,
+      to: input.tokenAddress || USDT_CONTRACT,
+      value: "0x0",
+      data: encodeFunctionData({
+        abi: ERC20_TRANSFER_ABI,
+        functionName: "transfer",
+        args: [input.to as `0x${string}`, viemParseUnits(String(input.amount), 18)]
+      })
+    }]
+  });
+  if (typeof txHash !== "string") throw new Error("USDT transfer transaction was not returned by wallet.");
+  input.onSubmitted?.(txHash);
+  await bscPublicClient.waitForTransactionReceipt({ hash: txHash as Hash, confirmations: 3 });
+  return txHash;
 }
 
 function onchainPackageIdForProduct(product: HbProduct) {
@@ -224,6 +266,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   const [voiceEvent, setVoiceEvent] = useState<HB9VoiceEvent>(null);
   const [convertingCoin, setConvertingCoin] = useState("");
   const [walletActionBusy, setWalletActionBusy] = useState("");
+  const [depositPaymentStatus, setDepositPaymentStatus] = useState<DepositPaymentStatus>("idle");
   const [activeWalletModal, setActiveWalletModal] = useState<"deposit" | "withdraw" | null>(null);
 
   const devDashboardActive = devMode && HB_DEV_DASHBOARD_BYPASS;
@@ -494,6 +537,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       return null;
     }
     setWalletActionBusy("deposit");
+    setDepositPaymentStatus("pending_wallet_signature");
     setError("");
     setNotice("");
     try {
@@ -507,42 +551,33 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         treasuryWallet: receiveAddress,
         idempotencyKey: `hb-ui-deposit-${Date.now()}-${crypto.randomUUID()}`
       });
-      setNotice("Deposit request created. Send USDT BEP20 to treasury wallet.");
+      const expectedWallet = boundWallet;
+      if (!/^0x[a-fA-F0-9]{40}$/.test(expectedWallet || "")) {
+        throw new Error("Connected wallet address is not available.");
+      }
+      setNotice("Confirm USDT transfer in your wallet.");
+      const txHash = await sendConnectedWalletUsdtTransfer({
+        from: expectedWallet,
+        to: receiveAddress,
+        amount: amountUsd,
+        tokenAddress: onchainConfig?.usdtBep20Address || USDT_CONTRACT,
+        onSubmitted: () => {
+          setDepositPaymentStatus("pending_blockchain_confirmation");
+          setNotice("Transaction submitted. Waiting for BSC confirmation...");
+        }
+      });
+      setNotice("Transaction confirmed on BSC. Verifying deposit with HB9...");
+      const depositId = deposit.id || deposit.depositId || "";
+      if (!depositId) throw new Error("Deposit id was not returned by HB9.");
+      const verified = await verifyHbDeposit(token, depositId, txHash);
+      setDepositPaymentStatus("confirmed");
+      setNotice("Deposit confirmed and credited to your main wallet.");
       await refresh(token);
-      return deposit;
+      return verified;
     } catch (err) {
+      setDepositPaymentStatus("failed");
       setError(err instanceof Error ? err.message : "Deposit failed.");
       return null;
-    } finally {
-      setWalletActionBusy("");
-    }
-  }
-
-  async function submitDepositTxHash(depositId: string, txHash: string) {
-    if (devDashboardActive) return false;
-    if (!token) {
-      setError("Login required to verify deposit.");
-      return false;
-    }
-    if (!depositId) {
-      setError("Create a pending deposit request before submitting a transaction hash.");
-      return false;
-    }
-    if (!/^(0x)?[a-zA-Z0-9]{12,128}$/.test(txHash.trim())) {
-      setError("Enter a valid transaction hash.");
-      return false;
-    }
-    setWalletActionBusy("deposit-verify");
-    setError("");
-    setNotice("");
-    try {
-      await verifyHbDeposit(token, depositId, txHash.trim());
-      setNotice("Transaction hash submitted. Deposit verification is in progress.");
-      await refresh(token);
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Deposit verification failed.");
-      return false;
     } finally {
       setWalletActionBusy("");
     }
@@ -828,7 +863,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         {!loading && activeTab === "packages" ? <AllPackagesScreen products={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openBuyFlow} onBack={() => setActiveTab("home")} /> : null}
         {!loading && activeTab === "team" ? <TeamScreen user={dashboardUser} summary={referralSummary} /> : null}
         {!loading && activeTab === "income" ? <IncomeScreen income={income} singleLegReserve={singleLegReserve} singleLegProgress={singleLegProgress} summary={incomeSummary} availableBalance={walletData.balances.income} totalWithdrawn={withdrawals.filter((item) => item.status === "paid").reduce((sum, item) => sum + Number(item.amount_usd || 0), 0)} /> : null}
-        {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} deposits={walletData.deposits} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={treasuryDepositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} onConvert={convertCoin} onDeposit={submitDeposit} onVerifyDeposit={submitDepositTxHash} onWithdraw={submitWithdrawal} onRefresh={() => token ? refresh(token) : Promise.resolve()} onInstruction={playAssistant} onModalChange={setActiveWalletModal} /> : null}
+        {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} deposits={walletData.deposits} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={treasuryDepositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} depositPaymentStatus={depositPaymentStatus} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} onRefresh={() => token ? refresh(token) : Promise.resolve()} onInstruction={playAssistant} onModalChange={setActiveWalletModal} /> : null}
       </div>
 
       {activeWalletModal !== "deposit" ? <BottomNavigation activeTab={activeTab} onChange={handleTabChange} /> : null}
@@ -1132,13 +1167,10 @@ function StatusBadgeMini({ status }: { status: "Completed" | "In Progress" | "Pe
   return <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${cls}`}>{status}</span>;
 }
 
-function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity, boundWallet, depositAddress, coins, convertingCoin, walletActionBusy, onConvert, onDeposit, onVerifyDeposit, onWithdraw, onRefresh, onInstruction, onModalChange }: { walletBalance: number; balances: { deposit: string; income: string }; deposits: HbDeposit[]; withdrawals: HbWithdrawal[]; activity: HbWalletActivity[]; boundWallet: string; depositAddress: string; coins: HbCoinBalance[]; convertingCoin: string; walletActionBusy: string; onConvert: (coinSymbol: string, usdValue?: number) => void; onDeposit: (amountUsd: number) => Promise<HbDeposit | null>; onVerifyDeposit: (depositId: string, txHash: string) => Promise<boolean>; onWithdraw: (amountUsd: number, walletAddress: string) => Promise<void>; onRefresh: () => Promise<void>; onInstruction: (script: HB9VoiceScript) => void; onModalChange: (modal: "deposit" | "withdraw" | null) => void }) {
+function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity, boundWallet, depositAddress, coins, convertingCoin, walletActionBusy, depositPaymentStatus, onConvert, onDeposit, onWithdraw, onRefresh, onInstruction, onModalChange }: { walletBalance: number; balances: { deposit: string; income: string }; deposits: HbDeposit[]; withdrawals: HbWithdrawal[]; activity: HbWalletActivity[]; boundWallet: string; depositAddress: string; coins: HbCoinBalance[]; convertingCoin: string; walletActionBusy: string; depositPaymentStatus: DepositPaymentStatus; onConvert: (coinSymbol: string, usdValue?: number) => void; onDeposit: (amountUsd: number) => Promise<HbDeposit | null>; onWithdraw: (amountUsd: number, walletAddress: string) => Promise<void>; onRefresh: () => Promise<void>; onInstruction: (script: HB9VoiceScript) => void; onModalChange: (modal: "deposit" | "withdraw" | null) => void }) {
   const [walletModal, setWalletModal] = useState<"deposit" | "withdraw" | null>(null);
   const [depositAmount, setDepositAmount] = useState("");
   const [depositSessionCreated, setDepositSessionCreated] = useState(false);
-  const [activeDepositId, setActiveDepositId] = useState("");
-  const [depositTxHash, setDepositTxHash] = useState("");
-  const [depositCopied, setDepositCopied] = useState(false);
   const [confirmedDepositId, setConfirmedDepositId] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawWallet, setWithdrawWallet] = useState(boundWallet || "");
@@ -1148,10 +1180,15 @@ function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity
   const withdrawFee = Number((withdrawValue * 0.1).toFixed(8));
   const withdrawNet = Math.max(0, Number((withdrawValue - withdrawFee).toFixed(8)));
   const recentDeposits = deposits.slice(0, 4);
-  const latestPendingDeposit = deposits.find((item) => item.status === "pending");
-  const txHashDepositId = activeDepositId || latestPendingDeposit?.id || "";
   const activeDepositWatch = walletModal === "deposit" && deposits.some((item) => item.status === "pending");
   const latestConfirmedDeposit = recentDeposits.find((item) => item.status === "verified" && item.credited_at);
+  const depositStatusText: Record<DepositPaymentStatus, string> = {
+    idle: "Ready",
+    pending_wallet_signature: "pending_wallet_signature",
+    pending_blockchain_confirmation: "pending_blockchain_confirmation",
+    confirmed: "confirmed",
+    failed: "failed"
+  };
   useEffect(() => {
     onModalChange(walletModal);
     return () => onModalChange(null);
@@ -1202,35 +1239,28 @@ function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity
             <InfoLine label="Network" value="BSC Mainnet" />
             <InfoLine label="Token" value="USDT BEP20" />
             <InfoLine label="Connected wallet" value={shortAddress(boundWallet)} />
+            <InfoLine label="Status" value={depositStatusText[depositPaymentStatus]} />
             <div className="mt-3 rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-sky-100/50">Treasury receiving wallet</p>
                   <p className="mt-1 break-all font-mono text-xs font-black text-cyan-50">{hasDepositAddress ? depositAddress : "Treasury wallet pending configuration"}</p>
                 </div>
-                <button className="hb-interactive hb-glow-cyan grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-cyan-200/12 bg-cyan-300/10 text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45" disabled={!hasDepositAddress} onClick={async () => { if (!hasDepositAddress) return; await navigator.clipboard?.writeText(depositAddress); setDepositCopied(true); window.setTimeout(() => setDepositCopied(false), 1800); }} type="button" aria-label="Copy treasury wallet"><Copy size={16} /></button>
               </div>
-              <div className="mt-3 rounded-2xl border border-yellow-200/20 bg-yellow-300/10 p-3 text-xs font-black leading-5 text-yellow-100">Send only USDT BEP20 on BSC Mainnet</div>
-              {hasDepositAddress ? <div className="mx-auto mt-3 flex aspect-square w-full max-w-[11rem] items-center justify-center rounded-[1.25rem] bg-white p-3"><QRCodeSVG value={depositAddress} size={148} /></div> : null}
-              {depositCopied ? <p className="mt-2 text-xs font-bold text-cyan-100">Address copied.</p> : null}
+              <div className="mt-3 rounded-2xl border border-yellow-200/20 bg-yellow-300/10 p-3 text-xs font-black leading-5 text-yellow-100">Your connected wallet will send the USDT BEP20 transfer automatically.</div>
             </div>
             {!hasDepositAddress ? <p className="mt-2 rounded-2xl border border-red-300/25 bg-red-400/10 p-3 text-xs font-semibold leading-5 text-red-100">Treasury wallet not configured</p> : null}
             <label className="mt-3 block text-xs font-bold text-sky-100/62">Amount</label>
             <input className="mt-1 w-full rounded-2xl border border-cyan-200/12 bg-[#020817] px-3 py-3 text-sm font-bold outline-none focus:border-cyan-300/45" inputMode="decimal" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} placeholder="4.00" />
             {depositValue > 0 && depositValue < 4 ? <p className="mt-2 text-xs font-semibold text-red-200">Minimum deposit is $4</p> : null}
-            {depositSessionCreated ? <p className="mt-3 rounded-2xl border border-cyan-300/25 bg-cyan-300/10 p-3 text-xs font-semibold leading-5 text-cyan-100">Deposit request created. Send USDT BEP20 to treasury wallet.</p> : null}
-            {depositSessionCreated || latestPendingDeposit ? <div className="mt-3 rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 p-3">
-              <label className="block text-xs font-bold text-sky-100/62">Transaction hash</label>
-              <input className="mt-1 w-full rounded-2xl border border-cyan-200/12 bg-[#020817] px-3 py-3 font-mono text-xs font-bold outline-none focus:border-cyan-300/45" value={depositTxHash} onChange={(event) => setDepositTxHash(event.target.value)} placeholder="0x..." />
-              <button className="hb-interactive hb-glow-cyan mt-3 w-full rounded-2xl border border-cyan-200/16 bg-cyan-300/12 px-4 py-3 text-sm font-black text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50" disabled={walletActionBusy === "deposit-verify" || !txHashDepositId || !depositTxHash.trim()} onClick={async () => { const verified = await onVerifyDeposit(txHashDepositId, depositTxHash); if (verified) setDepositTxHash(""); }} type="button">{walletActionBusy === "deposit-verify" ? "Submitting..." : "I have paid / Submit Tx Hash"}</button>
-            </div> : null}
+            {depositSessionCreated ? <p className="mt-3 rounded-2xl border border-cyan-300/25 bg-cyan-300/10 p-3 text-xs font-semibold leading-5 text-cyan-100">Deposit request created. Wallet transaction and backend verification run automatically.</p> : null}
             {latestConfirmedDeposit ? <p className="mt-3 rounded-2xl border border-emerald-300/25 bg-emerald-300/10 p-3 text-xs font-black leading-5 text-emerald-100">Deposit confirmed and credited to your main wallet.</p> : null}
             {recentDeposits.length ? <div className="mt-3 space-y-2 rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 p-3">
               <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-[0.14em] text-sky-100/50"><span>Realtime deposit status</span><RefreshCw className={activeDepositWatch ? "animate-spin text-cyan-100" : "text-sky-100/45"} size={13} /></div>
               {recentDeposits.map((item) => <DepositStatusRow key={item.id} item={item} />)}
             </div> : null}
             </div>
-            <button className="hb-interactive hb-glow-cyan w-full rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-black text-[#031326] disabled:cursor-wait disabled:opacity-70" disabled={walletActionBusy === "deposit"} onClick={async () => { const deposit = await onDeposit(depositValue); if (deposit) { setDepositSessionCreated(true); setActiveDepositId(deposit.id); } }} type="button">{walletActionBusy === "deposit" ? "Creating request..." : depositSessionCreated ? "Create Another Deposit Request" : "Submit Deposit"}</button>
+            <button className="hb-interactive hb-glow-cyan w-full rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-black text-[#031326] disabled:cursor-wait disabled:opacity-70" disabled={walletActionBusy === "deposit"} onClick={async () => { const deposit = await onDeposit(depositValue); if (deposit) setDepositSessionCreated(true); }} type="button">{walletActionBusy === "deposit" ? depositStatusText[depositPaymentStatus] : depositSessionCreated ? "Activate / Deposit Again" : "Activate / Deposit"}</button>
           </div>
         </WalletActionModal>
       ) : null}

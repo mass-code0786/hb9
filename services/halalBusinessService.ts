@@ -118,6 +118,7 @@ export type HbPurchase = {
 
 export type HbDeposit = {
   id: string;
+  depositId?: string;
   network: string;
   asset: "USDT";
   amount: string | number;
@@ -337,10 +338,13 @@ export type HbOnchainPackageConfig = {
 export type HbRegistrationFee = {
   required: boolean;
   amountUSD: number;
+  amountUSDT?: number;
   amountBNB: number;
   treasuryWallet: string;
   chainId: number;
   network: string;
+  token?: "USDT" | string;
+  tokenAddress?: string;
   message: string;
   note: string;
 };
@@ -652,7 +656,7 @@ export function verifyHbWalletSignature(input: { walletAddress: string; chainId:
 }
 
 export function verifyHbRegistrationFee(token: string, input: { txHash: string }) {
-  return hbRequest<{ user: HbUser; registrationFeeRequired: false; txHash: string; amountBNB: string | number; amountUSD: string | number; walletAddress: string; status: "verified" }>("/hb/auth/registration-fee/verify", token, {
+  return hbRequest<{ user: HbUser; registrationFeeRequired: false; txHash: string; amountBNB: string | number; amountUSDT?: string | number; amountUSD: string | number; walletAddress: string; status: "verified" }>("/hb/auth/registration-fee/verify", token, {
     method: "POST",
     body: JSON.stringify(input)
   });

@@ -828,12 +828,6 @@ function hbRegistrationFeeUsd() {
   return Number.isFinite(value) && value > 0 ? value : 0.05;
 }
 
-function hbRegistrationFeeBnb() {
-  const price = Number(config.hb9BnbUsdPrice || 0);
-  if (!Number.isFinite(price) || price <= 0) throw new Error("BNB price config is missing for registration fee.");
-  return Number((hbRegistrationFeeUsd() / price).toFixed(18));
-}
-
 function hbRegistrationTreasuryWallet() {
   const wallet = config.hb9TreasuryWallet || config.hbTreasuryDepositAddress || config.companyEvmReceiveAddress || "";
   if (!wallet || !isAddress(wallet)) throw new Error("HB9_TREASURY_WALLET must be configured.");
@@ -842,16 +836,18 @@ function hbRegistrationTreasuryWallet() {
 
 function hbRegistrationFeePayload() {
   const amountUsd = hbRegistrationFeeUsd();
-  const amountBNB = hbRegistrationFeeBnb();
   const treasuryWallet = hbRegistrationTreasuryWallet();
   return {
     required: true,
     amountUSD: amountUsd,
-    amountBNB,
+    amountUSDT: amountUsd,
+    amountBNB: 0,
     treasuryWallet,
     chainId: hbOnchainChainId(),
     network: hbNetworkLabel(),
-    message: "One-time activation fee: $0.05 in BNB",
+    token: "USDT",
+    tokenAddress: hbUsdtAddress(),
+    message: "One-time activation fee: $0.05 USDT BEP20",
     note: "Paid directly to Treasury Wallet"
   };
 }
@@ -4452,7 +4448,7 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
         `insert into hb_registration_activation_fees (user_id, wallet_address, treasury_wallet, amount_bnb, amount_usd, status, verification_status, chain_id)
          values ($1,$2,$3,$4,$5,'pending','pending',$6)
          on conflict do nothing`,
-        [user.id, walletAddress, hbRegistrationTreasuryWallet(), hbRegistrationFeeBnb(), hbRegistrationFeeUsd(), hbOnchainChainId()]
+        [user.id, walletAddress, hbRegistrationTreasuryWallet(), 0, hbRegistrationFeeUsd(), hbOnchainChainId()]
       );
       await client.query(
         `insert into hb_wallets (user_id, wallet_address, wallet_type, network)
@@ -4578,8 +4574,8 @@ hbRouter.post("/hb/auth/registration-fee/verify", requireHbUser, asyncHandler(as
     const verification = await verifyBlockchainTransaction({
       txHash: parsed.data.txHash,
       network: "bsc",
-      tokenSymbol: "BNB",
-      requiredAmount: hbRegistrationFeeBnb(),
+      tokenSymbol: "USDT",
+      requiredAmount: hbRegistrationFeeUsd(),
       expectedRecipient: hbRegistrationTreasuryWallet()
     });
     if (getAddress(verification.fromAddress) !== walletAddress) {
@@ -4588,7 +4584,7 @@ hbRouter.post("/hb/auth/registration-fee/verify", requireHbUser, asyncHandler(as
           (user_id, wallet_address, treasury_wallet, tx_hash, amount_bnb, amount_usd, status, verification_status, failure_reason, chain_id, confirmations)
          values ($1,$2,$3,$4,$5,$6,'failed','failed',$7,$8,$9)
          on conflict (tx_hash) do update set status = 'failed', verification_status = 'failed', failure_reason = excluded.failure_reason, updated_at = now()`,
-        [user.id, walletAddress, hbRegistrationTreasuryWallet(), parsed.data.txHash, hbRegistrationFeeBnb(), hbRegistrationFeeUsd(), "Transaction sender does not match registered wallet.", verification.chainId, verification.confirmations]
+        [user.id, walletAddress, hbRegistrationTreasuryWallet(), parsed.data.txHash, 0, hbRegistrationFeeUsd(), "Transaction sender does not match registered wallet.", verification.chainId, verification.confirmations]
       );
       await client.query("commit");
       fail(res, "Transaction sender does not match registered wallet.", 400, "Activation failed");
@@ -4599,7 +4595,7 @@ hbRouter.post("/hb/auth/registration-fee/verify", requireHbUser, asyncHandler(as
         (user_id, wallet_address, treasury_wallet, tx_hash, amount_bnb, amount_usd, status, verification_status, chain_id, confirmations, verified_at)
        values ($1,$2,$3,$4,$5,$6,'verified','verified',$7,$8,now())
        on conflict (tx_hash) do update set status = 'verified', verification_status = 'verified', confirmations = excluded.confirmations, verified_at = now(), updated_at = now()`,
-      [user.id, walletAddress, hbRegistrationTreasuryWallet(), parsed.data.txHash, verification.verifiedAmount, hbRegistrationFeeUsd(), verification.chainId, verification.confirmations]
+      [user.id, walletAddress, hbRegistrationTreasuryWallet(), parsed.data.txHash, 0, hbRegistrationFeeUsd(), verification.chainId, verification.confirmations]
     );
     await client.query("update hb_users set status = 'active', activation_fee_paid = true, activation_fee_tx_hash = $2, activated_at = now(), updated_at = now() where id = $1", [user.id, parsed.data.txHash]);
     await client.query(
@@ -4609,14 +4605,15 @@ hbRouter.post("/hb/auth/registration-fee/verify", requireHbUser, asyncHandler(as
     await client.query(
       `insert into hb_audit_logs (user_id, action, entity_type, entity_id, metadata)
        values ($1,'hb.registration_fee.verified','hb_registration_activation_fee',$1,$2::jsonb)`,
-      [user.id, JSON.stringify({ txHash: parsed.data.txHash, amountBNB: verification.verifiedAmount, amountUSD: hbRegistrationFeeUsd(), walletAddress, treasuryWallet: hbRegistrationTreasuryWallet(), verification })]
+      [user.id, JSON.stringify({ txHash: parsed.data.txHash, amountUSDT: verification.verifiedAmount, amountUSD: hbRegistrationFeeUsd(), walletAddress, treasuryWallet: hbRegistrationTreasuryWallet(), verification })]
     );
     await client.query("commit");
     ok(res, {
       user: { ...user, status: "active", wallet_address: walletAddress },
       registrationFeeRequired: false,
       txHash: parsed.data.txHash,
-      amountBNB: verification.verifiedAmount,
+      amountBNB: 0,
+      amountUSDT: verification.verifiedAmount,
       amountUSD: hbRegistrationFeeUsd(),
       walletAddress,
       status: "verified"

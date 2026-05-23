@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, LogOut, QrCode, Wallet, Wifi, WifiOff, X } from "lucide-react";
 import { useConnect, useConnectors } from "wagmi";
-import { parseEther } from "ethers";
+import { createPublicClient, encodeFunctionData, http, parseUnits, type Hash } from "viem";
+import { bsc } from "viem/chains";
 import type { Connector } from "wagmi";
 import { isHbDevDashboardBypassEnabled, requestHbWalletChallenge, saveHbDevWallet, verifyHbRegistrationFee, verifyHbWalletSignature, type HbRegistrationFee, type HbUser, type HbWalletAuthMode } from "@/services/halalBusinessService";
+import { BSC_RPC_URL } from "@/lib/config";
 import { walletConnectProjectId } from "@/lib/wagmiConfig";
 
 type EthereumProvider = {
@@ -39,6 +41,15 @@ const BSC_CHAIN_ID = Number(process.env.NEXT_PUBLIC_HB_CHAIN_ID || process.env.N
 const BSC_HEX_CHAIN_ID = `0x${BSC_CHAIN_ID.toString(16)}`;
 const BSC_LABEL = BSC_CHAIN_ID === 56 ? "BSC Mainnet" : "BSC";
 const HB_DEV_DASHBOARD_BYPASS = isHbDevDashboardBypassEnabled();
+const USDT_BEP20_ADDRESS = process.env.NEXT_PUBLIC_USDT_TOKEN_ADDRESS || process.env.NEXT_PUBLIC_USDT_BEP20_ADDRESS || process.env.NEXT_PUBLIC_USDT_CONTRACT || "0x55d398326f99059fF775485246999027B3197955";
+const bscPublicClient = createPublicClient({ chain: bsc, transport: http(BSC_RPC_URL) });
+const ERC20_TRANSFER_ABI = [{
+  type: "function",
+  name: "transfer",
+  stateMutability: "nonpayable",
+  inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }],
+  outputs: [{ name: "", type: "bool" }]
+}] as const;
 
 const BSC_ADD_CHAIN_PARAMS = {
   chainId: BSC_HEX_CHAIN_ID,
@@ -112,10 +123,6 @@ function isUserRejected(err: unknown) {
   return code === 4001 || message.includes("user rejected") || message.includes("user denied") || message.includes("cancel");
 }
 
-function toHexQuantity(value: bigint) {
-  return `0x${value.toString(16)}`;
-}
-
 async function switchToBsc(provider: EthereumProvider) {
   const currentChain = parseChainId(await provider.request({ method: "eth_chainId" }).catch(() => "0x0"));
   if (currentChain === BSC_CHAIN_ID) return BSC_CHAIN_ID;
@@ -127,6 +134,26 @@ async function switchToBsc(provider: EthereumProvider) {
     await provider.request({ method: "wallet_addEthereumChain", params: [BSC_ADD_CHAIN_PARAMS] });
   }
   return parseChainId(await provider.request({ method: "eth_chainId" }));
+}
+
+async function sendUsdtTransferAndWait(provider: EthereumProvider, input: { from: string; to: string; amount: string | number; tokenAddress?: string; onSubmitted?: (txHash: string) => void }) {
+  const txHash = await provider.request({
+    method: "eth_sendTransaction",
+    params: [{
+      from: input.from,
+      to: input.tokenAddress || USDT_BEP20_ADDRESS,
+      value: "0x0",
+      data: encodeFunctionData({
+        abi: ERC20_TRANSFER_ABI,
+        functionName: "transfer",
+        args: [input.to as `0x${string}`, parseUnits(String(input.amount), 18)]
+      })
+    }]
+  });
+  if (typeof txHash !== "string") throw new Error("USDT transfer transaction was not returned by wallet.");
+  input.onSubmitted?.(txHash);
+  await bscPublicClient.waitForTransactionReceipt({ hash: txHash as Hash, confirmations: 3 });
+  return txHash;
 }
 
 export function ExternalWalletConnect({ compact = false, minimal = false, hero = false, heroTone = "primary", authenticate = false, authMode = "login", referralCode = "", buttonLabel = "Connect Wallet", showConnectedAddress = true, onAuthenticated }: {
@@ -209,20 +236,16 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
     }
     if (response.registrationFeeRequired && response.registrationFee) {
       setRegistrationFee(response.registrationFee);
-      setMessage(`${response.registrationFee.message}. ${response.registrationFee.note}.`);
-      const txHash = await provider.request({
-        method: "eth_sendTransaction",
-        params: [{
-          from: nextAddress,
-          to: response.registrationFee.treasuryWallet,
-          value: toHexQuantity(parseEther(String(response.registrationFee.amountBNB)))
-        }]
+      setMessage("pending_wallet_signature");
+      const amount = response.registrationFee.amountUSDT || response.registrationFee.amountUSD;
+      const txHash = await sendUsdtTransferAndWait(provider, {
+        from: nextAddress,
+        to: response.registrationFee.treasuryWallet,
+        amount,
+        tokenAddress: response.registrationFee.tokenAddress,
+        onSubmitted: () => setMessage("pending_blockchain_confirmation")
       });
-      if (typeof txHash !== "string") {
-        setMessage("Activation fee transaction was cancelled.");
-        return;
-      }
-      setMessage("Activation fee submitted. Waiting for on-chain verification...");
+      setMessage("confirmed");
       const activated = await verifyHbRegistrationFee(response.token, { txHash });
       onAuthenticated?.(response.token, activated.user);
       setRegistrationFee(null);
@@ -406,7 +429,7 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
       </div>
       {registrationFee ? (
         <div className="mt-2 rounded-xl border border-yellow-200/20 bg-yellow-300/10 p-3 text-xs leading-5 text-yellow-100">
-          <div className="font-black">One-time activation fee: ${registrationFee.amountUSD} in BNB</div>
+          <div className="font-black">One-time activation fee: ${registrationFee.amountUSD} USDT BEP20</div>
           <div>Paid directly to Treasury Wallet</div>
           <div className="mt-1 break-all font-mono text-[10px] text-yellow-50/75">{registrationFee.treasuryWallet}</div>
         </div>

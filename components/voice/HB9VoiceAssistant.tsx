@@ -29,7 +29,7 @@ const voiceScripts: Record<HB9VoiceScript | "welcome", string> = {
   buy: "To buy this product, choose your package, confirm the USDT BEP20 payment in your wallet, and wait for activation. After purchase, your product will appear in My Product.",
   myProductAvailable: "Your product is available. You can download unlocked books here, or submit your social link for eligible follower services.",
   myProductEmpty: "No active product found yet. Buy a package to unlock your HB9 digital products.",
-  deposit: "Deposit USDT BEP20 on BSC Mainnet. Enter the amount, then confirm the transaction in your wallet browser.",
+  deposit: "Deposit USDT BEP20 on BSC Mainnet. Enter the amount, confirm the wallet transaction, and HB9 will verify the transaction automatically.",
   withdraw: "Withdraw USDT BEP20 to your wallet. Enter the amount and BEP20 address, review the fee, then submit your withdrawal.",
   activationSuccess: "Congratulations. Your HB9 product is activated successfully. You can now access your product from My Product."
 };
