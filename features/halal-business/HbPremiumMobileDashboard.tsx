@@ -1287,7 +1287,12 @@ function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity
         </WalletActionModal>
       ) : null}
       {walletModal === "withdraw" ? (
-        <WalletActionModal title="Withdraw USDT BEP20" onClose={() => setWalletModal(null)}>
+        <WalletActionModal
+          title="Withdraw USDT BEP20"
+          onClose={() => setWalletModal(null)}
+          panelClassName="max-h-[calc(100dvh-24px)] overflow-hidden"
+          bodyClassName="max-h-[calc(100dvh-112px)] overflow-y-auto overscroll-contain pb-[calc(120px+env(safe-area-inset-bottom))] scroll-pb-[calc(120px+env(safe-area-inset-bottom))]"
+        >
           <InfoLine label="Minimum withdrawal" value={`$${HB_WITHDRAWAL_MIN_USD}`} />
           <InfoLine label="Withdrawal charge" value="10%" />
           <InfoLine label="Network" value="BSC Mainnet" />
