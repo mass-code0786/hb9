@@ -515,7 +515,7 @@ export function HalalBusinessApp() {
     const packageConfig = config.packages.find((item) => item.id === product.package_id || Number(item.amount_usd) === Number(product.package_price));
     if (!packageConfig?.onchainPackageId) {
       console.error("HB9 package contract mapping missing.", { product, packages: config.packages });
-      setError("Package temporarily unavailable.");
+      setError("Blockchain package mapping missing");
       return true;
     }
     if (!config.packageManagerAddress || !config.usdtBep20Address) {
@@ -525,7 +525,7 @@ export function HalalBusinessApp() {
         hasPackageManager: Boolean(config.packageManagerAddress),
         hasUsdtBep20: Boolean(config.usdtBep20Address)
       });
-      setError("Package temporarily unavailable.");
+      setError(!config.packageManagerAddress || !config.usdtBep20Address ? "Package configuration missing" : "Treasury wallet not configured");
       return true;
     }
     const ethereum = (window as unknown as { ethereum?: EthereumProvider }).ethereum;
@@ -591,7 +591,7 @@ export function HalalBusinessApp() {
         hasPackageManager: Boolean(packageManagerAddress),
         hasUsdtBep20: Boolean(usdtBep20Address)
       });
-      setError("Package temporarily unavailable.");
+      setError(!onchainPackageId ? "Blockchain package mapping missing" : "Package configuration missing");
       return;
     }
     if (config.dryRun) {

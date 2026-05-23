@@ -72,7 +72,7 @@ export function buildDefaultHbPackageProducts(): HbProduct[] {
   }));
 }
 
-export function HbPackageProductCard({ product, cta, onBuy, compact = false }: { product: HbProduct; cta: string; onBuy: () => void; compact?: boolean }) {
+export function HbPackageProductCard({ product, cta, onBuy, compact = false, loading = false }: { product: HbProduct; cta: string; onBuy: () => void; compact?: boolean; loading?: boolean }) {
   const amount = Number(product.package_price);
   const tierName = hbPackageNames[amount] || product.package_name || product.title;
   return (
@@ -90,7 +90,7 @@ export function HbPackageProductCard({ product, cta, onBuy, compact = false }: {
             <p className={`${compact ? "min-h-[28px]" : ""} mt-1 line-clamp-2 text-[10px] font-medium leading-[14px] text-sky-100/62`}>{hbPackageShortText[amount] || hbPackageBenefits[amount] || product.short_description || product.package_name}</p>
           </div>
           <div className="mt-2 flex items-center justify-center">
-            <button className="hb-interactive hb-glow-gold w-full rounded-[0.85rem] bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-500 px-2.5 py-1.5 text-[10px] font-black text-[#03111f] shadow-[0_0_16px_rgba(34,211,238,0.24),inset_0_1px_0_rgba(255,255,255,0.35)] transition duration-200 hover:shadow-[0_0_22px_rgba(34,211,238,0.34)] active:scale-95" onClick={onBuy} disabled={product.stock <= 0} type="button">{product.stock <= 0 ? "Out" : cta}</button>
+            <button className="hb-interactive hb-glow-gold w-full rounded-[0.85rem] bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-500 px-2.5 py-1.5 text-[10px] font-black text-[#03111f] shadow-[0_0_16px_rgba(34,211,238,0.24),inset_0_1px_0_rgba(255,255,255,0.35)] transition duration-200 hover:shadow-[0_0_22px_rgba(34,211,238,0.34)] active:scale-95 disabled:cursor-wait disabled:opacity-70" onClick={onBuy} disabled={loading || product.stock <= 0} type="button">{loading ? "Loading" : product.stock <= 0 ? "Out" : cta}</button>
           </div>
         </div>
       </div>
@@ -98,7 +98,7 @@ export function HbPackageProductCard({ product, cta, onBuy, compact = false }: {
   );
 }
 
-export function HbPackageListItem({ product, onBuy }: { product: HbProduct; onBuy: () => void }) {
+export function HbPackageListItem({ product, onBuy, loading = false }: { product: HbProduct; onBuy: () => void; loading?: boolean }) {
   const amount = Number(product.package_price);
   const title = `${money(amount)} ${hbPackageNames[amount] || product.package_name || product.title}`;
   return (
@@ -110,19 +110,19 @@ export function HbPackageListItem({ product, onBuy }: { product: HbProduct; onBu
           <span className="shrink-0 text-lg font-black text-cyan-100"><Sparkles size={16} /></span>
         </div>
         <p className="mt-0.5 line-clamp-1 text-[11px] text-sky-100/58">{hbPackageShortText[amount] || featuresForHbPackageAmount(amount).join(" + ")}</p>
-        <button className="hb-interactive hb-glow-gold mt-2 rounded-[0.9rem] bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-500 px-3 py-1.5 text-[11px] font-black text-[#03111f] shadow-[0_0_16px_rgba(34,211,238,0.22),inset_0_1px_0_rgba(255,255,255,0.34)] transition duration-200 active:scale-95" onClick={onBuy} disabled={product.stock <= 0} type="button">{product.stock <= 0 ? "Out" : "Buy with USDT"}</button>
+        <button className="hb-interactive hb-glow-gold mt-2 rounded-[0.9rem] bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-500 px-3 py-1.5 text-[11px] font-black text-[#03111f] shadow-[0_0_16px_rgba(34,211,238,0.22),inset_0_1px_0_rgba(255,255,255,0.34)] transition duration-200 active:scale-95 disabled:cursor-wait disabled:opacity-70" onClick={onBuy} disabled={loading || product.stock <= 0} type="button">{loading ? "Loading" : product.stock <= 0 ? "Out" : "Buy with USDT"}</button>
       </div>
-      <button className="hb-interactive hb-glow-cyan grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-cyan-200/10 bg-cyan-300/8 text-cyan-100/70" onClick={onBuy} type="button" aria-label={`Open ${title}`}>
+      <button className="hb-interactive hb-glow-cyan grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-cyan-200/10 bg-cyan-300/8 text-cyan-100/70 disabled:cursor-wait disabled:opacity-70" onClick={onBuy} disabled={loading} type="button" aria-label={`Open ${title}`}>
         <ChevronRight size={18} />
       </button>
     </div>
   );
 }
 
-export function HbAllPackagesList({ products, onBuy }: { products: HbProduct[]; onBuy: (product: HbProduct) => void }) {
+export function HbAllPackagesList({ products, onBuy, loadingProductId = "" }: { products: HbProduct[]; onBuy: (product: HbProduct) => void; loadingProductId?: string }) {
   return (
     <div className="space-y-2.5">
-      {products.map((product) => <HbPackageListItem key={product.id} product={product} onBuy={() => onBuy(product)} />)}
+      {products.map((product) => <HbPackageListItem key={product.id} product={product} onBuy={() => onBuy(product)} loading={loadingProductId === product.id} />)}
     </div>
   );
 }

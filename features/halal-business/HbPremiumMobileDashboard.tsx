@@ -69,6 +69,10 @@ type PurchaseReview = {
 
 const followerPlatforms: HbFollowersPlatform[] = ["Instagram", "Facebook", "YouTube", "Telegram", "X/Twitter", "TikTok"];
 const HB_PRODUCTS_CACHE_KEY = "hb9.dashboard.products.v1";
+const HB_PACKAGE_API_FAILURE = "Package configuration missing";
+const HB_TREASURY_MISSING = "Treasury wallet not configured";
+const HB_MAPPING_MISSING = "Blockchain package mapping missing";
+const HB_PACKAGE_INACTIVE = "Package inactive";
 
 const PACKAGE_MANAGER_ABI = ["function buyPackage(uint256 packageId,address sponsorAddress,bytes32 referralCode)"];
 const ERC20_ABI = ["function approve(address spender,uint256 amount) returns (bool)", "function transfer(address to,uint256 amount) returns (bool)"];
@@ -137,7 +141,8 @@ function onchainPackageIdForProduct(product: HbProduct) {
 
 function packageConfigForProduct(config: HbOnchainPackageConfig, product: HbProduct): OnchainPackageItem | null {
   const amount = Number(product.package_price);
-  const configured = config.packages.find((item) => item.id === product.package_id || Number(item.amount_usd) === amount || item.onchainPackageId === onchainPackageIdForProduct(product));
+  const expectedOnchainId = onchainPackageIdForProduct(product);
+  const configured = config.packages.find((item) => item.id === product.package_id || Number(item.amount_usd) === amount || item.onchainPackageId === expectedOnchainId || item.packageContractId === expectedOnchainId || item.packageId === expectedOnchainId);
   if (configured) return configured;
   const onchainPackageId = onchainPackageIdForProduct(product);
   if (!onchainPackageId) return null;
@@ -147,8 +152,29 @@ function packageConfigForProduct(config: HbOnchainPackageConfig, product: HbProd
     amount_usd: amount,
     status: "available",
     sort_order: onchainPackageId,
+    packageContractId: onchainPackageId,
     onchainPackageId
   };
+}
+
+function validatePackageForPurchase(config: HbOnchainPackageConfig, packageConfig: OnchainPackageItem | null) {
+  if (!packageConfig) return HB_MAPPING_MISSING;
+  if (packageConfig.status === "disabled" || packageConfig.active === false) return HB_PACKAGE_INACTIVE;
+  const packageContractId = packageConfig.onchainPackageId ?? packageConfig.packageContractId ?? packageConfig.packageId;
+  if ((config.mode === "onchain" || config.mode === "hybrid") && !packageContractId) return HB_MAPPING_MISSING;
+  if ((config.mode === "onchain" || config.mode === "hybrid") && !packageConfig.treasuryWallet && !config.treasurySplitterAddress) return HB_TREASURY_MISSING;
+  if ((config.mode === "onchain" || config.mode === "hybrid") && (!config.packageManagerAddress || !config.usdtBep20Address)) return HB_PACKAGE_API_FAILURE;
+  return "";
+}
+
+async function resolveFreshProductForBuy(product: HbProduct) {
+  const amount = Number(product.package_price);
+  const productData = await fetchHbProducts();
+  if (productData.items.length) cacheProducts(productData.items);
+  return productData.items.find((item) => item.id === product.id)
+    || productData.items.find((item) => item.package_id === product.package_id)
+    || productData.items.find((item) => Number(item.package_price) === amount)
+    || product;
 }
 
 export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolean }) {
@@ -184,6 +210,8 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   const [notice, setNotice] = useState("");
   const [loginToast, setLoginToast] = useState("");
   const [purchaseReview, setPurchaseReview] = useState<PurchaseReview | null>(null);
+  const [buyLoadingProductId, setBuyLoadingProductId] = useState("");
+  const [lastBuyProduct, setLastBuyProduct] = useState<HbProduct | null>(null);
   const [voiceEvent, setVoiceEvent] = useState<HB9VoiceEvent>(null);
   const [convertingCoin, setConvertingCoin] = useState("");
   const [walletActionBusy, setWalletActionBusy] = useState("");
@@ -568,78 +596,87 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
 
   async function openBuyFlow(product: HbProduct) {
     playAssistant("buy");
+    setLastBuyProduct(product);
+    setBuyLoadingProductId(product.id);
     if (devDashboardActive) {
       setNotice("");
+      setBuyLoadingProductId("");
       return;
     }
     if (!token || !user) {
       setError("Login is required before buying a package.");
+      setBuyLoadingProductId("");
       return;
     }
     setError("");
     setNotice("");
-    const config = onchainConfig || await fetchHbOnchainPackageConfig(token);
-    setOnchainConfig(config);
-    const packageConfig = packageConfigForProduct(config, product);
-    if (config.mode !== "onchain" && config.mode !== "hybrid") {
-      if (!packageConfig?.onchainPackageId) {
-        console.error("HB9 package contract mapping missing for internal review flow.", { product, packages: config.packages });
-        setError("Package temporarily unavailable.");
+    try {
+      const freshProduct = await resolveFreshProductForBuy(product).catch(() => product);
+      if (!freshProduct.active || freshProduct.stock <= 0) {
+        setError(HB_PACKAGE_INACTIVE);
+        return;
+      }
+      const config = onchainConfig || await fetchHbOnchainPackageConfig(token);
+      setOnchainConfig(config);
+      const packageConfig = packageConfigForProduct(config, freshProduct);
+      const validationError = validatePackageForPurchase(config, packageConfig);
+      if (validationError) {
+        console.error("HB9 package configuration check failed.", { validationError, product: freshProduct, packageConfig, config });
+        setError(validationError);
+        return;
+      }
+      if (!packageConfig) {
+        setError(HB_MAPPING_MISSING);
+        return;
+      }
+      if (config.mode !== "onchain" && config.mode !== "hybrid") {
+        setPurchaseReview({
+          product: freshProduct,
+          config,
+          packageConfig,
+          buyerAddress: boundWallet,
+          sponsorRef: user.sponsor_referral_code || user.source_referral_code || "",
+          stage: "review"
+        });
+        return;
+      }
+      const ethereum = (window as unknown as { ethereum?: EthereumProvider }).ethereum;
+      if (!ethereum) {
+        setError("External wallet not found. Open HB9 in MetaMask, Trust Wallet, TokenPocket, or another BSC wallet browser.");
+        return;
+      }
+      const browserProvider = new BrowserProvider(ethereum);
+      await ethereum.request({ method: "eth_requestAccounts" });
+      const network = await browserProvider.getNetwork();
+      if (Number(network.chainId) !== Number(config.chainId)) {
+        await ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: `0x${Number(config.chainId).toString(16)}` }] });
+      }
+      const signer = await browserProvider.getSigner();
+      const buyerAddress = await signer.getAddress();
+      const expectedWallet = user.usdt_bep20_address || user.hb9_wallet_address || user.wallet_address || "";
+      if (expectedWallet && expectedWallet.toLowerCase() !== buyerAddress.toLowerCase()) {
+        setError("Connected wallet does not match this HB9 ID.");
         return;
       }
       setPurchaseReview({
-        product,
+        product: freshProduct,
         config,
         packageConfig,
-        buyerAddress: boundWallet,
+        buyerAddress,
         sponsorRef: user.sponsor_referral_code || user.source_referral_code || "",
         stage: "review"
       });
-      return;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : HB_PACKAGE_API_FAILURE);
+    } finally {
+      setBuyLoadingProductId("");
     }
-    if (!packageConfig?.onchainPackageId || !config.packageManagerAddress || !config.usdtBep20Address) {
-      console.error("HB9 package on-chain config incomplete.", {
-        product,
-        packageConfig,
-        hasPackageManager: Boolean(config.packageManagerAddress),
-        hasUsdtBep20: Boolean(config.usdtBep20Address),
-        packages: config.packages
-      });
-      setError("Package temporarily unavailable.");
-      return;
-    }
-    const ethereum = (window as unknown as { ethereum?: EthereumProvider }).ethereum;
-    if (!ethereum) {
-      setError("External wallet not found. Open HB9 in MetaMask, Trust Wallet, TokenPocket, or another BSC wallet browser.");
-      return;
-    }
-    const browserProvider = new BrowserProvider(ethereum);
-    await ethereum.request({ method: "eth_requestAccounts" });
-    const network = await browserProvider.getNetwork();
-    if (Number(network.chainId) !== Number(config.chainId)) {
-      await ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: `0x${Number(config.chainId).toString(16)}` }] });
-    }
-    const signer = await browserProvider.getSigner();
-    const buyerAddress = await signer.getAddress();
-    const expectedWallet = user.usdt_bep20_address || user.hb9_wallet_address || user.wallet_address || "";
-    if (expectedWallet && expectedWallet.toLowerCase() !== buyerAddress.toLowerCase()) {
-      setError("Connected wallet does not match this HB9 ID.");
-      return;
-    }
-    setPurchaseReview({
-      product,
-      config,
-      packageConfig,
-      buyerAddress,
-      sponsorRef: user.sponsor_referral_code || user.source_referral_code || "",
-      stage: "review"
-    });
   }
 
   async function confirmBuy() {
     if (!token || !purchaseReview) return;
     const { product, config, packageConfig, buyerAddress, sponsorRef } = purchaseReview;
-    const onchainPackageId = packageConfig.onchainPackageId;
+    const onchainPackageId = packageConfig.onchainPackageId ?? packageConfig.packageContractId ?? packageConfig.packageId ?? null;
     if (config.mode !== "onchain" && config.mode !== "hybrid") {
       setPurchaseReview((current) => current ? { ...current, stage: "pending" } : current);
       await buyHbProduct(token, product.id);
@@ -656,7 +693,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         hasPackageManager: Boolean(config.packageManagerAddress),
         hasUsdtBep20: Boolean(config.usdtBep20Address)
       });
-      setError("Package temporarily unavailable.");
+      setError(!onchainPackageId ? HB_MAPPING_MISSING : HB_PACKAGE_API_FAILURE);
       return;
     }
     if (config.dryRun) {
@@ -749,12 +786,12 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
 
         {notice ? <InfoState message={notice} /> : null}
         {loginToast ? <LoginSuccessToast message={loginToast} /> : null}
-        {error && !devDashboardActive ? <ErrorState message={error} /> : null}
+        {error && !devDashboardActive ? <ErrorState message={error} onRetry={lastBuyProduct ? () => openBuyFlow(lastBuyProduct) : undefined} retrying={Boolean(buyLoadingProductId)} /> : null}
         {loading ? <DashboardSkeleton /> : null}
 
-        {!loading && activeTab === "home" ? <HomeScreen walletBalance={totalBalance} balances={walletData.balances} user={dashboardUser} boundWallet={boundWallet} currentPackage={currentPackage} products={devDashboardActive ? completePackageProducts : orderedProducts.length > 0 ? orderedProducts : completePackageProducts} coins={coins} convertingCoin={convertingCoin} onConvert={convertCoin} onTab={handleTabChange} onBuy={openBuyFlow} onInstruction={playAssistant} /> : null}
-        {!loading && activeTab === "products" ? <MyProductsScreen purchases={purchases} orders={orders} delivery={myProducts} packages={completePackageProducts} onBuy={openPackagesScreen} onPackageBuy={openBuyFlow} onBookDownload={handleBookDownload} onFollowersRequest={handleFollowersRequest} onCustomSoftwareRequest={handleCustomSoftwareRequest} /> : null}
-        {!loading && activeTab === "packages" ? <AllPackagesScreen products={completePackageProducts} onBuy={openBuyFlow} onBack={() => setActiveTab("home")} /> : null}
+        {!loading && activeTab === "home" ? <HomeScreen walletBalance={totalBalance} balances={walletData.balances} user={dashboardUser} boundWallet={boundWallet} currentPackage={currentPackage} products={devDashboardActive ? completePackageProducts : orderedProducts.length > 0 ? orderedProducts : completePackageProducts} coins={coins} convertingCoin={convertingCoin} buyLoadingProductId={buyLoadingProductId} onConvert={convertCoin} onTab={handleTabChange} onBuy={openBuyFlow} onInstruction={playAssistant} /> : null}
+        {!loading && activeTab === "products" ? <MyProductsScreen purchases={purchases} orders={orders} delivery={myProducts} packages={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openPackagesScreen} onPackageBuy={openBuyFlow} onBookDownload={handleBookDownload} onFollowersRequest={handleFollowersRequest} onCustomSoftwareRequest={handleCustomSoftwareRequest} /> : null}
+        {!loading && activeTab === "packages" ? <AllPackagesScreen products={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openBuyFlow} onBack={() => setActiveTab("home")} /> : null}
         {!loading && activeTab === "team" ? <TeamScreen user={dashboardUser} summary={referralSummary} /> : null}
         {!loading && activeTab === "income" ? <IncomeScreen income={income} singleLegReserve={singleLegReserve} singleLegProgress={singleLegProgress} summary={incomeSummary} availableBalance={walletData.balances.income} totalWithdrawn={withdrawals.filter((item) => item.status === "paid").reduce((sum, item) => sum + Number(item.amount_usd || 0), 0)} /> : null}
         {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={walletData.depositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} onInstruction={playAssistant} onModalChange={setActiveWalletModal} /> : null}
@@ -770,7 +807,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   );
 }
 
-function HomeScreen({ walletBalance, balances, user, boundWallet, currentPackage, products, coins, convertingCoin, onConvert, onTab, onBuy, onInstruction }: { walletBalance: number; balances: { deposit: string; income: string }; user: HbUser; boundWallet: string; currentPackage: string; products: HbProduct[]; coins: HbCoinBalance[]; convertingCoin: string; onConvert: (coinSymbol: string, usdValue?: number) => void; onTab: (tab: TabId) => void; onBuy: (product: HbProduct) => void; onInstruction: (script: HB9VoiceScript) => void }) {
+function HomeScreen({ walletBalance, balances, user, boundWallet, currentPackage, products, coins, convertingCoin, buyLoadingProductId, onConvert, onTab, onBuy, onInstruction }: { walletBalance: number; balances: { deposit: string; income: string }; user: HbUser; boundWallet: string; currentPackage: string; products: HbProduct[]; coins: HbCoinBalance[]; convertingCoin: string; buyLoadingProductId: string; onConvert: (coinSymbol: string, usdValue?: number) => void; onTab: (tab: TabId) => void; onBuy: (product: HbProduct) => void; onInstruction: (script: HB9VoiceScript) => void }) {
   const quickButtons = [
     { label: "Deposit", icon: Plus, action: () => { onInstruction("deposit"); onTab("wallet"); } },
     { label: "Withdraw", icon: ArrowDownToLine, action: () => { onInstruction("withdraw"); onTab("wallet"); } },
@@ -818,13 +855,13 @@ function HomeScreen({ walletBalance, balances, user, boundWallet, currentPackage
       <MultiCoinWallet coins={coins} withdrawableBalance={balances.deposit} convertingCoin={convertingCoin} onConvert={onConvert} />
       <SectionTitle title="Available Packages" action="All 6 packages" />
       <div className="grid grid-cols-3 gap-2">
-        {featuredProducts.length === 0 ? <div className="col-span-3"><EmptyState title="No active packages available." /></div> : featuredProducts.map((product) => <HbPackageProductCard key={product.id} product={product} cta="Buy Now" onBuy={() => onBuy(product)} compact />)}
+        {featuredProducts.length === 0 ? <div className="col-span-3"><EmptyState title="No active packages available." /></div> : featuredProducts.map((product) => <HbPackageProductCard key={product.id} product={product} cta="Buy Now" onBuy={() => onBuy(product)} loading={buyLoadingProductId === product.id} compact />)}
       </div>
     </div>
   );
 }
 
-function MyProductsScreen({ purchases, orders, delivery, packages, onBuy, onPackageBuy, onBookDownload, onFollowersRequest, onCustomSoftwareRequest }: { purchases: HbPurchase[]; orders: HbOrder[]; delivery: HbMyProductsDelivery | null; packages: HbProduct[]; onBuy: () => void; onPackageBuy: (product: HbProduct) => void; onBookDownload: (bookId: string) => void; onFollowersRequest: (input: { packagePurchaseId: string; platform: HbFollowersPlatform; submittedLink: string }) => void; onCustomSoftwareRequest: (input: { packagePurchaseId?: string; softwareType: string; architecture: "centralized" | "decentralized"; requirementsNote: string }) => void }) {
+function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingProductId, onBuy, onPackageBuy, onBookDownload, onFollowersRequest, onCustomSoftwareRequest }: { purchases: HbPurchase[]; orders: HbOrder[]; delivery: HbMyProductsDelivery | null; packages: HbProduct[]; buyLoadingProductId: string; onBuy: () => void; onPackageBuy: (product: HbProduct) => void; onBookDownload: (bookId: string) => void; onFollowersRequest: (input: { packagePurchaseId: string; platform: HbFollowersPlatform; submittedLink: string }) => void; onCustomSoftwareRequest: (input: { packagePurchaseId?: string; softwareType: string; architecture: "centralized" | "decentralized"; requirementsNote: string }) => void }) {
   const [tab, setTab] = useState<"active" | "books" | "requests">("active");
   const [requestProductId, setRequestProductId] = useState("");
   const [platform, setPlatform] = useState<HbFollowersPlatform | "">("");
@@ -943,7 +980,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, onBuy, onPack
       ) : null}
       {delivery?.softwareAccess?.length ? <GlassCard className="p-3"><SectionTitle title="Software Access" /><div className="mt-2 grid gap-2">{delivery.softwareAccess.map((item) => <HistoryRow key={item.software_key} title={item.title} meta={item.description || "Included software access"} value="Access" />)}</div></GlassCard> : null}
       <SectionTitle title="All Packages" action="Complete list" />
-      <HbAllPackagesList products={packages} onBuy={onPackageBuy} />
+      <HbAllPackagesList products={packages} onBuy={onPackageBuy} loadingProductId={buyLoadingProductId} />
     </div>
   );
 }
@@ -1318,7 +1355,7 @@ function MultiCoinWallet({ coins, withdrawableBalance, convertingCoin, onConvert
   );
 }
 
-function AllPackagesScreen({ products, onBuy, onBack }: { products: HbProduct[]; onBuy: (product: HbProduct) => void; onBack: () => void }) {
+function AllPackagesScreen({ products, buyLoadingProductId, onBuy, onBack }: { products: HbProduct[]; buyLoadingProductId: string; onBuy: (product: HbProduct) => void; onBack: () => void }) {
   return (
     <div className="space-y-3 pb-28">
       <div className="flex items-center justify-between gap-3">
@@ -1329,7 +1366,7 @@ function AllPackagesScreen({ products, onBuy, onBack }: { products: HbProduct[];
         <button className="hb-interactive hb-glow-cyan rounded-xl border border-cyan-200/12 bg-cyan-300/10 px-3 py-2 text-xs font-bold text-cyan-100" onClick={onBack} type="button">Home</button>
       </div>
       <HeroPanel title="$4 to $12,500" subtitle="Choose an HB9 activation package" icon={Box} art="package" />
-      <HbAllPackagesList products={products} onBuy={onBuy} />
+      <HbAllPackagesList products={products} onBuy={onBuy} loadingProductId={buyLoadingProductId} />
     </div>
   );
 }
@@ -1499,8 +1536,13 @@ function EmptyState({ title, action }: { title: string; action?: ReactNode }) {
   return <div className="rounded-[1.1rem] border border-cyan-200/10 bg-white/[0.04] p-3.5 text-center text-xs text-sky-100/65">{title}{action ? <div className="mt-3">{action}</div> : null}</div>;
 }
 
-function ErrorState({ message }: { message: string }) {
-  return <div className="mb-4 rounded-2xl border border-red-300/30 bg-red-400/10 p-3 text-sm text-red-100">{message}</div>;
+function ErrorState({ message, onRetry, retrying = false }: { message: string; onRetry?: () => void; retrying?: boolean }) {
+  return (
+    <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-red-300/30 bg-red-400/10 p-3 text-sm text-red-100">
+      <span className="min-w-0">{message}</span>
+      {onRetry ? <button className="shrink-0 rounded-xl border border-red-200/25 bg-red-100/10 px-3 py-1.5 text-xs font-bold text-red-50 disabled:cursor-wait disabled:opacity-60" onClick={onRetry} disabled={retrying} type="button">{retrying ? "Retrying" : "Retry"}</button> : null}
+    </div>
+  );
 }
 
 function InfoState({ message }: { message: string }) {

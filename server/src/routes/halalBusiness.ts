@@ -1980,20 +1980,43 @@ hbRouter.get("/hb/me", requireHbUser, asyncHandler(async (req, res) => {
 
 hbRouter.get("/hb/packages", asyncHandler(async (_req, res) => {
   const rows = await query(
-    `select id, name, amount_usd, status, sort_order
-     from hb_packages
-     where status = 'available'
-     order by sort_order asc, amount_usd asc`
+    `select p.id,
+            p.name,
+            coalesce(p.slug, lower(regexp_replace(p.name, '[^a-zA-Z0-9]+', '-', 'g'))) as slug,
+            p.amount_usd::text,
+            coalesce(p.price, p.amount_usd)::text as price,
+            p.status,
+            p.sort_order,
+            coalesce(p.active, p.status = 'available') as active,
+            coalesce(p.visible, true) as visible,
+            coalesce(p.network, 'BSC') as network,
+            m.package_contract_id as "packageContractId",
+            m.onchain_package_id as "onchainPackageId"
+     from hb_packages p
+     left join hb_package_contract_mappings m on m.package_id = p.id and m.network = coalesce(p.network, 'BSC')
+     where p.status = 'available'
+       and coalesce(p.active, true) = true
+       and coalesce(p.visible, true) = true
+     order by p.sort_order asc, p.amount_usd asc`
   );
   ok(res, { items: rows }, "HB9 packages loaded");
 }));
 
 hbRouter.get("/hb/onchain/config", requireHbUser, asyncHandler(async (_req, res) => {
-  const packages = await query<{ id: string; name: string; amount_usd: string; status: string; sort_order: number }>(
-    `select id, name, amount_usd::text, status, sort_order
-     from hb_packages
-     where status = 'available'
-     order by sort_order asc, amount_usd asc`
+  const packages = await query<{ id: string; name: string; amount_usd: string; status: string; sort_order: number; packageContractId: number | null; onchainPackageId: number | null }>(
+    `select p.id,
+            p.name,
+            p.amount_usd::text,
+            p.status,
+            p.sort_order,
+            m.package_contract_id as "packageContractId",
+            m.onchain_package_id as "onchainPackageId"
+     from hb_packages p
+     left join hb_package_contract_mappings m on m.package_id = p.id and m.network = coalesce(p.network, 'BSC')
+     where p.status = 'available'
+       and coalesce(p.active, true) = true
+       and coalesce(p.visible, true) = true
+     order by p.sort_order asc, p.amount_usd asc`
   );
   const contracts = await query<{ key: string; contract_address: string | null; chain_id: number; enabled: boolean; start_block: string | null }>(
     "select key, contract_address, chain_id, enabled, start_block::text from hb_onchain_contracts order by key"
@@ -2020,8 +2043,9 @@ hbRouter.get("/hb/onchain/config", requireHbUser, asyncHandler(async (_req, res)
         amount_usd: row?.amount_usd || String(canonical.amountUsd),
         status: row?.status || "available",
         sort_order: row?.sort_order || canonical.sortOrder,
-        packageId: canonical.onchainPackageId,
-        onchainPackageId: canonical.onchainPackageId,
+        packageId: row?.packageContractId || row?.onchainPackageId || canonical.onchainPackageId,
+        packageContractId: row?.packageContractId || row?.onchainPackageId || canonical.onchainPackageId,
+        onchainPackageId: row?.onchainPackageId || row?.packageContractId || canonical.onchainPackageId,
         onchainPrice: String(BigInt(canonical.amountUsd) * 10n ** 18n),
         treasuryWallet,
         tokenType: "USDT BEP20",
@@ -2239,7 +2263,10 @@ hbRouter.get("/hb/products", asyncHandler(async (_req, res) => {
      from hb_products p
      join hb_packages pkg on pkg.id = p.package_id
      left join hb_product_images img on img.product_id = p.id
-     where p.active = true and pkg.status = 'available'
+     where p.active = true
+       and pkg.status = 'available'
+       and coalesce(pkg.active, true) = true
+       and coalesce(pkg.visible, true) = true
      group by p.id, pkg.name
      order by p.featured desc, p.package_price asc, p.created_at desc`
   );
@@ -2255,7 +2282,11 @@ hbRouter.get("/hb/products/:slug", asyncHandler(async (req, res) => {
      from hb_products p
      join hb_packages pkg on pkg.id = p.package_id
      left join hb_product_images img on img.product_id = p.id
-     where p.slug = $1 and p.active = true and pkg.status = 'available'
+     where p.slug = $1
+       and p.active = true
+       and pkg.status = 'available'
+       and coalesce(pkg.active, true) = true
+       and coalesce(pkg.visible, true) = true
      group by p.id, pkg.name
      limit 1`,
     [req.params.slug]
@@ -2972,7 +3003,7 @@ hbRouter.post("/hb/onchain/purchases/track", requireHbUser, asyncHandler(async (
   const canonicalPackage = canonicalOnchainPackageForId(parsed.data.onchainPackageId);
   if (!canonicalPackage) {
     logger.error("hb.onchain.package_mapping_missing", { onchainPackageId: parsed.data.onchainPackageId });
-    fail(res, "Package temporarily unavailable.", 503, "Package unavailable");
+    fail(res, "Blockchain package mapping missing", 503, "Package mapping missing");
     return;
   }
   const amountRows = await query<{ amount_usd: string }>(

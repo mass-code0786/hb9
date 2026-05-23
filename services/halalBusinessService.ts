@@ -30,8 +30,15 @@ export type HbPackage = {
   id: string;
   name: string;
   amount_usd: string | number;
+  price?: string | number;
   status: "available" | "disabled";
   sort_order: number;
+  slug?: string | null;
+  active?: boolean;
+  visible?: boolean;
+  network?: "BSC" | string | null;
+  packageContractId?: number | null;
+  onchainPackageId?: number | null;
 };
 
 export type HbCoinBalance = {
@@ -311,6 +318,7 @@ export type HbOnchainPackageConfig = {
   usdtBep20Address?: string | null;
   packages: Array<HbPackage & {
     packageId?: number | null;
+    packageContractId?: number | null;
     onchainPackageId: number | null;
     onchainPrice?: string | number | null;
     treasuryWallet?: string | null;
@@ -566,6 +574,10 @@ function apiUrl(path: string) {
   return `${configured || localDefault}/api${path}`;
 }
 
+const publicCache = new Map<string, { expiresAt: number; value: unknown }>();
+const publicInflight = new Map<string, Promise<unknown>>();
+const PUBLIC_CACHE_TTL_MS = 60_000;
+
 async function hbRequest<T>(path: string, token?: string, init: RequestInit = {}) {
   const response = await fetch(apiUrl(path), {
     ...init,
@@ -685,15 +697,31 @@ export function fetchHbMe(token: string) {
 }
 
 export function fetchHbPackages() {
-  return hbRequest<{ items: HbPackage[] }>("/hb/packages");
+  return hbCachedRequest<{ items: HbPackage[] }>("/hb/packages");
 }
 
 export function fetchHbProducts() {
-  return hbRequest<{ items: HbProduct[] }>("/hb/products");
+  return hbCachedRequest<{ items: HbProduct[] }>("/hb/products");
 }
 
 export function fetchHbProduct(slug: string) {
   return hbRequest<HbProduct>(`/hb/products/${encodeURIComponent(slug)}`);
+}
+
+function hbCachedRequest<T>(path: string) {
+  const now = Date.now();
+  const cached = publicCache.get(path);
+  if (cached && cached.expiresAt > now) return Promise.resolve(cached.value as T);
+  const inflight = publicInflight.get(path);
+  if (inflight) return inflight as Promise<T>;
+  const promise = hbRequest<T>(path)
+    .then((value) => {
+      publicCache.set(path, { value, expiresAt: Date.now() + PUBLIC_CACHE_TTL_MS });
+      return value;
+    })
+    .finally(() => publicInflight.delete(path));
+  publicInflight.set(path, promise);
+  return promise;
 }
 
 export function fetchHbWallet(token: string) {

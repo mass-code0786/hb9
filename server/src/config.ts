@@ -83,9 +83,9 @@ export const config = {
   hbMultisigOwnerAddress: process.env.HB_MULTISIG_OWNER_ADDRESS || process.env.MULTISIG_OWNER_ADDRESS || "",
   hbChainId: Number(process.env.NEXT_PUBLIC_CHAIN_ID || process.env.NEXT_PUBLIC_HB_CHAIN_ID || process.env.HB_CHAIN_ID || 56),
   hbPackageManagerAddress: process.env.HB_PACKAGE_MANAGER_ADDRESS || process.env.NEXT_PUBLIC_HB_PACKAGE_MANAGER_ADDRESS || "",
-  hbReferralRegistryAddress: process.env.HB_REFERRAL_REGISTRY_ADDRESS || "",
-  hbTreasurySplitterAddress: process.env.HB_TREASURY_SPLITTER_ADDRESS || "",
-  hbIncomeDistributorAddress: process.env.HB_INCOME_DISTRIBUTOR_ADDRESS || "",
+  hbReferralRegistryAddress: process.env.HB_REFERRAL_REGISTRY_ADDRESS || process.env.NEXT_PUBLIC_HB_REFERRAL_REGISTRY_ADDRESS || "",
+  hbTreasurySplitterAddress: process.env.HB_TREASURY_SPLITTER_ADDRESS || process.env.NEXT_PUBLIC_HB_TREASURY_SPLITTER_ADDRESS || "",
+  hbIncomeDistributorAddress: process.env.HB_INCOME_DISTRIBUTOR_ADDRESS || process.env.NEXT_PUBLIC_HB_INCOME_DISTRIBUTOR_ADDRESS || "",
   hbUsdtAddress: process.env.HB9_USDT_BEP20_ADDRESS || process.env.NEXT_PUBLIC_HB_USDT_ADDRESS || process.env.USDT_TOKEN_ADDRESS || process.env.NEXT_PUBLIC_USDT_TOKEN_ADDRESS || process.env.USDT_BEP20_CONTRACT || process.env.NEXT_PUBLIC_USDT_BEP20_ADDRESS || "",
   hbExplorerBaseUrl: process.env.HB_EXPLORER_BASE_URL || process.env.NEXT_PUBLIC_BSCSCAN_URL || "https://bscscan.com",
   hbOnchainStartBlock: Number(process.env.HB_ONCHAIN_START_BLOCK || 0)
