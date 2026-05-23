@@ -173,6 +173,23 @@ function depositResponse(deposit: Record<string, unknown>) {
   };
 }
 
+function hbDepositRequestFields(body: unknown) {
+  const input = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
+  return {
+    amountUsd: input.amountUsd,
+    amount: input.amount,
+    network: input.network,
+    token: input.token ?? input.asset,
+    chainId: input.chainId,
+    walletAddress: input.walletAddress,
+    treasuryWallet: input.treasuryWallet
+  };
+}
+
+function logHbDepositValidationFailed(reason: string, body: unknown, extra: Record<string, unknown> = {}) {
+  console.error("HB9_DEPOSIT_VALIDATION_FAILED", reason, { ...hbDepositRequestFields(body), ...extra });
+}
+
 const adminWithdrawalPaidSchema = z.object({
   txHash: z.string().trim().regex(/^0x[a-fA-F0-9]{64}$/),
   adminNote: z.string().trim().max(1000).optional(),
@@ -2615,51 +2632,68 @@ hbRouter.get("/hb/deposits", requireHbUser, asyncHandler(async (req, res) => {
 }));
 
 async function createAndVerifyHbDeposit(req: Request, res: Response) {
-  if (!(await enforceDepositSafety(res, "deposit.onchain.create"))) return;
-  if (!pool) {
-    fail(res, "Database is not configured.", 500, "Deposit failed");
-    return;
-  }
-  const parsed = depositCreateSchema.safeParse(req.body);
-  if (!parsed.success) {
-    const validationError = validationErrorMessage(parsed.error);
-    logger.warn("hb.deposit.validation_failed", {
-      userId: req.hbUser?.userId,
-      validationError,
-      issues: parsed.error.issues,
-      payload: req.body
-    });
-    fail(res, validationError, 400, "Invalid deposit request");
-    return;
-  }
-  if (parsed.data.asset !== "USDT" || parsed.data.token !== "USDT" || parsed.data.network !== "bsc" || parsed.data.chainId !== BSC_MAINNET_CHAIN_ID || parsed.data.tokenAddress !== CONFIGURED_USDT_BEP20_ADDRESS) {
-    fail(res, "Only USDT BEP20 deposits are supported.", 400, "Unsupported deposit currency");
-    return;
-  }
-  if (parsed.data.amountUsd + Number.EPSILON < 4) {
-    fail(res, "Minimum deposit is $4", 400, "Deposit minimum not met");
-    return;
-  }
-  const userId = req.hbUser!.userId;
-  const expectedAddress = await getExpectedDepositAddress(userId, parsed.data.walletAddress || undefined);
-  if (!isValidBep20Address(expectedAddress)) {
-    fail(res, "Treasury wallet not configured", 503, "Deposit provider not configured");
-    return;
-  }
-  const providedTreasuryWallet = parsed.data.treasuryWallet || parsed.data.walletAddress || "";
-  if (providedTreasuryWallet && !isValidBep20Address(providedTreasuryWallet)) {
-    logger.warn("hb.deposit.validation_failed", { userId, validationError: "Treasury wallet must be a valid BSC address.", walletAddress: parsed.data.walletAddress, treasuryWallet: parsed.data.treasuryWallet });
-    fail(res, "Treasury wallet must be a valid BSC address.", 400, "Invalid deposit request");
-    return;
-  }
-  if (providedTreasuryWallet && getAddress(providedTreasuryWallet) !== expectedAddress) {
-    logger.warn("hb.deposit.validation_failed", { userId, validationError: "Treasury wallet does not match configured deposit wallet.", providedTreasuryWallet, expectedAddress });
-    fail(res, "Treasury wallet does not match configured deposit wallet.", 400, "Invalid deposit request");
-    return;
-  }
-  const idempotencyKey = parsed.data.idempotencyKey || `hb:deposit:${userId}:${parsed.data.txHash ? parsed.data.txHash.toLowerCase() : crypto.randomUUID()}`;
-  const client = await pool.connect();
+  console.log("HB9_DEPOSIT_REQUEST", req.body, hbDepositRequestFields(req.body));
+  let client: PoolClient | null = null;
   try {
+    if (!(await enforceDepositSafety(res, "deposit.onchain.create"))) {
+      logHbDepositValidationFailed("Deposit safety controls blocked this request.", req.body, { userId: req.hbUser?.userId });
+      return;
+    }
+    if (!pool) {
+      logHbDepositValidationFailed("Database is not configured.", req.body, { userId: req.hbUser?.userId });
+      fail(res, "Database is not configured.", 500, "Deposit failed");
+      return;
+    }
+    const parsed = depositCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const validationError = validationErrorMessage(parsed.error);
+      console.error("HB9_DEPOSIT_VALIDATION_FAILED", validationError, {
+        ...hbDepositRequestFields(req.body),
+        userId: req.hbUser?.userId,
+        issues: parsed.error.issues,
+        payload: req.body
+      });
+      logger.warn("hb.deposit.validation_failed", {
+        userId: req.hbUser?.userId,
+        validationError,
+        issues: parsed.error.issues,
+        payload: req.body
+      });
+      fail(res, validationError, 400, "Invalid deposit request");
+      return;
+    }
+    if (parsed.data.asset !== "USDT" || parsed.data.token !== "USDT" || parsed.data.network !== "bsc" || parsed.data.chainId !== BSC_MAINNET_CHAIN_ID || parsed.data.tokenAddress !== CONFIGURED_USDT_BEP20_ADDRESS) {
+      logHbDepositValidationFailed("Only USDT BEP20 deposits are supported.", req.body, { userId: req.hbUser?.userId, parsed: parsed.data });
+      fail(res, "Only USDT BEP20 deposits are supported.", 400, "Unsupported deposit currency");
+      return;
+    }
+    if (parsed.data.amountUsd + Number.EPSILON < 4) {
+      logHbDepositValidationFailed("Minimum deposit is $4", req.body, { userId: req.hbUser?.userId, parsedAmountUsd: parsed.data.amountUsd });
+      fail(res, "Minimum deposit is $4", 400, "Deposit minimum not met");
+      return;
+    }
+    const userId = req.hbUser!.userId;
+    const expectedAddress = await getExpectedDepositAddress(userId, parsed.data.walletAddress || undefined);
+    if (!isValidBep20Address(expectedAddress)) {
+      logHbDepositValidationFailed("Treasury wallet not configured", req.body, { userId });
+      fail(res, "Treasury wallet not configured", 503, "Deposit provider not configured");
+      return;
+    }
+    const providedTreasuryWallet = parsed.data.treasuryWallet || parsed.data.walletAddress || "";
+    if (providedTreasuryWallet && !isValidBep20Address(providedTreasuryWallet)) {
+      logHbDepositValidationFailed("Treasury wallet must be a valid BSC address.", req.body, { userId, walletAddress: parsed.data.walletAddress, treasuryWallet: parsed.data.treasuryWallet });
+      logger.warn("hb.deposit.validation_failed", { userId, validationError: "Treasury wallet must be a valid BSC address.", walletAddress: parsed.data.walletAddress, treasuryWallet: parsed.data.treasuryWallet });
+      fail(res, "Treasury wallet must be a valid BSC address.", 400, "Invalid deposit request");
+      return;
+    }
+    if (providedTreasuryWallet && getAddress(providedTreasuryWallet) !== expectedAddress) {
+      logHbDepositValidationFailed("Treasury wallet does not match configured deposit wallet.", req.body, { userId, providedTreasuryWallet, expectedAddress });
+      logger.warn("hb.deposit.validation_failed", { userId, validationError: "Treasury wallet does not match configured deposit wallet.", providedTreasuryWallet, expectedAddress });
+      fail(res, "Treasury wallet does not match configured deposit wallet.", 400, "Invalid deposit request");
+      return;
+    }
+    const idempotencyKey = parsed.data.idempotencyKey || `hb:deposit:${userId}:${parsed.data.txHash ? parsed.data.txHash.toLowerCase() : crypto.randomUUID()}`;
+    client = await pool.connect();
     await client.query("begin");
     await client.query("select pg_advisory_xact_lock(hashtext($1))", [parsed.data.txHash ? `deposit:${parsed.data.txHash.toLowerCase()}` : idempotencyKey]);
     const existingByIdempotency = await client.query("select * from hb_deposits where user_id = $1 and idempotency_key = $2 limit 1", [userId, idempotencyKey]);
@@ -2685,12 +2719,14 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
     const duplicateTx = await client.query("select id, user_id, status from hb_deposits where lower(tx_hash) = lower($1) limit 1", [parsed.data.txHash]);
     if (duplicateTx.rows[0]) {
       await client.query("rollback");
+      logHbDepositValidationFailed("This deposit transaction hash has already been submitted.", req.body, { userId, txHash: parsed.data.txHash, existingDepositId: duplicateTx.rows[0].id, existingUserId: duplicateTx.rows[0].user_id });
       logger.warn("hb.deposit.duplicate_tx", { txHash: parsed.data.txHash, userId, existingDepositId: duplicateTx.rows[0].id, existingUserId: duplicateTx.rows[0].user_id });
       fail(res, "This deposit transaction hash has already been submitted.", 409, "Duplicate deposit blocked");
       return;
     }
     if (await txHashAlreadyUsed(parsed.data.txHash)) {
       await client.query("rollback");
+      logHbDepositValidationFailed("This transaction hash has already been used.", req.body, { userId, txHash: parsed.data.txHash, scope: "global_payment_reference" });
       logger.warn("hb.deposit.duplicate_tx", { txHash: parsed.data.txHash, userId, scope: "global_payment_reference" });
       fail(res, "This transaction hash has already been used.", 409, "Duplicate transaction blocked");
       return;
@@ -2736,6 +2772,7 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
       if (nextStatus === "pending") {
         ok(res, depositResponse(rows[0]), "Deposit submitted and awaiting confirmations", 202);
       } else {
+        logHbDepositValidationFailed(publicError.message, req.body, { userId, txHash: parsed.data.txHash, depositId, status: nextStatus });
         fail(res, publicError.message, publicError.status, "Deposit verification failed");
       }
       return;
@@ -2800,14 +2837,19 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
     logger.info("hb.deposit.credited", { txHash: parsed.data.txHash, userId, depositId, amountUsd: parsed.data.amountUsd });
     ok(res, depositResponse(rows[0]), "Deposit verified and credited", 201);
   } catch (err) {
-    try {
-      await client.query("rollback");
-    } catch {
-      // transaction may already be committed before on-chain verification
+    console.error("HB9_DEPOSIT_FATAL", err, hbDepositRequestFields(req.body));
+    if (client) {
+      try {
+        await client.query("rollback");
+      } catch {
+        // transaction may already be committed before on-chain verification
+      }
     }
-    fail(res, err instanceof Error ? err.message : "Deposit could not be created.", 500, "Deposit failed");
+    if (!res.headersSent) {
+      fail(res, err instanceof Error ? err.message : "Deposit could not be created.", 500, "Deposit failed");
+    }
   } finally {
-    client.release();
+    client?.release();
   }
 }
 
