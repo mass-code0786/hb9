@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronRight, ShieldCheck, Sparkles } from "lucide-react";
+import type { PointerEvent } from "react";
 import type { HbProduct } from "@/services/halalBusinessService";
 
 type PackageScene = "starter" | "growth" | "popular" | "automation" | "ai" | "enterprise";
@@ -75,6 +76,11 @@ export function buildDefaultHbPackageProducts(): HbProduct[] {
 export function HbPackageProductCard({ product, cta, onBuy, compact = false, loading = false }: { product: HbProduct; cta: string; onBuy: () => void; compact?: boolean; loading?: boolean }) {
   const amount = Number(product.package_price);
   const tierName = hbPackageNames[amount] || product.package_name || product.title;
+  const handleTouchBuy = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType !== "touch") return;
+    event.preventDefault();
+    if (!loading) onBuy();
+  };
   return (
     <div className={`hb-interactive hb-glow-gold group relative overflow-hidden rounded-[22px] border border-cyan-200/12 bg-[linear-gradient(155deg,rgba(8,37,68,0.78),rgba(3,14,29,0.92))] shadow-[0_0_16px_rgba(0,200,255,0.09),0_10px_26px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.055)] backdrop-blur-xl transition duration-250 hover:-translate-y-0.5 hover:border-cyan-200/18 hover:shadow-[0_0_20px_rgba(0,200,255,0.13),0_14px_32px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.07)] active:scale-[0.99] ${compact ? "p-2.5" : "p-3"}`}>
       <div className="absolute right-[-2.5rem] top-[-2.5rem] h-24 w-24 rounded-full bg-cyan-300/12 blur-2xl" />
@@ -90,7 +96,7 @@ export function HbPackageProductCard({ product, cta, onBuy, compact = false, loa
             <p className={`${compact ? "min-h-[28px]" : ""} mt-1 line-clamp-2 text-[10px] font-medium leading-[14px] text-sky-100/62`}>{hbPackageShortText[amount] || hbPackageBenefits[amount] || product.short_description || product.package_name}</p>
           </div>
           <div className="mt-2 flex items-center justify-center">
-            <button className="hb-interactive hb-glow-gold w-full rounded-[0.85rem] bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-500 px-2.5 py-1.5 text-[10px] font-black text-[#03111f] shadow-[0_0_16px_rgba(34,211,238,0.24),inset_0_1px_0_rgba(255,255,255,0.35)] transition duration-200 hover:shadow-[0_0_22px_rgba(34,211,238,0.34)] active:scale-95 disabled:cursor-wait disabled:opacity-70" onClick={onBuy} disabled={loading || product.stock <= 0} type="button">{loading ? "Loading" : product.stock <= 0 ? "Out" : cta}</button>
+            <button className="hb-interactive hb-glow-gold w-full rounded-[0.85rem] bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-500 px-2.5 py-1.5 text-[10px] font-black text-[#03111f] shadow-[0_0_16px_rgba(34,211,238,0.24),inset_0_1px_0_rgba(255,255,255,0.35)] transition duration-200 hover:shadow-[0_0_22px_rgba(34,211,238,0.34)] active:scale-95 disabled:cursor-wait disabled:opacity-70" onClick={onBuy} onPointerUp={handleTouchBuy} disabled={loading} type="button">{loading ? "Loading" : cta}</button>
           </div>
         </div>
       </div>
@@ -101,6 +107,11 @@ export function HbPackageProductCard({ product, cta, onBuy, compact = false, loa
 export function HbPackageListItem({ product, onBuy, loading = false }: { product: HbProduct; onBuy: () => void; loading?: boolean }) {
   const amount = Number(product.package_price);
   const title = `${money(amount)} ${hbPackageNames[amount] || product.package_name || product.title}`;
+  const handleTouchBuy = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType !== "touch") return;
+    event.preventDefault();
+    if (!loading) onBuy();
+  };
   return (
     <div className="hb-interactive hb-glow-gold flex w-full items-center gap-2.5 rounded-[22px] border border-cyan-200/14 bg-[linear-gradient(145deg,rgba(8,34,64,0.8),rgba(3,14,29,0.93))] p-2.5 text-left shadow-[0_0_18px_rgba(0,200,255,0.09),0_12px_26px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition duration-200 hover:-translate-y-0.5 hover:border-cyan-200/22 hover:shadow-[0_0_22px_rgba(0,200,255,0.14)]">
       <HbPackageVisual amount={amount} size="sm" />
@@ -110,9 +121,9 @@ export function HbPackageListItem({ product, onBuy, loading = false }: { product
           <span className="shrink-0 text-lg font-black text-cyan-100"><Sparkles size={16} /></span>
         </div>
         <p className="mt-0.5 line-clamp-1 text-[11px] text-sky-100/58">{hbPackageShortText[amount] || featuresForHbPackageAmount(amount).join(" + ")}</p>
-        <button className="hb-interactive hb-glow-gold mt-2 rounded-[0.9rem] bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-500 px-3 py-1.5 text-[11px] font-black text-[#03111f] shadow-[0_0_16px_rgba(34,211,238,0.22),inset_0_1px_0_rgba(255,255,255,0.34)] transition duration-200 active:scale-95 disabled:cursor-wait disabled:opacity-70" onClick={onBuy} disabled={loading || product.stock <= 0} type="button">{loading ? "Loading" : product.stock <= 0 ? "Out" : "Buy with USDT"}</button>
+        <button className="hb-interactive hb-glow-gold mt-2 rounded-[0.9rem] bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-500 px-3 py-1.5 text-[11px] font-black text-[#03111f] shadow-[0_0_16px_rgba(34,211,238,0.22),inset_0_1px_0_rgba(255,255,255,0.34)] transition duration-200 active:scale-95 disabled:cursor-wait disabled:opacity-70" onClick={onBuy} onPointerUp={handleTouchBuy} disabled={loading} type="button">{loading ? "Loading" : "Buy with USDT"}</button>
       </div>
-      <button className="hb-interactive hb-glow-cyan grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-cyan-200/10 bg-cyan-300/8 text-cyan-100/70 disabled:cursor-wait disabled:opacity-70" onClick={onBuy} disabled={loading} type="button" aria-label={`Open ${title}`}>
+      <button className="hb-interactive hb-glow-cyan grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-cyan-200/10 bg-cyan-300/8 text-cyan-100/70 disabled:cursor-wait disabled:opacity-70" onClick={onBuy} onPointerUp={handleTouchBuy} disabled={loading} type="button" aria-label={`Open ${title}`}>
         <ChevronRight size={18} />
       </button>
     </div>

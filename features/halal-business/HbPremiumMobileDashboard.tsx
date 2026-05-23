@@ -217,6 +217,22 @@ function validatePackageForPurchase(config: HbOnchainPackageConfig, packageConfi
   return "";
 }
 
+function isPurchasedStatusActive(status?: string | null) {
+  return Boolean(status && !/fail|cancel|reject|expire/i.test(status));
+}
+
+function isPackageAlreadyActive(product: HbProduct, purchases: HbPurchase[], orders: HbOrder[]) {
+  const amount = Number(product.package_price);
+  const packageName = (product.package_name || product.title || "").toLowerCase();
+  return purchases.some((item) => {
+    const itemAmount = Number(item.amount_usd);
+    return isPurchasedStatusActive(item.status) && (itemAmount === amount || item.package_name?.toLowerCase() === packageName);
+  }) || orders.some((item) => {
+    const itemAmount = Number(item.amount_usd || item.package_price);
+    return isPurchasedStatusActive(item.payment_status) && isPurchasedStatusActive(item.activation_status) && (itemAmount === amount || item.package_name?.toLowerCase() === packageName);
+  });
+}
+
 async function resolveFreshProductForBuy(product: HbProduct) {
   const amount = Number(product.package_price);
   const productData = await fetchHbProducts();
@@ -668,6 +684,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   }
 
   async function openBuyFlow(product: HbProduct) {
+    console.log("HB9_BUY_CLICK", product.package_id || product.id, product.package_price);
     playAssistant("buy");
     setLastBuyProduct(product);
     setBuyLoadingProductId(product.id);
@@ -677,7 +694,14 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       return;
     }
     if (!token || !user) {
-      setError("Login is required before buying a package.");
+      setError("Please connect/login first.");
+      setNotice("");
+      setBuyLoadingProductId("");
+      return;
+    }
+    if (isPackageAlreadyActive(product, purchases, orders)) {
+      setError("");
+      setNotice("Package already active.");
       setBuyLoadingProductId("");
       return;
     }
@@ -685,6 +709,10 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
     setNotice("");
     try {
       const freshProduct = await resolveFreshProductForBuy(product).catch(() => product);
+      if (isPackageAlreadyActive(freshProduct, purchases, orders)) {
+        setNotice("Package already active.");
+        return;
+      }
       if (!freshProduct.active || freshProduct.stock <= 0) {
         setError(HB_PACKAGE_INACTIVE);
         return;
@@ -702,20 +730,23 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         setError(HB_MAPPING_MISSING);
         return;
       }
+      const baseReview: PurchaseReview = {
+        product: freshProduct,
+        config,
+        packageConfig,
+        buyerAddress: boundWallet,
+        sponsorRef: user.sponsor_referral_code || user.source_referral_code || "",
+        stage: "review"
+      };
+      setPurchaseReview(baseReview);
       if (config.mode !== "onchain" && config.mode !== "hybrid") {
-        setPurchaseReview({
-          product: freshProduct,
-          config,
-          packageConfig,
-          buyerAddress: boundWallet,
-          sponsorRef: user.sponsor_referral_code || user.source_referral_code || "",
-          stage: "review"
-        });
+        await executeBuy(baseReview);
         return;
       }
       const ethereum = (window as unknown as { ethereum?: EthereumProvider }).ethereum;
       if (!ethereum) {
-        setError("External wallet not found. Open HB9 in MetaMask, Trust Wallet, TokenPocket, or another BSC wallet browser.");
+        setPurchaseReview(null);
+        setError("Please connect/login first.");
         return;
       }
       const browserProvider = new BrowserProvider(ethereum);
@@ -728,17 +759,17 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       const buyerAddress = await signer.getAddress();
       const expectedWallet = user.usdt_bep20_address || user.hb9_wallet_address || user.wallet_address || "";
       if (expectedWallet && expectedWallet.toLowerCase() !== buyerAddress.toLowerCase()) {
+        setPurchaseReview(null);
         setError("Connected wallet does not match this HB9 ID.");
         return;
       }
-      setPurchaseReview({
-        product: freshProduct,
-        config,
-        packageConfig,
+      const connectedReview = {
+        ...baseReview,
         buyerAddress,
-        sponsorRef: user.sponsor_referral_code || user.source_referral_code || "",
         stage: "review"
-      });
+      } satisfies PurchaseReview;
+      setPurchaseReview(connectedReview);
+      await executeBuy(connectedReview);
     } catch (err) {
       setError(err instanceof Error ? err.message : HB_PACKAGE_API_FAILURE);
     } finally {
@@ -748,7 +779,12 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
 
   async function confirmBuy() {
     if (!token || !purchaseReview) return;
-    const { product, config, packageConfig, buyerAddress, sponsorRef } = purchaseReview;
+    await executeBuy(purchaseReview);
+  }
+
+  async function executeBuy(review: PurchaseReview) {
+    if (!token) return;
+    const { product, config, packageConfig, buyerAddress, sponsorRef } = review;
     const onchainPackageId = packageConfig.onchainPackageId ?? packageConfig.packageContractId ?? packageConfig.packageId ?? null;
     if (config.mode !== "onchain" && config.mode !== "hybrid") {
       setPurchaseReview((current) => current ? { ...current, stage: "pending" } : current);
@@ -778,7 +814,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
     }
     const ethereum = (window as unknown as { ethereum?: EthereumProvider }).ethereum;
     if (!ethereum) {
-      setError("External wallet not found.");
+      setError("Please connect/login first.");
       return;
     }
     const browserProvider = new BrowserProvider(ethereum);
@@ -871,7 +907,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} deposits={walletData.deposits} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={treasuryDepositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} depositPaymentStatus={depositPaymentStatus} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} onRefresh={() => token ? refresh(token) : Promise.resolve()} onInstruction={playAssistant} onModalChange={setActiveWalletModal} onResetDepositStatus={() => setDepositPaymentStatus("idle")} /> : null}
       </div>
 
-      {activeWalletModal !== "deposit" ? <BottomNavigation activeTab={activeTab} onChange={handleTabChange} /> : null}
+      {activeWalletModal !== "deposit" && !purchaseReview ? <BottomNavigation activeTab={activeTab} onChange={handleTabChange} /> : null}
       <HB9VoiceAssistant activeTab={activeTab} hasActiveProduct={hasActiveProduct} loading={loading} event={voiceEvent} />
       {purchaseReview ? <BuyDialog purchase={purchaseReview} onCancel={() => setPurchaseReview(null)} onConfirm={() => confirmBuy().catch((err) => {
         setError(err instanceof Error ? err.message : "Package purchase failed.");
@@ -1612,11 +1648,11 @@ function BuyDialog({ purchase, onCancel, onConfirm }: { purchase: PurchaseReview
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 px-3 pb-3 backdrop-blur-sm">
       <div className="w-full max-w-[430px] rounded-[1.6rem] border border-cyan-200/15 bg-[#071827]/95 p-4 shadow-[0_0_40px_rgba(34,211,238,0.18)] backdrop-blur-2xl">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-200">Buy with USDT</p><h2 className="mt-2 text-2xl font-semibold">Confirm Purchase</h2><p className="mt-2 text-sm leading-6 text-sky-100/62">{stageText}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-200">USDT BEP20 Payment</p><h2 className="mt-2 text-2xl font-semibold">Confirm Purchase</h2><p className="mt-2 text-sm leading-6 text-sky-100/62">{stageText}</p>
         {busy ? <div className="my-4 h-2 overflow-hidden rounded-full bg-cyan-950"><div className="h-full w-2/3 animate-pulse rounded-full bg-cyan-300" /></div> : null}
         <div className="mt-4 space-y-2 text-sm">
           <ReviewRow label="Package" value={purchase.product.package_name || purchase.product.title} />
-          <ReviewRow label="Price" value={`${money(purchase.product.package_price)} USDT`} />
+          <ReviewRow label="Payment amount" value={`${money(purchase.product.package_price)} USDT`} />
           <ReviewRow label="Network" value={chainLabel(purchase.config.chainId)} />
           <ReviewRow label="Wallet" value={purchase.buyerAddress || "External wallet required"} mono />
           {purchase.txHash ? <a className="block break-all rounded-2xl border border-cyan-200/12 bg-cyan-300/10 p-3 font-mono text-xs text-cyan-100" href={txUrl(purchase.config, purchase.txHash)} target="_blank" rel="noreferrer">{purchase.txHash}</a> : null}
