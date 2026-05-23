@@ -874,6 +874,15 @@ async function ensureRegistrationFeeTable(client: Pick<PoolClient, "query">) {
   await client.query("create index if not exists hb_registration_activation_fees_user_idx on hb_registration_activation_fees(user_id)");
 }
 
+async function ensureWalletAuthUserColumns(client: Pick<PoolClient, "query">) {
+  await client.query(`alter table hb_users
+    add column if not exists wallet_address text,
+    add column if not exists activation_fee_paid boolean not null default false,
+    add column if not exists activation_fee_tx_hash text`);
+  await client.query("update hb_users set wallet_address = coalesce(wallet_address, usdt_bep20_address, hb9_wallet_address) where wallet_address is null");
+  await client.query("update hb_users set activation_fee_paid = true where status = 'active' and activation_fee_paid = false");
+}
+
 function explorerAddressUrl(address: string | null | undefined) {
   return address ? `${hbBscScanBaseUrl().replace(/\/$/, "")}/address/${address}` : null;
 }
@@ -2080,7 +2089,7 @@ hbRouter.get("/hb/packages", asyncHandler(async (_req, res) => {
   ok(res, { items: rows }, "HB9 packages loaded");
 }));
 
-hbRouter.get("/hb/onchain/config", requireHbUser, asyncHandler(async (_req, res) => {
+async function hbPackageConfigPayload() {
   const packages = await query<{ id: string; name: string; amount_usd: string; status: string; sort_order: number; packageContractId: number | null; onchainPackageId: number | null }>(
     `select p.id,
             p.name,
@@ -2095,15 +2104,21 @@ hbRouter.get("/hb/onchain/config", requireHbUser, asyncHandler(async (_req, res)
        and coalesce(p.active, true) = true
        and coalesce(p.visible, true) = true
      order by p.sort_order asc, p.amount_usd asc`
-  );
+  ).catch((error) => {
+    logger.warn("hb.config.packages_fallback", { error: error instanceof Error ? error.message : "Package config query failed" });
+    return [];
+  });
   const contracts = await query<{ key: string; contract_address: string | null; chain_id: number; enabled: boolean; start_block: string | null }>(
     "select key, contract_address, chain_id, enabled, start_block::text from hb_onchain_contracts order by key"
-  ).catch(() => []);
+  ).catch((error) => {
+    logger.warn("hb.config.contracts_fallback", { error: error instanceof Error ? error.message : "Contract config query failed" });
+    return [];
+  });
   const mergedContracts = mergeEnvOnchainContracts(contracts);
   const contractMap = Object.fromEntries(mergedContracts.map((row) => [row.key, row]));
   const packageRowsByAmount = new Map(packages.map((pkg) => [Number(pkg.amount_usd), pkg]));
   const treasuryWallet = contractMap.treasury_splitter?.contract_address || config.hbTreasuryDepositAddress || config.hb9TreasuryWallet || "";
-  ok(res, {
+  return {
     mode: packagePurchaseMode(),
     dryRun: config.hbOnchainDryRun,
     chainId: Number(contractMap.package_manager?.chain_id || hbOnchainChainId()),
@@ -2131,7 +2146,15 @@ hbRouter.get("/hb/onchain/config", requireHbUser, asyncHandler(async (_req, res)
         active: row?.status ? row.status === "available" : true
       };
     })
-  }, "HB9 on-chain package config loaded");
+  };
+}
+
+hbRouter.get("/hb/config", asyncHandler(async (_req, res) => {
+  ok(res, await hbPackageConfigPayload(), "HB9 config loaded");
+}));
+
+hbRouter.get("/hb/onchain/config", requireHbUser, asyncHandler(async (_req, res) => {
+  ok(res, await hbPackageConfigPayload(), "HB9 on-chain package config loaded");
 }));
 
 hbRouter.get("/hb/coins", requireHbUser, asyncHandler(async (req, res) => {
@@ -2347,7 +2370,10 @@ hbRouter.get("/hb/products", asyncHandler(async (_req, res) => {
        and coalesce(pkg.visible, true) = true
      group by p.id, pkg.name
      order by p.featured desc, p.package_price asc, p.created_at desc`
-  );
+  ).catch((error) => {
+    logger.warn("hb.products.fallback", { error: error instanceof Error ? error.message : "Products query failed" });
+    return [];
+  });
   ok(res, { items: rows }, "HB9 products loaded");
 }));
 
@@ -4243,6 +4269,7 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
   const walletAddress = getAddress(parsed.data.walletAddress);
   const client = await pool.connect();
   try {
+    await ensureWalletAuthUserColumns(client);
     await client.query("begin");
     const challengeRows = await client.query<{
       id: string;
@@ -4298,16 +4325,20 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
       hb9_wallet_address: string | null;
       wallet_address?: string | null;
       usdt_bep20_address: string | null;
+      activation_fee_paid: boolean;
+      activation_fee_tx_hash: string | null;
       sponsor_referral_code: string | null;
       source_referral_code: string | null;
       status: "inactive" | "active" | "suspended" | "blocked";
       created_at: string;
     }>(
       `select id, email, mobile_number, display_name, referral_code, referral_code as own_referral_code,
-              hb9_wallet_address, usdt_bep20_address, coalesce(usdt_bep20_address, hb9_wallet_address) as wallet_address,
+              hb9_wallet_address, usdt_bep20_address, coalesce(wallet_address, usdt_bep20_address, hb9_wallet_address) as wallet_address,
+              activation_fee_paid, activation_fee_tx_hash,
               sponsor_referral_code, source_referral_code, status, created_at
        from hb_users
-       where lower(coalesce(usdt_bep20_address, '')) = lower($1)
+       where lower(coalesce(wallet_address, '')) = lower($1)
+          or lower(coalesce(usdt_bep20_address, '')) = lower($1)
           or lower(coalesce(hb9_wallet_address, '')) = lower($1)
        limit 1`,
       [walletAddress]
@@ -4317,7 +4348,7 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
       if (parsed.data.authMode === "login") {
         await client.query("update hb_wallet_auth_challenges set signature = $2, status = 'rejected' where id = $1", [challenge.id, parsed.data.signature]);
         await client.query("commit");
-        fail(res, "Please sign up first.", 404, "Wallet is not registered");
+        fail(res, "Account not found. Please Sign Up.", 404, "Account not found. Please Sign Up.");
         return;
       }
       const sponsorCode = (challenge.sponsor_referral_code || "").trim().toUpperCase();
@@ -4326,10 +4357,11 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
       userRows = await client.query(
         `insert into hb_users
            (email, mobile_number, password_hash, display_name, referral_code, own_referral_code, sponsor_user_id,
-            hb9_wallet_address, usdt_bep20_address, wallet_bound_at, sponsor_referral_code, source_referral_code, status)
-         values (null,null,null,$1,$2,$2,$3,$4,$4,now(),$5,$5,'inactive')
+            wallet_address, hb9_wallet_address, usdt_bep20_address, wallet_bound_at, sponsor_referral_code, source_referral_code, status, activation_fee_paid)
+         values (null,null,null,$1,$2,$2,$3,$4,$4,$4,now(),$5,$5,'inactive',false)
          returning id, email, mobile_number, display_name, referral_code, own_referral_code,
-                   hb9_wallet_address, usdt_bep20_address, coalesce(usdt_bep20_address, hb9_wallet_address) as wallet_address,
+                   hb9_wallet_address, usdt_bep20_address, coalesce(wallet_address, usdt_bep20_address, hb9_wallet_address) as wallet_address,
+                   activation_fee_paid, activation_fee_tx_hash,
                    sponsor_referral_code, source_referral_code, status, created_at`,
         [`HB9 ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`, code, sponsor?.id || null, walletAddress, sponsor?.referral_code || null]
       );
@@ -4363,12 +4395,13 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
       if (parsed.data.authMode === "signup") {
         await client.query("update hb_wallet_auth_challenges set user_id = $2, signature = $3, status = 'rejected' where id = $1", [challenge.id, user.id, parsed.data.signature]);
         await client.query("commit");
-        fail(res, "You are already registered.", 409, "You are already registered.");
+        fail(res, "Wallet already registered. Please Login.", 409, "Wallet already registered. Please Login.");
         return;
       }
       await client.query(
         `update hb_users
-         set hb9_wallet_address = coalesce(hb9_wallet_address, $2),
+         set wallet_address = coalesce(wallet_address, $2),
+             hb9_wallet_address = coalesce(hb9_wallet_address, $2),
              usdt_bep20_address = coalesce(usdt_bep20_address, $2),
              wallet_bound_at = coalesce(wallet_bound_at, now()),
              last_login_at = now(),
@@ -4390,22 +4423,9 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
     );
     await client.query("commit");
     const token = await createToken(user.id, walletAddress, req);
-    if (user.status === "inactive") {
-      await ensureRegistrationFeeTable(client);
-      const paidRows = await client.query<{ id: string }>(
-        "select id from hb_registration_activation_fees where user_id = $1 and status = 'verified' limit 1",
-        [user.id]
-      );
-      if (!paidRows.rows[0]) {
-        await client.query(
-          `insert into hb_registration_activation_fees (user_id, wallet_address, treasury_wallet, amount_bnb, amount_usd, status, verification_status, chain_id)
-           values ($1,$2,$3,$4,$5,'pending','pending',$6)
-           on conflict do nothing`,
-          [user.id, walletAddress, hbRegistrationTreasuryWallet(), hbRegistrationFeeBnb(), hbRegistrationFeeUsd(), hbOnchainChainId()]
-        );
-        ok(res, { token, user, registrationFeeRequired: true, registrationFee: hbRegistrationFeePayload() }, "HB9 activation fee required");
-        return;
-      }
+    if (parsed.data.authMode === "signup" && user.status === "inactive" && !user.activation_fee_paid) {
+      ok(res, { token, user, registrationFeeRequired: true, registrationFee: hbRegistrationFeePayload() }, "HB9 activation fee required");
+      return;
     }
     ok(res, { token, user, registrationFeeRequired: false }, "HB9 wallet login successful");
   } catch (err) {
@@ -4428,6 +4448,7 @@ hbRouter.post("/hb/auth/registration-fee/verify", requireHbUser, asyncHandler(as
   }
   const client = await pool.connect();
   try {
+    await ensureWalletAuthUserColumns(client);
     await ensureRegistrationFeeTable(client);
     await client.query("begin");
     const userRows = await client.query<{
@@ -4435,6 +4456,7 @@ hbRouter.post("/hb/auth/registration-fee/verify", requireHbUser, asyncHandler(as
       status: "inactive" | "active" | "suspended" | "blocked";
       hb9_wallet_address: string | null;
       usdt_bep20_address: string | null;
+      wallet_address: string | null;
       display_name: string;
       referral_code: string;
       own_referral_code: string | null;
@@ -4444,7 +4466,7 @@ hbRouter.post("/hb/auth/registration-fee/verify", requireHbUser, asyncHandler(as
       source_referral_code: string | null;
       created_at: string;
     }>(
-      `select id, status, hb9_wallet_address, usdt_bep20_address, display_name, referral_code, own_referral_code,
+      `select id, status, hb9_wallet_address, usdt_bep20_address, coalesce(wallet_address, usdt_bep20_address, hb9_wallet_address) as wallet_address, display_name, referral_code, own_referral_code,
               email, mobile_number, sponsor_referral_code, source_referral_code, created_at
        from hb_users
        where id = $1
@@ -4462,7 +4484,7 @@ hbRouter.post("/hb/auth/registration-fee/verify", requireHbUser, asyncHandler(as
       ok(res, { user, registrationFeeRequired: false }, "HB9 ID already active");
       return;
     }
-    const walletAddress = getAddress(user.usdt_bep20_address || user.hb9_wallet_address || req.hbUser!.login);
+    const walletAddress = getAddress(user.wallet_address || user.usdt_bep20_address || user.hb9_wallet_address || req.hbUser!.login);
     const txHashRows = await client.query<{ id: string; user_id: string }>(
       "select id, user_id from hb_registration_activation_fees where lower(tx_hash) = lower($1) and status = 'verified' limit 1",
       [parsed.data.txHash]
@@ -4498,7 +4520,7 @@ hbRouter.post("/hb/auth/registration-fee/verify", requireHbUser, asyncHandler(as
        on conflict (tx_hash) do update set status = 'verified', verification_status = 'verified', confirmations = excluded.confirmations, verified_at = now(), updated_at = now()`,
       [user.id, walletAddress, hbRegistrationTreasuryWallet(), parsed.data.txHash, verification.verifiedAmount, hbRegistrationFeeUsd(), verification.chainId, verification.confirmations]
     );
-    await client.query("update hb_users set status = 'active', activated_at = now(), updated_at = now() where id = $1", [user.id]);
+    await client.query("update hb_users set status = 'active', activation_fee_paid = true, activation_fee_tx_hash = $2, activated_at = now(), updated_at = now() where id = $1", [user.id, parsed.data.txHash]);
     await client.query(
       "insert into hb_activation_logs (user_id, package_purchase_id, previous_status, new_status) values ($1,null,$2,'active')",
       [user.id, user.status]

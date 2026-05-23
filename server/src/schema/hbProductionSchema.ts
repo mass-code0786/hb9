@@ -10,7 +10,8 @@ export const hbRequiredSchema: RequiredTable[] = [
     table: "hb_users",
     columns: [
       "id", "email", "mobile_number", "password_hash", "display_name", "referral_code", "sponsor_user_id", "status",
-      "usdt_bep20_address", "hb9_wallet_address", "wallet_bound_at", "wallet_updated_at", "failed_login_count",
+      "wallet_address", "usdt_bep20_address", "hb9_wallet_address", "wallet_bound_at", "wallet_updated_at",
+      "activation_fee_paid", "activation_fee_tx_hash", "failed_login_count",
       "locked_until", "last_login_at", "activated_at", "created_at", "updated_at"
     ]
   },

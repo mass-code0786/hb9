@@ -185,6 +185,11 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
     }
     const response = await verifyHbWalletSignature({ walletAddress: nextAddress, chainId: challenge.chainId, nonce: challenge.nonce, signature, authMode });
     if (response.registrationFeeRequired && response.registrationFee) {
+      if (authMode !== "signup") {
+        setRegistrationFee(null);
+        setMessage("");
+        throw new Error("Login cannot request an activation fee. Please try again.");
+      }
       setRegistrationFee(response.registrationFee);
       setMessage(`${response.registrationFee.message}. ${response.registrationFee.note}.`);
       const txHash = await provider.request({
