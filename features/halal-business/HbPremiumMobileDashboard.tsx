@@ -62,14 +62,16 @@ type TabId = "home" | "products" | "team" | "income" | "wallet" | "packages";
 type EthereumProvider = { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> };
 type OnchainPackageItem = HbOnchainPackageConfig["packages"][number];
 type PurchaseStage = "review" | "approving" | "submitting" | "pending" | "activated";
+type PurchaseMode = "internal" | "onchain";
 type DepositPaymentStatus = "idle" | "pending_wallet_signature" | "pending_blockchain_confirmation" | "confirmed" | "failed";
 type PurchaseReview = {
   product: HbProduct;
   config: HbOnchainPackageConfig;
-  packageConfig: OnchainPackageItem;
+  packageConfig: OnchainPackageItem | null;
   buyerAddress: string;
   sponsorRef: string;
   stage: PurchaseStage;
+  purchaseMode: PurchaseMode;
   txHash?: string;
 };
 
@@ -215,6 +217,13 @@ function validatePackageForPurchase(config: HbOnchainPackageConfig, packageConfi
   if ((config.mode === "onchain" || config.mode === "hybrid") && !packageConfig.treasuryWallet && !config.treasurySplitterAddress) return HB_TREASURY_MISSING;
   if ((config.mode === "onchain" || config.mode === "hybrid") && (!config.packageManagerAddress || !config.usdtBep20Address)) return HB_PACKAGE_API_FAILURE;
   return "";
+}
+
+function onchainPurchaseReady(config: HbOnchainPackageConfig, packageConfig: OnchainPackageItem | null) {
+  if (config.mode !== "onchain" && config.mode !== "hybrid") return false;
+  if (!packageConfig) return false;
+  const packageContractId = packageConfig.onchainPackageId ?? packageConfig.packageContractId ?? packageConfig.packageId;
+  return Boolean(packageContractId && config.packageManagerAddress && config.usdtBep20Address);
 }
 
 function isPurchasedStatusActive(status?: string | null) {
@@ -720,14 +729,11 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       const config = onchainConfig || await fetchHbOnchainPackageConfig(token);
       setOnchainConfig(config);
       const packageConfig = packageConfigForProduct(config, freshProduct);
-      const validationError = validatePackageForPurchase(config, packageConfig);
+      const useOnchainPurchase = onchainPurchaseReady(config, packageConfig);
+      const validationError = useOnchainPurchase ? validatePackageForPurchase(config, packageConfig) : "";
       if (validationError) {
         console.error("HB9 package configuration check failed.", { validationError, product: freshProduct, packageConfig, config });
         setError(validationError);
-        return;
-      }
-      if (!packageConfig) {
-        setError(HB_MAPPING_MISSING);
         return;
       }
       const baseReview: PurchaseReview = {
@@ -736,11 +742,11 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         packageConfig,
         buyerAddress: boundWallet,
         sponsorRef: user.sponsor_referral_code || user.source_referral_code || "",
-        stage: "review"
+        stage: "review",
+        purchaseMode: useOnchainPurchase ? "onchain" : "internal"
       };
       setPurchaseReview(baseReview);
-      if (config.mode !== "onchain" && config.mode !== "hybrid") {
-        await executeBuy(baseReview);
+      if (!useOnchainPurchase) {
         return;
       }
       const ethereum = (window as unknown as { ethereum?: EthereumProvider }).ethereum;
@@ -769,7 +775,6 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         stage: "review"
       } satisfies PurchaseReview;
       setPurchaseReview(connectedReview);
-      await executeBuy(connectedReview);
     } catch (err) {
       setError(err instanceof Error ? err.message : HB_PACKAGE_API_FAILURE);
     } finally {
@@ -785,8 +790,8 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   async function executeBuy(review: PurchaseReview) {
     if (!token) return;
     const { product, config, packageConfig, buyerAddress, sponsorRef } = review;
-    const onchainPackageId = packageConfig.onchainPackageId ?? packageConfig.packageContractId ?? packageConfig.packageId ?? null;
-    if (config.mode !== "onchain" && config.mode !== "hybrid") {
+    const onchainPackageId = packageConfig ? packageConfig.onchainPackageId ?? packageConfig.packageContractId ?? packageConfig.packageId ?? null : null;
+    if (review.purchaseMode === "internal") {
       setPurchaseReview((current) => current ? { ...current, stage: "pending" } : current);
       await buyHbProduct(token, product.id);
       await refresh(token);
@@ -1649,7 +1654,8 @@ function ActionChip({ label, icon: Icon, onClick }: { label: string; icon: Eleme
 
 function BuyDialog({ purchase, onCancel, onConfirm }: { purchase: PurchaseReview; onCancel: () => void; onConfirm: () => void }) {
   const busy = purchase.stage === "approving" || purchase.stage === "submitting";
-  const stageText = purchase.stage === "approving" ? "Confirm USDT approval in your wallet." : purchase.stage === "submitting" ? "Confirm package purchase transaction." : purchase.stage === "pending" ? "Tx pending. Activation updates after indexed event." : purchase.stage === "activated" ? "Activation completed." : "Review package before confirming.";
+  const internal = purchase.purchaseMode === "internal";
+  const stageText = purchase.stage === "approving" ? "Confirm USDT approval in your wallet." : purchase.stage === "submitting" ? "Confirm package purchase transaction." : purchase.stage === "pending" ? internal ? "Processing purchase from your main wallet." : "Tx pending. Activation updates after indexed event." : purchase.stage === "activated" ? "Activation completed." : "Review package before confirming.";
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 px-3 pb-3 backdrop-blur-sm">
       <div className="w-full max-w-[430px] rounded-[1.6rem] border border-cyan-200/15 bg-[#071827]/95 p-4 shadow-[0_0_40px_rgba(34,211,238,0.18)] backdrop-blur-2xl">
@@ -1658,9 +1664,9 @@ function BuyDialog({ purchase, onCancel, onConfirm }: { purchase: PurchaseReview
         <div className="mt-4 space-y-2 text-sm">
           <ReviewRow label="Package" value={purchase.product.package_name || purchase.product.title} />
           <ReviewRow label="Payment amount" value={`${money(purchase.product.package_price)} USDT`} />
-          <ReviewRow label="Network" value={chainLabel(purchase.config.chainId)} />
-          <ReviewRow label="Wallet" value={purchase.buyerAddress || "External wallet required"} mono />
-          {purchase.txHash ? <a className="block break-all rounded-2xl border border-cyan-200/12 bg-cyan-300/10 p-3 font-mono text-xs text-cyan-100" href={txUrl(purchase.config, purchase.txHash)} target="_blank" rel="noreferrer">{purchase.txHash}</a> : null}
+          <ReviewRow label="Payment mode" value={internal ? "Main wallet balance" : chainLabel(purchase.config.chainId)} />
+          <ReviewRow label="Wallet" value={internal ? "HB9 Main Wallet" : purchase.buyerAddress || "External wallet required"} mono={!internal} />
+          {purchase.txHash && !internal ? <a className="block break-all rounded-2xl border border-cyan-200/12 bg-cyan-300/10 p-3 font-mono text-xs text-cyan-100" href={txUrl(purchase.config, purchase.txHash)} target="_blank" rel="noreferrer">{purchase.txHash}</a> : null}
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3"><button className="hb-interactive hb-glow-purple rounded-2xl border border-cyan-200/18 bg-cyan-300/10 px-4 py-3 font-bold text-cyan-100" onClick={onCancel} disabled={busy} type="button">{purchase.stage === "pending" || purchase.stage === "activated" ? "Close" : "Cancel"}</button><button className="hb-interactive hb-glow-cyan rounded-2xl bg-cyan-300 px-4 py-3 font-bold text-[#03111f]" onClick={purchase.stage === "pending" || purchase.stage === "activated" ? onCancel : onConfirm} disabled={busy} type="button">{busy ? "Processing" : purchase.stage === "pending" || purchase.stage === "activated" ? "Done" : "Confirm Buy"}</button></div>
       </div>

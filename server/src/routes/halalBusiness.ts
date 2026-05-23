@@ -3601,10 +3601,6 @@ hbRouter.post("/hb/custom-software-request", requireHbUser, asyncHandler(async (
 
 hbRouter.post("/hb/packages/:id/purchase", requireHbUser, asyncHandler(async (req, res) => {
   if (!(await enforceActivationSafety(res, "package.purchase"))) return;
-  if (!internalPackagePurchasesAllowed()) {
-    fail(res, "Package purchases are on-chain. Connect an external wallet and buy through the package contract.", 409, "On-chain purchase required");
-    return;
-  }
   if (!pool) {
     fail(res, "Database is not configured.", 500, "Purchase failed");
     return;
@@ -3743,10 +3739,6 @@ hbRouter.post("/hb/packages/:id/purchase", requireHbUser, asyncHandler(async (re
 
 hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, res) => {
   if (!(await enforceActivationSafety(res, "product.buy"))) return;
-  if (!internalPackagePurchasesAllowed()) {
-    fail(res, "Product/package purchases are on-chain. Connect an external wallet and confirm the USDT BEP20 contract transaction.", 409, "On-chain purchase required");
-    return;
-  }
   if (!pool) {
     fail(res, "Database is not configured.", 500, "Product purchase failed");
     return;
