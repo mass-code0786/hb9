@@ -125,7 +125,7 @@ export type HbDeposit = {
   usd_amount: string | number;
   tx_hash?: string | null;
   wallet_address?: string | null;
-  status: "pending" | "verified" | "rejected" | "failed";
+  status: "pending" | "pending_verification" | "verified" | "rejected" | "failed";
   verification_status: string;
   failure_reason?: string | null;
   created_at: string;
