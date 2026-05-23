@@ -160,6 +160,24 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
   const onBsc = connected && chainId === BSC_CHAIN_ID;
   const statusText = connected ? (onBsc ? BSC_LABEL : "Wrong network") : walletBrowserDetected ? `${wallets[0].name} detected` : `${BSC_LABEL} ready`;
 
+  function clearAuthUiState() {
+    setMessage("");
+    setRegistrationFee(null);
+    if (typeof window === "undefined") return;
+    [
+      "hb9.authError",
+      "hb9.auth.error",
+      "hb9.walletAuthError",
+      "hb9.registrationFee",
+      "hb9.registrationFeeRequired",
+      "hb9.activationFee",
+      "hb9.activationFeeRequired"
+    ].forEach((key) => {
+      window.localStorage.removeItem(key);
+      window.sessionStorage.removeItem(key);
+    });
+  }
+
   async function refresh(provider = getPrimaryProvider()) {
     if (!provider) return;
     const [accounts, chain] = await Promise.all([
@@ -184,12 +202,12 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
       return;
     }
     const response = await verifyHbWalletSignature({ walletAddress: nextAddress, chainId: challenge.chainId, nonce: challenge.nonce, signature, authMode });
+    if (authMode === "login") {
+      onAuthenticated?.(response.token, response.user);
+      clearAuthUiState();
+      return;
+    }
     if (response.registrationFeeRequired && response.registrationFee) {
-      if (authMode !== "signup") {
-        setRegistrationFee(null);
-        setMessage("");
-        throw new Error("Login cannot request an activation fee. Please try again.");
-      }
       setRegistrationFee(response.registrationFee);
       setMessage(`${response.registrationFee.message}. ${response.registrationFee.note}.`);
       const txHash = await provider.request({
@@ -226,7 +244,7 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
     lastAuthClickAtRef.current = now;
     globalLastAuthClickAt = now;
     setBusy(true);
-    setMessage("");
+    clearAuthUiState();
     try {
       if (!wallet?.provider) {
         setModalOpen(true);
@@ -266,7 +284,7 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
     lastAuthClickAtRef.current = now;
     globalLastAuthClickAt = now;
     setBusy(true);
-    setMessage("");
+    clearAuthUiState();
     try {
       if (!walletConnectProjectId || !walletConnectConnector) {
         setMessage("WalletConnect is not configured. Add NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID to enable QR fallback.");

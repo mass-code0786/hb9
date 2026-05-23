@@ -405,12 +405,29 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   }
 
   function handleAuthenticated(nextToken: string, nextUser: HbUser) {
+    if (typeof window !== "undefined") {
+      [
+        "hb9.authError",
+        "hb9.auth.error",
+        "hb9.walletAuthError",
+        "hb9.registrationFee",
+        "hb9.registrationFeeRequired",
+        "hb9.activationFee",
+        "hb9.activationFeeRequired"
+      ].forEach((key) => {
+        window.localStorage.removeItem(key);
+        window.sessionStorage.removeItem(key);
+      });
+    }
     if (devDashboardActive) {
       setUser(createHbDevDashboardUser(getHbDevWallet() || nextUser.wallet_address || nextUser.usdt_bep20_address || ""));
       setNotice("");
       setLoading(false);
       return;
     }
+    setError("");
+    setNotice("");
+    setActiveTab("home");
     saveHbToken(nextToken);
     setToken(nextToken);
     setUser(nextUser);

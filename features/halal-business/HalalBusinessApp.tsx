@@ -432,7 +432,29 @@ export function HalalBusinessApp() {
     setLoginToast(LOGIN_SUCCESS_MESSAGE);
   }
 
+  function clearAuthErrorStorage() {
+    if (typeof window === "undefined") return;
+    [
+      "hb9.authError",
+      "hb9.auth.error",
+      "hb9.walletAuthError",
+      "hb9.registrationFee",
+      "hb9.registrationFeeRequired",
+      "hb9.activationFee",
+      "hb9.activationFeeRequired"
+    ].forEach((key) => {
+      window.localStorage.removeItem(key);
+      window.sessionStorage.removeItem(key);
+    });
+  }
+
   function handleAuthenticated(nextToken: string, nextUser: HbUser) {
+    clearAuthErrorStorage();
+    setError("");
+    setNotice("");
+    setSelectedProduct(null);
+    setView("home");
+    setAuthSurface("auth");
     saveHbToken(nextToken);
     setToken(nextToken);
     setUser(nextUser);
