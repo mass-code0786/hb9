@@ -797,10 +797,10 @@ export function createNowPaymentsDeposit(token: string, input: { amountUsd: numb
   });
 }
 
-export function createHbDeposit(token: string, input: { amountUsd: number; txHash?: string; walletAddress?: string; asset?: "USDT"; network?: "bsc"; chainId?: 56; tokenAddress?: string; idempotencyKey?: string }) {
+export function createHbDeposit(token: string, input: { amountUsd: number; amount?: number; txHash?: string; walletAddress?: string; treasuryWallet?: string; token?: "USDT"; asset?: "USDT"; network?: "bsc"; chainId?: 56; tokenAddress?: string; idempotencyKey?: string }) {
   return hbRequest<HbDeposit>("/hb/deposits", token, {
     method: "POST",
-    body: JSON.stringify({ asset: "USDT", network: "bsc", chainId: 56, tokenAddress: "0x55d398326f99059fF775485246999027B3197955", ...input })
+    body: JSON.stringify({ token: "USDT", network: "bsc", chainId: 56, ...input })
   });
 }
 

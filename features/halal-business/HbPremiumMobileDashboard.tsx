@@ -481,9 +481,12 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
     try {
       await createHbDeposit(token, {
         amountUsd,
-        walletAddress: receiveAddress,
+        amount: amountUsd,
+        network: "bsc",
+        token: "USDT",
         chainId: 56,
-        tokenAddress: "0x55d398326f99059fF775485246999027B3197955",
+        walletAddress: receiveAddress,
+        treasuryWallet: receiveAddress,
         idempotencyKey: `hb-ui-deposit-${Date.now()}-${crypto.randomUUID()}`
       });
       setNotice("Deposit request created. Send only USDT BEP20 on BSC Mainnet to the treasury address.");

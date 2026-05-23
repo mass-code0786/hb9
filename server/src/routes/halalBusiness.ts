@@ -90,16 +90,43 @@ const resetPasswordSchema = z.object({
   password: z.string().min(8).max(200)
 });
 
-const depositCreateSchema = z.object({
-  amountUsd: z.number().positive().max(1000000),
+const depositCreateSchema = z.preprocess((raw) => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const input = raw as Record<string, unknown>;
+  const amount = input.amountUsd ?? input.amount;
+  const token = input.token ?? input.asset ?? "USDT";
+  const treasuryWallet = input.treasuryWallet ?? input.walletAddress ?? "";
+  return {
+    ...input,
+    amountUsd: amount,
+    amount,
+    asset: token,
+    token,
+    network: input.network ?? "bsc",
+    chainId: input.chainId ?? BSC_MAINNET_CHAIN_ID,
+    treasuryWallet,
+    walletAddress: input.walletAddress ?? treasuryWallet
+  };
+}, z.object({
+  amountUsd: z.coerce.number().positive().max(1000000),
+  amount: z.coerce.number().positive().max(1000000).optional(),
   asset: z.literal("USDT").default("USDT"),
+  token: z.literal("USDT").default("USDT"),
   network: z.literal("bsc").default("bsc"),
   chainId: z.literal(BSC_MAINNET_CHAIN_ID).default(BSC_MAINNET_CHAIN_ID),
-  tokenAddress: z.string().trim().transform((value) => getAddress(value)).refine((value) => value === CONFIGURED_USDT_BEP20_ADDRESS, "Token address must be USDT BEP20 on BSC Mainnet.").default(CONFIGURED_USDT_BEP20_ADDRESS),
+  tokenAddress: z.preprocess(
+    (value) => value === undefined || value === null || value === "" ? CONFIGURED_USDT_BEP20_ADDRESS : value,
+    z.string()
+      .trim()
+      .refine((value) => isAddress(value), "Token address must be a valid EVM address.")
+      .transform((value) => getAddress(value))
+      .refine((value) => value === CONFIGURED_USDT_BEP20_ADDRESS, "Token address must be USDT BEP20 on BSC Mainnet.")
+  ),
   walletAddress: z.string().trim().min(10).max(128).optional().or(z.literal("")),
+  treasuryWallet: z.string().trim().min(10).max(128).optional().or(z.literal("")),
   txHash: z.string().trim().regex(/^(0x)?[a-zA-Z0-9]{12,128}$/).optional().or(z.literal("")),
   idempotencyKey: z.string().trim().min(12).max(120).optional()
-});
+}));
 
 const depositVerifySchema = z.object({
   depositId: z.string().uuid(),
@@ -129,6 +156,22 @@ const adminWithdrawalRejectSchema = z.object({
   adminNote: z.string().trim().max(1000).optional(),
   safetyConfirmation: z.string().trim().max(80).optional()
 });
+
+function validationErrorMessage(error: z.ZodError) {
+  return error.issues
+    .map((issue) => `${issue.path.join(".") || "request"}: ${issue.message}`)
+    .join("; ") || "Invalid request payload.";
+}
+
+function depositResponse(deposit: Record<string, unknown>) {
+  return {
+    ...deposit,
+    depositId: deposit.id,
+    status: deposit.status,
+    amount: deposit.amount ?? deposit.usd_amount,
+    treasuryWallet: deposit.wallet_address
+  };
+}
 
 const adminWithdrawalPaidSchema = z.object({
   txHash: z.string().trim().regex(/^0x[a-fA-F0-9]{64}$/),
@@ -2579,10 +2622,17 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
   }
   const parsed = depositCreateSchema.safeParse(req.body);
   if (!parsed.success) {
-    fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid deposit request");
+    const validationError = validationErrorMessage(parsed.error);
+    logger.warn("hb.deposit.validation_failed", {
+      userId: req.hbUser?.userId,
+      validationError,
+      issues: parsed.error.issues,
+      payload: req.body
+    });
+    fail(res, validationError, 400, "Invalid deposit request");
     return;
   }
-  if (parsed.data.asset !== "USDT" || parsed.data.network !== "bsc" || parsed.data.chainId !== BSC_MAINNET_CHAIN_ID || parsed.data.tokenAddress !== CONFIGURED_USDT_BEP20_ADDRESS) {
+  if (parsed.data.asset !== "USDT" || parsed.data.token !== "USDT" || parsed.data.network !== "bsc" || parsed.data.chainId !== BSC_MAINNET_CHAIN_ID || parsed.data.tokenAddress !== CONFIGURED_USDT_BEP20_ADDRESS) {
     fail(res, "Only USDT BEP20 deposits are supported.", 400, "Unsupported deposit currency");
     return;
   }
@@ -2596,6 +2646,17 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
     fail(res, "Treasury wallet not configured", 503, "Deposit provider not configured");
     return;
   }
+  const providedTreasuryWallet = parsed.data.treasuryWallet || parsed.data.walletAddress || "";
+  if (providedTreasuryWallet && !isValidBep20Address(providedTreasuryWallet)) {
+    logger.warn("hb.deposit.validation_failed", { userId, validationError: "Treasury wallet must be a valid BSC address.", walletAddress: parsed.data.walletAddress, treasuryWallet: parsed.data.treasuryWallet });
+    fail(res, "Treasury wallet must be a valid BSC address.", 400, "Invalid deposit request");
+    return;
+  }
+  if (providedTreasuryWallet && getAddress(providedTreasuryWallet) !== expectedAddress) {
+    logger.warn("hb.deposit.validation_failed", { userId, validationError: "Treasury wallet does not match configured deposit wallet.", providedTreasuryWallet, expectedAddress });
+    fail(res, "Treasury wallet does not match configured deposit wallet.", 400, "Invalid deposit request");
+    return;
+  }
   const idempotencyKey = parsed.data.idempotencyKey || `hb:deposit:${userId}:${parsed.data.txHash ? parsed.data.txHash.toLowerCase() : crypto.randomUUID()}`;
   const client = await pool.connect();
   try {
@@ -2604,7 +2665,7 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
     const existingByIdempotency = await client.query("select * from hb_deposits where user_id = $1 and idempotency_key = $2 limit 1", [userId, idempotencyKey]);
     if (existingByIdempotency.rows[0]) {
       await client.query("commit");
-      ok(res, existingByIdempotency.rows[0], "Deposit already exists");
+      ok(res, depositResponse(existingByIdempotency.rows[0]), "Deposit already exists");
       return;
     }
     if (!parsed.data.txHash) {
@@ -2618,7 +2679,7 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
       );
       await client.query("commit");
       await audit(userId, "hb.deposit.session.create", "hb_deposit", String((depositRows.rows[0] as any)?.id || ""), { amountUsd: parsed.data.amountUsd, walletAddress: expectedAddress, network: "bsc", token: "USDT" });
-      ok(res, depositRows.rows[0], "Deposit session created", 201);
+      ok(res, depositResponse(depositRows.rows[0]), "Deposit session created", 201);
       return;
     }
     const duplicateTx = await client.query("select id, user_id, status from hb_deposits where lower(tx_hash) = lower($1) limit 1", [parsed.data.txHash]);
@@ -2637,7 +2698,7 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
     const existing = await client.query("select * from hb_deposits where user_id = $1 and lower(tx_hash) = lower($2) limit 1", [userId, parsed.data.txHash]);
     if (existing.rows[0]) {
       await client.query("commit");
-      ok(res, existing.rows[0], "Deposit already exists");
+      ok(res, depositResponse(existing.rows[0]), "Deposit already exists");
       return;
     }
     const depositRows = await client.query<{ id: string }>(
@@ -2671,9 +2732,9 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
          where id = $1`,
         [depositId, nextStatus, nextStatus === "pending" ? "pending" : "failed", publicError.message]
       );
-      const rows = await query("select * from hb_deposits where id = $1", [depositId]);
+      const rows = await query<Record<string, unknown>>("select * from hb_deposits where id = $1", [depositId]);
       if (nextStatus === "pending") {
-        ok(res, rows[0], "Deposit submitted and awaiting confirmations", 202);
+        ok(res, depositResponse(rows[0]), "Deposit submitted and awaiting confirmations", 202);
       } else {
         fail(res, publicError.message, publicError.status, "Deposit verification failed");
       }
@@ -2735,9 +2796,9 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
     } finally {
       creditClient.release();
     }
-    const rows = await query("select * from hb_deposits where id = $1", [depositId]);
+    const rows = await query<Record<string, unknown>>("select * from hb_deposits where id = $1", [depositId]);
     logger.info("hb.deposit.credited", { txHash: parsed.data.txHash, userId, depositId, amountUsd: parsed.data.amountUsd });
-    ok(res, rows[0], "Deposit verified and credited", 201);
+    ok(res, depositResponse(rows[0]), "Deposit verified and credited", 201);
   } catch (err) {
     try {
       await client.query("rollback");
