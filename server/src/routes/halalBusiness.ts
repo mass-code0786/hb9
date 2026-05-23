@@ -1005,11 +1005,15 @@ async function applyHbCoinAdjustment(input: {
     );
     if (Number(balanceRows.rows[0]?.balance || 0) + Number.EPSILON < amount) throw new Error("Insufficient coin balance.");
   }
+  const existingLedgerRows = await input.client.query<{ id: string }>(
+    "select id from hb_coin_balance_ledger where idempotency_key = $1 limit 1",
+    [input.idempotencyKey]
+  );
+  if (existingLedgerRows.rows[0]) return null;
   const ledgerRows = await input.client.query<{ id: string }>(
     `insert into hb_coin_balance_ledger
       (user_id, coin_symbol, amount, type, direction, reference_id, admin_id, note, idempotency_key, metadata, usd_price, usd_value)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12)
-     on conflict (idempotency_key) do nothing
      returning id`,
     [input.userId, input.coinSymbol, amount, input.type, input.direction, input.reference || null, input.adminId || null, input.note || null, input.idempotencyKey, JSON.stringify(input.metadata || {}), input.usdPrice ?? null, input.usdValue ?? null]
   );

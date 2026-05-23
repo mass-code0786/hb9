@@ -180,18 +180,31 @@ export async function applyIncomeCap(input: {
     );
     await createLedgerProof(client, "hb_internal_ledger", internalLedgerRows.rows[0]?.id || null);
 
+    const coinIdempotencyKey = `hb:coin:income_cap:${incomeLedgerId}`;
+    const existingCoinLedgerRows = await client.query<{ id: string }>(
+      "select id from hb_coin_balance_ledger where idempotency_key = $1 limit 1",
+      [coinIdempotencyKey]
+    );
+    if (existingCoinLedgerRows.rows[0]) {
+      await createLedgerProof(client, "hb_coin_balance_ledger", existingCoinLedgerRows.rows[0].id);
+      return {
+        capDate: cap.cap_date,
+        creditedAmount: split.credited_amount,
+        cappedAmount: split.capped_amount,
+        remainingAmount: split.remaining_amount
+      };
+    }
     const coinLedgerRows = await client.query<{ id: string }>(
       `insert into hb_coin_balance_ledger
         (user_id, coin_symbol, amount, type, direction, reference_id, note, idempotency_key)
        values ($1,'USDT',$2,'earning','credit',$3,$4,$5)
-       on conflict (idempotency_key) do nothing
        returning id`,
       [
         userId,
         split.credited_amount,
         incomeLedgerId,
         `Automatic USDT ${incomeType} income after daily cap`,
-        `hb:coin:income_cap:${incomeLedgerId}`
+        coinIdempotencyKey
       ]
     );
     if (coinLedgerRows.rows[0]) {

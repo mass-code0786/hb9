@@ -187,11 +187,18 @@ async function creditDeposit(client: pg.PoolClient, input: {
   }
   await createLedgerProof(client, "hb_internal_ledger", ledgerId, { chainTxHash: input.txHash, onchainStatus: "confirmed" });
 
+  const existingCoinLedger = await client.query<{ id: string }>(
+    "select id from hb_coin_balance_ledger where idempotency_key = $1 limit 1",
+    [`hb:coin:deposit:${input.depositId}:credit`]
+  );
+  if (existingCoinLedger.rows[0]) {
+    await createLedgerProof(client, "hb_coin_balance_ledger", existingCoinLedger.rows[0].id, { chainTxHash: input.txHash, onchainStatus: "confirmed" });
+    return { ledgerId, coinLedgerId: existingCoinLedger.rows[0].id };
+  }
   const coinRows = await client.query<{ id: string }>(
     `insert into hb_coin_balance_ledger
       (user_id, coin_symbol, amount, type, direction, reference_id, note, idempotency_key, metadata, usd_price, usd_value)
      values ($1,'USDT',$2,'deposit_credit','credit',$3,'Verified USDT BEP20 deposit credit',$4,$5::jsonb,1,$2)
-     on conflict (idempotency_key) do nothing
      returning id`,
     [
       input.userId,
@@ -202,10 +209,6 @@ async function creditDeposit(client: pg.PoolClient, input: {
     ]
   );
   let coinLedgerId = coinRows.rows[0]?.id || null;
-  if (!coinLedgerId) {
-    const existingCoinLedger = await client.query<{ id: string }>("select id from hb_coin_balance_ledger where idempotency_key = $1 limit 1", [`hb:coin:deposit:${input.depositId}:credit`]);
-    coinLedgerId = existingCoinLedger.rows[0]?.id || null;
-  }
   if (coinLedgerId) {
     await client.query(
       `insert into hb_coin_balances (user_id, coin_symbol, balance)
