@@ -42,7 +42,8 @@ const BEP20_TRANSFER_ABI = [
 ];
 const BSC_MAINNET_CHAIN_ID = 56;
 const USDT_BEP20_ADDRESS = "0x55d398326f99059fF775485246999027B3197955";
-const CONFIGURED_USDT_BEP20_ADDRESS = getAddress(config.hbUsdtAddress || config.usdtBep20Contract || USDT_BEP20_ADDRESS);
+const configuredUsdtCandidate = config.hbUsdtAddress || config.usdtBep20Contract || USDT_BEP20_ADDRESS;
+const CONFIGURED_USDT_BEP20_ADDRESS = isAddress(configuredUsdtCandidate) ? getAddress(configuredUsdtCandidate) : getAddress(USDT_BEP20_ADDRESS);
 const HB_WITHDRAWAL_MIN_USD = 2;
 const HB_WITHDRAWAL_FEE_PERCENT = 10;
 const HB_WITHDRAWAL_MIN_ERROR = "Minimum withdrawal is $2.";
@@ -793,11 +794,13 @@ function hbUsdtAddress() {
 }
 
 function hbOnchainChainId() {
-  return config.hbChainId || 56;
+  const chainId = Number(config.hbChainId || 56);
+  return Number.isInteger(chainId) && chainId > 0 ? chainId : 56;
 }
 
 function hbBscScanBaseUrl() {
-  return config.hbExplorerBaseUrl || "https://bscscan.com";
+  const value = String(config.hbExplorerBaseUrl || "").trim();
+  return value || "https://bscscan.com";
 }
 
 function hbNetworkLabel() {
@@ -951,6 +954,10 @@ function hbEnvContractRows() {
     { key: "income_distributor", chain_id, contract_address: config.hbIncomeDistributorAddress || null, start_block: config.hbOnchainStartBlock ? String(config.hbOnchainStartBlock) : null, enabled: Boolean(config.hbIncomeDistributorAddress), source: "env" },
     { key: "usdt_bep20", chain_id, contract_address: hbUsdtAddress(), start_block: null, enabled: Boolean(hbUsdtAddress()), source: "env" }
   ];
+}
+
+function safeContractAddress(value: unknown) {
+  return typeof value === "string" && isAddress(value) ? getAddress(value) : "";
 }
 
 function mergeEnvOnchainContracts(rows: Array<Record<string, any>>) {
@@ -2149,12 +2156,55 @@ async function hbPackageConfigPayload() {
   };
 }
 
+function hbSafeConfigFallback(error?: unknown) {
+  if (error) {
+    console.error(error);
+    logger.warn("hb.config.safe_fallback", { error: error instanceof Error ? error.message : "HB9 config fallback" });
+  }
+  const chainId = hbOnchainChainId();
+  const treasuryWallet = safeContractAddress(config.hbTreasurySplitterAddress) || safeContractAddress(config.hbTreasuryDepositAddress) || safeContractAddress(config.hb9TreasuryWallet);
+  return {
+    mode: packagePurchaseMode(),
+    dryRun: Boolean(config.hbOnchainDryRun),
+    chainId,
+    explorerBaseUrl: hbBscScanBaseUrl(),
+    packageManagerAddress: safeContractAddress(config.hbPackageManagerAddress),
+    referralRegistryAddress: safeContractAddress(config.hbReferralRegistryAddress),
+    treasurySplitterAddress: safeContractAddress(config.hbTreasurySplitterAddress),
+    incomeDistributorAddress: safeContractAddress(config.hbIncomeDistributorAddress),
+    usdtBep20Address: hbUsdtAddress(),
+    packages: hbCanonicalOnchainPackages.map((canonical) => ({
+      id: `hb-package-${canonical.amountUsd}`,
+      name: canonical.name,
+      amount_usd: String(canonical.amountUsd),
+      status: "available",
+      sort_order: canonical.sortOrder,
+      packageId: canonical.onchainPackageId,
+      packageContractId: canonical.onchainPackageId,
+      onchainPackageId: canonical.onchainPackageId,
+      onchainPrice: String(BigInt(canonical.amountUsd) * 10n ** 18n),
+      treasuryWallet,
+      tokenType: "USDT BEP20",
+      tokenAddress: hbUsdtAddress(),
+      active: true
+    }))
+  };
+}
+
 hbRouter.get("/hb/config", asyncHandler(async (_req, res) => {
-  ok(res, await hbPackageConfigPayload(), "HB9 config loaded");
+  try {
+    ok(res, await hbPackageConfigPayload(), "HB9 config loaded");
+  } catch (error) {
+    ok(res, hbSafeConfigFallback(error), "HB9 config loaded");
+  }
 }));
 
 hbRouter.get("/hb/onchain/config", requireHbUser, asyncHandler(async (_req, res) => {
-  ok(res, await hbPackageConfigPayload(), "HB9 on-chain package config loaded");
+  try {
+    ok(res, await hbPackageConfigPayload(), "HB9 on-chain package config loaded");
+  } catch (error) {
+    ok(res, hbSafeConfigFallback(error), "HB9 on-chain package config loaded");
+  }
 }));
 
 hbRouter.get("/hb/coins", requireHbUser, asyncHandler(async (req, res) => {
@@ -2355,51 +2405,82 @@ hbRouter.get("/hb/coins/history", requireHbUser, asyncHandler(async (req, res) =
   ok(res, { items: rows }, "HB coin ledger loaded");
 }));
 
-hbRouter.get("/hb/products", asyncHandler(async (_req, res) => {
-  const rows = await query(
-    `select p.id, p.title, p.slug, p.description, p.short_description, p.package_id, p.package_price,
-            p.package_type, p.image_url, p.stock, p.active, p.featured, pkg.name as package_name,
-            coalesce(json_agg(json_build_object('id', img.id, 'image_url', img.image_url, 'alt_text', img.alt_text, 'sort_order', img.sort_order) order by img.sort_order)
-              filter (where img.id is not null), '[]'::json) as gallery
-     from hb_products p
-     join hb_packages pkg on pkg.id = p.package_id
-     left join hb_product_images img on img.product_id = p.id
-     where p.active = true
-       and pkg.status = 'available'
-       and coalesce(pkg.active, true) = true
-       and coalesce(pkg.visible, true) = true
-     group by p.id, pkg.name
-     order by p.featured desc, p.package_price asc, p.created_at desc`
-  ).catch((error) => {
-    logger.warn("hb.products.fallback", { error: error instanceof Error ? error.message : "Products query failed" });
-    return [];
+function sanitizeProductRows(rows: Array<Record<string, unknown>>) {
+  return rows.map((row) => {
+    const gallery = Array.isArray(row.gallery) ? row.gallery.filter((item) => item && typeof item === "object") : [];
+    return {
+      ...row,
+      title: String(row.title || ""),
+      slug: String(row.slug || ""),
+      description: row.description || "",
+      short_description: row.short_description || "",
+      package_price: row.package_price || "0",
+      package_type: row.package_type || "activation",
+      image_url: typeof row.image_url === "string" ? row.image_url : "",
+      stock: Number(row.stock || 0),
+      active: row.active !== false,
+      featured: Boolean(row.featured),
+      package_name: String(row.package_name || ""),
+      gallery
+    };
   });
-  ok(res, { items: rows }, "HB9 products loaded");
+}
+
+hbRouter.get("/hb/products", asyncHandler(async (_req, res) => {
+  try {
+    const rows = await query<Record<string, unknown>>(
+      `select p.id, p.title, p.slug, p.description, p.short_description, p.package_id, p.package_price,
+              p.package_type, p.image_url, p.stock, p.active, p.featured, pkg.name as package_name,
+              coalesce(json_agg(json_build_object('id', img.id, 'image_url', img.image_url, 'alt_text', img.alt_text, 'sort_order', img.sort_order) order by img.sort_order)
+                filter (where img.id is not null), '[]'::json) as gallery
+       from hb_products p
+       join hb_packages pkg on pkg.id = p.package_id
+       left join hb_product_images img on img.product_id = p.id
+       where p.active = true
+         and pkg.status = 'available'
+         and coalesce(pkg.active, true) = true
+         and coalesce(pkg.visible, true) = true
+       group by p.id, pkg.name
+       order by p.featured desc, p.package_price asc, p.created_at desc`
+    );
+    ok(res, { items: sanitizeProductRows(rows) }, "HB9 products loaded");
+  } catch (error) {
+    console.error(error);
+    logger.warn("hb.products.safe_fallback", { error: error instanceof Error ? error.message : "Products query failed" });
+    ok(res, { items: [] }, "HB9 products loaded");
+  }
 }));
 
 hbRouter.get("/hb/products/:slug", asyncHandler(async (req, res) => {
-  const rows = await query(
-    `select p.id, p.title, p.slug, p.description, p.short_description, p.package_id, p.package_price,
-            p.package_type, p.image_url, p.stock, p.active, p.featured, pkg.name as package_name,
-            coalesce(json_agg(json_build_object('id', img.id, 'image_url', img.image_url, 'alt_text', img.alt_text, 'sort_order', img.sort_order) order by img.sort_order)
-              filter (where img.id is not null), '[]'::json) as gallery
-     from hb_products p
-     join hb_packages pkg on pkg.id = p.package_id
-     left join hb_product_images img on img.product_id = p.id
-     where p.slug = $1
-       and p.active = true
-       and pkg.status = 'available'
-       and coalesce(pkg.active, true) = true
-       and coalesce(pkg.visible, true) = true
-     group by p.id, pkg.name
-     limit 1`,
-    [req.params.slug]
-  );
-  if (!rows[0]) {
+  try {
+    const rows = await query<Record<string, unknown>>(
+      `select p.id, p.title, p.slug, p.description, p.short_description, p.package_id, p.package_price,
+              p.package_type, p.image_url, p.stock, p.active, p.featured, pkg.name as package_name,
+              coalesce(json_agg(json_build_object('id', img.id, 'image_url', img.image_url, 'alt_text', img.alt_text, 'sort_order', img.sort_order) order by img.sort_order)
+                filter (where img.id is not null), '[]'::json) as gallery
+       from hb_products p
+       join hb_packages pkg on pkg.id = p.package_id
+       left join hb_product_images img on img.product_id = p.id
+       where p.slug = $1
+         and p.active = true
+         and pkg.status = 'available'
+         and coalesce(pkg.active, true) = true
+         and coalesce(pkg.visible, true) = true
+       group by p.id, pkg.name
+       limit 1`,
+      [req.params.slug]
+    );
+    const product = sanitizeProductRows(rows)[0];
+    if (!product) {
+      fail(res, "Product was not found.", 404, "Not found");
+      return;
+    }
+    ok(res, product, "HB9 product loaded");
+  } catch (error) {
+    console.error(error);
+    logger.warn("hb.product.safe_fallback", { slug: req.params.slug, error: error instanceof Error ? error.message : "Product query failed" });
     fail(res, "Product was not found.", 404, "Not found");
-    return;
   }
-  ok(res, rows[0], "HB9 product loaded");
 }));
 
 hbRouter.get("/hb/wallet", requireHbUser, asyncHandler(async (req, res) => {
