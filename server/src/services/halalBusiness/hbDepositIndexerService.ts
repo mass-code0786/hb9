@@ -3,6 +3,7 @@ import { ethers, formatUnits, getAddress } from "ethers";
 import { config } from "../../config.js";
 import { pool, query } from "../../db/pool.js";
 import { logger } from "../../logger.js";
+import { VerificationError, verifyBlockchainTransaction } from "../blockchainVerifier.js";
 import { createLedgerProof } from "./hbLedgerProofService.js";
 
 const USDT_TRANSFER_ABI = ["event Transfer(address indexed from,address indexed to,uint256 value)"];
@@ -394,6 +395,108 @@ async function processLog(log: ethers.Log, latestBlock: number) {
   });
 }
 
+export async function retryHbFailedDepositVerifications(limit = 25) {
+  if (!pool) return { retried: 0, verified: 0, pending: 0, failed: 0, skipped: true, reason: "Database is not configured." };
+  const rows = await query<{
+    id: string;
+    user_id: string;
+    usd_amount: string;
+    tx_hash: string;
+    wallet_address: string | null;
+    user_wallet_address: string | null;
+    user_usdt_bep20_address: string | null;
+    user_hb9_wallet_address: string | null;
+  }>(
+    `select d.id, d.user_id, d.usd_amount::text, d.tx_hash, d.wallet_address,
+            u.wallet_address as user_wallet_address, u.usdt_bep20_address as user_usdt_bep20_address, u.hb9_wallet_address as user_hb9_wallet_address
+     from hb_deposits d
+     join hb_users u on u.id = d.user_id
+     where d.tx_hash is not null
+       and d.ledger_entry_id is null
+       and d.status in ('failed', 'pending_verification')
+       and d.provider in ('onchain', 'manual_bsc', 'manual')
+     order by d.updated_at asc
+     limit $1`,
+    [limit]
+  ).catch(() => []);
+
+  let verified = 0;
+  let pending = 0;
+  let failed = 0;
+  for (const deposit of rows) {
+    const txHash = deposit.tx_hash;
+    const expectedSender = [deposit.user_usdt_bep20_address, deposit.user_hb9_wallet_address, deposit.user_wallet_address]
+      .find((value) => value && ethers.isAddress(value)) || "";
+    try {
+      if (!deposit.wallet_address || !ethers.isAddress(deposit.wallet_address)) throw new VerificationError("Company receiving wallet is not configured for this network.", { txHash, chainId: BSC_MAINNET_CHAIN_ID, expectedSender: expectedSender || null, expectedAmount: deposit.usd_amount });
+      const verification = await verifyBlockchainTransaction({
+        txHash,
+        network: "bsc",
+        tokenSymbol: "USDT",
+        requiredAmount: Number(deposit.usd_amount),
+        expectedRecipient: deposit.wallet_address,
+        expectedSender
+      });
+      const client = await pool.connect();
+      try {
+        await client.query("begin");
+        await client.query("select pg_advisory_xact_lock(hashtext($1))", [`deposit-retry:${deposit.id}`]);
+        const locked = await client.query<{ id: string; ledger_entry_id: string | null; status: string }>("select id, ledger_entry_id, status from hb_deposits where id = $1 for update", [deposit.id]);
+        if (locked.rows[0] && !locked.rows[0].ledger_entry_id) {
+          const credit = await creditDeposit(client, {
+            depositId: deposit.id,
+            userId: deposit.user_id,
+            amountUsd: deposit.usd_amount,
+            txHash,
+            eventId: `manual-retry:${BSC_MAINNET_CHAIN_ID}:${txHash.toLowerCase()}`,
+            fromAddress: verification.fromAddress,
+            toAddress: verification.toAddress,
+            blockNumber: 0,
+            logIndex: 0,
+            confirmations: verification.confirmations
+          });
+          await client.query(
+            `update hb_deposits
+             set status = 'verified', verification_status = 'verified', payment_status = 'confirmed',
+                 verified_at = now(), credited_at = now(), ledger_entry_id = coalesce(ledger_entry_id, $2),
+                 failure_reason = null, chain_id = $3, from_address = $4, to_address = $5,
+                 confirmations = $6, onchain_tx_hash = $7, onchain_status = 'confirmed', updated_at = now()
+             where id = $1`,
+            [deposit.id, credit.ledgerId, verification.chainId, verification.fromAddress, verification.toAddress, verification.confirmations, txHash]
+          );
+          await client.query(
+            `insert into hb_audit_logs (user_id, action, entity_type, entity_id, metadata)
+             values ($1,'hb.deposit.retry_verified','hb_deposit',$2,$3::jsonb)`,
+            [deposit.user_id, deposit.id, JSON.stringify({ txHash, verification })]
+          );
+          verified += 1;
+        }
+        await client.query("commit");
+      } catch (error) {
+        await client.query("rollback");
+        throw error;
+      } finally {
+        client.release();
+      }
+      logger.info("hb.deposit.retry_verified", { depositId: deposit.id, userId: deposit.user_id, ...verification.diagnostics });
+    } catch (error) {
+      const retryable = error instanceof VerificationError && error.retryable;
+      const reason = error instanceof VerificationError ? error.publicReason : error instanceof Error ? error.message : "Deposit verification retry failed";
+      const diagnostics = error instanceof VerificationError ? error.diagnostics : { txHash, chainId: BSC_MAINNET_CHAIN_ID, failureReason: reason };
+      await query(
+        `update hb_deposits
+         set status = $2, verification_status = $3, failure_reason = $4, updated_at = now()
+         where id = $1`,
+        [deposit.id, retryable ? "pending_verification" : "failed", retryable ? "pending" : "failed", reason]
+      ).catch(() => undefined);
+      if (retryable) pending += 1;
+      else failed += 1;
+      logger.warn("hb.deposit.retry_verification_failed", { depositId: deposit.id, userId: deposit.user_id, status: retryable ? "pending_verification" : "failed", ...diagnostics, reason });
+    }
+  }
+  return { retried: rows.length, verified, pending, failed };
+}
+
 export async function syncHbDepositRange(fromBlock: number, toBlock: number) {
   if (!pool) return { synced: 0, failed: 0, skipped: true, reason: "Database is not configured." };
   if (!hbDepositIndexerConfigReady()) {
@@ -448,6 +551,9 @@ async function tick() {
       await updateCursor({ status: "missing_config", error: "Deposit indexer config is incomplete." });
       return;
     }
+    await retryHbFailedDepositVerifications().catch((error) => {
+      logger.warn("hb.deposit.retry_batch_failed", { category: "deposit_retry", error: error instanceof Error ? error.message : "Deposit retry batch failed" });
+    });
     const cursorRows = await query<{ last_synced_block: string | number }>("select last_synced_block from hb_onchain_sync_cursors where contract_key = $1 limit 1", [DEPOSIT_CURSOR_KEY]);
     const latest = await provider().getBlockNumber();
     const safeLatest = Math.max(0, latest - Math.max(0, config.hbDepositIndexerConfirmations));

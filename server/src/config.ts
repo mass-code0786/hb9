@@ -24,6 +24,12 @@ const hbTreasuryDepositAddress = process.env.BSC_TREASURY_WALLET || process.env.
 const hbRegistrationTreasuryWallet = process.env.HB9_TREASURY_WALLET || hbTreasuryDepositAddress;
 const hbWithdrawalVaultAddress = process.env.HB_WITHDRAWAL_VAULT_ADDRESS || process.env.HB_WITHDRAWAL_TREASURY_ADDRESS || "";
 const defaultHbOnchainIndexerBlockStep = process.env.NODE_ENV === "production" ? 100 : 500;
+const bscRpcUrls = [
+  process.env.BSC_MAINNET_RPC_URL,
+  process.env.BSC_RPC_URL,
+  "https://bsc-mainnet.public.blastapi.io",
+  "https://bsc-dataseed1.binance.org"
+].map((item) => (item || "").trim()).filter((item, index, list) => item && list.indexOf(item) === index);
 
 if (process.env.NODE_ENV === "production") {
   if (!process.env.ADMIN_SESSION_SECRET || rawAdminSessionSecret === defaultAdminSessionSecret) {
@@ -51,7 +57,8 @@ export const config = {
   hb9TreasuryWallet: hbRegistrationTreasuryWallet,
   hb9BnbUsdPrice: Number(process.env.HB9_BNB_USD_PRICE || process.env.BNB_USD_PRICE || 600),
   usdtBep20Contract: process.env.HB9_USDT_BEP20_ADDRESS || process.env.USDT_TOKEN_ADDRESS || process.env.NEXT_PUBLIC_USDT_TOKEN_ADDRESS || process.env.USDT_BEP20_CONTRACT || process.env.NEXT_PUBLIC_USDT_BEP20_ADDRESS || usdtBep20MainnetAddress,
-  bscRpcUrl: process.env.BSC_MAINNET_RPC_URL || process.env.BSC_RPC_URL || process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bsc-dataseed.binance.org",
+  bscRpcUrl: bscRpcUrls[0] || process.env.NEXT_PUBLIC_BSC_RPC_URL || "https://bsc-dataseed1.binance.org",
+  bscRpcUrls: bscRpcUrls.length ? bscRpcUrls : ["https://bsc-mainnet.public.blastapi.io", "https://bsc-dataseed1.binance.org"],
   ethRpcUrl: process.env.ETH_RPC_URL || process.env.NEXT_PUBLIC_ETH_RPC_URL || "",
   polygonRpcUrl: process.env.POLYGON_RPC_URL || process.env.NEXT_PUBLIC_POLYGON_RPC_URL || "",
   rechargeWebhookSecret: process.env.RECHARGE_WEBHOOK_SECRET || "",

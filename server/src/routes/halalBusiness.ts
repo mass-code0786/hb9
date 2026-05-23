@@ -11,7 +11,7 @@ import { config } from "../config.js";
 import { pool, query } from "../db/pool.js";
 import { asyncHandler, fail, ok } from "../http.js";
 import { logger } from "../logger.js";
-import { VerificationError, verifyBlockchainTransaction, type BlockchainVerification } from "../services/blockchainVerifier.js";
+import { VerificationError, verifyBlockchainTransaction, type BlockchainVerification, type VerificationDiagnostics } from "../services/blockchainVerifier.js";
 import { distributePackagePurchase } from "../services/halalBusiness/hbDistributionService.js";
 import { getHbCoinPrice, getHbCoinPrices, hbCoinName, hbCoinSymbols, hbNonUsdtCoinSymbols, normalizeHbCoinSymbol, type HbCoinSymbol } from "../services/halalBusiness/hbCoinPriceService.js";
 import { applyIncomeCap, getIncomeCapSummary } from "../services/halalBusiness/hbIncomeCapService.js";
@@ -1289,7 +1289,7 @@ async function getWalletSummary(userId: string) {
     getBalance(userId, "deposit"),
     getBalance(userId, "income"),
     query<{ total: string; count: number }>(
-      "select coalesce(sum(usd_amount),0)::text as total, count(*)::int as count from hb_deposits where user_id = $1 and status = 'pending'",
+      "select coalesce(sum(usd_amount),0)::text as total, count(*)::int as count from hb_deposits where user_id = $1 and status in ('pending','pending_verification')",
       [userId]
     ),
     query<{ total: string; count: number }>(
@@ -1521,6 +1521,25 @@ async function getExpectedDepositAddress(userId: string, requestedAddress?: stri
 function publicVerificationError(err: unknown) {
   if (err instanceof VerificationError) return { message: err.publicReason, status: err.statusCode };
   return { message: "Blockchain verification failed. Try again later or contact support.", status: 400 };
+}
+
+function verificationDiagnostics(err: unknown, fallback: Partial<VerificationDiagnostics> = {}) {
+  if (err instanceof VerificationError) return err.diagnostics;
+  return {
+    txHash: fallback.txHash || "",
+    chainId: fallback.chainId || BSC_MAINNET_CHAIN_ID,
+    expectedSender: fallback.expectedSender ?? null,
+    actualSender: fallback.actualSender ?? null,
+    expectedTreasury: fallback.expectedTreasury ?? null,
+    actualReceiver: fallback.actualReceiver ?? null,
+    expectedTokenContract: fallback.expectedTokenContract ?? CONFIGURED_USDT_BEP20_ADDRESS,
+    actualTokenContract: fallback.actualTokenContract ?? null,
+    expectedAmount: fallback.expectedAmount || "0",
+    actualAmount: fallback.actualAmount ?? null,
+    rpcUrlUsed: fallback.rpcUrlUsed ?? null,
+    confirmations: fallback.confirmations || 0,
+    failureReason: fallback.failureReason || "Blockchain verification failed. Try again later or contact support."
+  };
 }
 
 function failedDepositStatus(message: string) {
@@ -2507,7 +2526,7 @@ hbRouter.get("/hb/wallet", requireHbUser, asyncHandler(async (req, res) => {
   const usdtBalance = coinBalances.find((item) => item.coin_symbol === "USDT")?.balance || "0";
   const [pendingDeposits, verifiedDeposits, purchased, pendingWithdrawals] = await Promise.all([
     query<{ total: string; count: number }>(
-      "select coalesce(sum(usd_amount),0)::text as total, count(*)::int as count from hb_deposits where user_id = $1 and status = 'pending'",
+      "select coalesce(sum(usd_amount),0)::text as total, count(*)::int as count from hb_deposits where user_id = $1 and status in ('pending','pending_verification')",
       [req.hbUser!.userId]
     ),
     query<{ total: string; count: number }>(
@@ -2883,8 +2902,16 @@ async function verifyExistingHbDeposit(req: Request, res: Response) {
       wallet_address: string | null;
       status: string;
       ledger_entry_id: string | null;
+      user_wallet_address: string | null;
+      user_usdt_bep20_address: string | null;
+      user_hb9_wallet_address: string | null;
     }>(
-      "select id, user_id, usd_amount::text, wallet_address, status, ledger_entry_id from hb_deposits where id = $1 and user_id = $2 for update",
+      `select d.id, d.user_id, d.usd_amount::text, d.wallet_address, d.status, d.ledger_entry_id,
+              u.wallet_address as user_wallet_address, u.usdt_bep20_address as user_usdt_bep20_address, u.hb9_wallet_address as user_hb9_wallet_address
+       from hb_deposits d
+       join hb_users u on u.id = d.user_id
+       where d.id = $1 and d.user_id = $2
+       for update of d`,
       [depositId, userId]
     );
     const deposit = locked.rows[0];
@@ -2919,30 +2946,50 @@ async function verifyExistingHbDeposit(req: Request, res: Response) {
     await client.query("commit");
 
     let verification: BlockchainVerification;
+    const expectedSender = [deposit.user_usdt_bep20_address, deposit.user_hb9_wallet_address, deposit.user_wallet_address]
+      .find((value) => value && isAddress(value)) || "";
     try {
       verification = await verifyBlockchainTransaction({
         txHash,
         network: "bsc",
         tokenSymbol: "USDT",
         requiredAmount: Number(deposit.usd_amount),
-        expectedRecipient: deposit.wallet_address
+        expectedRecipient: deposit.wallet_address,
+        expectedSender
       });
     } catch (err) {
       const publicError = publicVerificationError(err);
-      const nextStatus = err instanceof VerificationError && err.publicReason === "Transaction does not have enough confirmations yet." ? "pending" : "failed";
-      console.error("HB9_DEPOSIT_VALIDATION_FAILED", publicError.message, { depositId, userId, txHash, status: nextStatus });
-      logger.warn("hb.deposit.verification_failed", { txHash, userId, depositId, status: nextStatus, reason: publicError.message });
+      const diagnostics = verificationDiagnostics(err, {
+        txHash,
+        chainId: BSC_MAINNET_CHAIN_ID,
+        expectedSender: expectedSender || null,
+        expectedTreasury: deposit.wallet_address,
+        expectedTokenContract: CONFIGURED_USDT_BEP20_ADDRESS,
+        expectedAmount: deposit.usd_amount,
+        failureReason: publicError.message
+      });
+      const retryable = err instanceof VerificationError && err.retryable;
+      const nextStatus = retryable ? "pending_verification" : "failed";
+      const nextVerificationStatus = retryable ? "pending" : "failed";
+      console.error("HB9_DEPOSIT_VALIDATION_FAILED", publicError.message, { ...diagnostics, depositId, userId, status: nextStatus });
+      logger.warn("hb.deposit.verification_failed", { ...diagnostics, userId, depositId, status: nextStatus, reason: publicError.message });
       await query(
         `update hb_deposits
-         set status = $2, verification_status = $3, failure_reason = $4, updated_at = now()
+         set status = $2, verification_status = $3, failure_reason = $4,
+             chain_id = coalesce($5, chain_id),
+             from_address = coalesce($6, from_address),
+             to_address = coalesce($7, to_address),
+             confirmations = coalesce($8, confirmations),
+             updated_at = now()
          where id = $1`,
-        [depositId, nextStatus, nextStatus === "pending" ? "pending" : "failed", publicError.message]
+        [depositId, nextStatus, nextVerificationStatus, publicError.message, diagnostics.chainId || null, diagnostics.actualSender, diagnostics.actualReceiver, diagnostics.confirmations || null]
       );
       const rows = await query<Record<string, unknown>>("select * from hb_deposits where id = $1", [depositId]);
-      if (nextStatus === "pending") {
-        ok(res, depositResponse(rows[0]), "Deposit submitted and awaiting confirmations", 202);
+      const response = { ...depositResponse(rows[0]), diagnostics, ...diagnostics };
+      if (retryable) {
+        ok(res, response, "Deposit submitted and pending verification retry", 202);
       } else {
-        fail(res, publicError.message, publicError.status, "Deposit verification failed");
+        res.status(publicError.status).json({ success: false, data: response, message: "Deposit verification failed", error: publicError.message });
       }
       return;
     }
@@ -3003,8 +3050,8 @@ async function verifyExistingHbDeposit(req: Request, res: Response) {
       creditClient.release();
     }
     const rows = await query<Record<string, unknown>>("select * from hb_deposits where id = $1", [depositId]);
-    logger.info("hb.deposit.credited", { txHash, userId, depositId, amountUsd: deposit.usd_amount });
-    ok(res, depositResponse(rows[0]), "Deposit verified and credited", 201);
+    logger.info("hb.deposit.credited", { userId, depositId, amountUsd: deposit.usd_amount, ...verification.diagnostics });
+    ok(res, { ...depositResponse(rows[0]), diagnostics: verification.diagnostics, ...verification.diagnostics }, "Deposit verified and credited", 201);
   } catch (err) {
     try {
       await client.query("rollback");
@@ -4653,11 +4700,11 @@ hbRouter.get("/admin/hb/deposits", requireAdmin, asyncHandler(async (req, res) =
        limit 100`
     ).catch(() => []),
     query(
-      `select count(*) filter (where status = 'pending')::int as pending_deposits,
+      `select count(*) filter (where status in ('pending','pending_verification'))::int as pending_deposits,
               count(*) filter (where status = 'failed')::int as failed_deposits,
               count(*) filter (where status = 'rejected')::int as rejected_deposits,
               count(*) filter (where status = 'verified')::int as verified_deposits,
-              coalesce(sum(usd_amount) filter (where status = 'pending'),0)::text as pending_amount,
+              coalesce(sum(usd_amount) filter (where status in ('pending','pending_verification')),0)::text as pending_amount,
               coalesce(sum(usd_amount) filter (where status = 'verified'),0)::text as verified_amount
        from hb_deposits`
     ).catch(() => []),
@@ -4676,7 +4723,7 @@ hbRouter.get("/admin/hb/summary", requireAdmin, asyncHandler(async (_req, res) =
   const deposits = await query(
     `select coalesce(sum(usd_amount),0)::text as total_deposits,
             count(*) filter (where status = 'verified')::int as verified_deposits,
-            count(*) filter (where status = 'pending')::int as pending_deposits
+            count(*) filter (where status in ('pending','pending_verification'))::int as pending_deposits
      from hb_deposits`
   );
   const sales = await query("select coalesce(sum(amount_usd),0)::text as total_package_sales from hb_package_purchases where status = 'completed'");
