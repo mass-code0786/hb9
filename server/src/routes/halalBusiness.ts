@@ -113,7 +113,7 @@ const depositCreateSchema = z.preprocess((raw) => {
   asset: z.literal("USDT").default("USDT"),
   token: z.literal("USDT").default("USDT"),
   network: z.literal("bsc").default("bsc"),
-  chainId: z.literal(BSC_MAINNET_CHAIN_ID).default(BSC_MAINNET_CHAIN_ID),
+  chainId: z.coerce.number().refine((value) => value === BSC_MAINNET_CHAIN_ID, `Chain id must be ${BSC_MAINNET_CHAIN_ID}.`).default(BSC_MAINNET_CHAIN_ID),
   tokenAddress: z.preprocess(
     (value) => value === undefined || value === null || value === "" ? CONFIGURED_USDT_BEP20_ADDRESS : value,
     z.string()
@@ -124,7 +124,10 @@ const depositCreateSchema = z.preprocess((raw) => {
   ),
   walletAddress: z.string().trim().min(10).max(128).optional().or(z.literal("")),
   treasuryWallet: z.string().trim().min(10).max(128).optional().or(z.literal("")),
-  txHash: z.string().trim().regex(/^(0x)?[a-zA-Z0-9]{12,128}$/).optional().or(z.literal("")),
+  txHash: z.preprocess(
+    (value) => value === undefined || value === null || value === "" ? undefined : value,
+    z.string().trim().regex(/^(0x)?[a-zA-Z0-9]{12,128}$/).optional()
+  ),
   idempotencyKey: z.string().trim().min(12).max(120).optional()
 }));
 
@@ -172,6 +175,15 @@ function depositResponse(deposit: Record<string, unknown>) {
     ...deposit,
     depositId: deposit.id,
     status: deposit.status,
+    amount: deposit.amount ?? deposit.usd_amount,
+    treasuryWallet: deposit.wallet_address
+  };
+}
+
+function pendingDepositCreateResponse(deposit: Record<string, unknown>) {
+  return {
+    depositId: deposit.id,
+    status: "pending",
     amount: deposit.amount ?? deposit.usd_amount,
     treasuryWallet: deposit.wallet_address
   };
@@ -2717,7 +2729,7 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
       );
       await client.query("commit");
       await audit(userId, "hb.deposit.session.create", "hb_deposit", String((depositRows.rows[0] as any)?.id || ""), { amountUsd: parsed.data.amountUsd, walletAddress: expectedAddress, network: "bsc", token: "USDT" });
-      ok(res, depositResponse(depositRows.rows[0]), "Deposit session created", 201);
+      ok(res, pendingDepositCreateResponse(depositRows.rows[0]), "Deposit request created", 201);
       return;
     }
   } catch (err) {
