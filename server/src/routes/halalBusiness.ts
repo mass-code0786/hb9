@@ -1421,11 +1421,12 @@ async function txHashAlreadyUsed(txHash: string, excludeDepositId?: string) {
 async function getExpectedDepositAddress(userId: string, requestedAddress?: string) {
   void userId;
   void requestedAddress;
-  if (config.hbTreasuryDepositAddress) return config.hbTreasuryDepositAddress;
+  if (config.hbTreasuryDepositAddress && isAddress(config.hbTreasuryDepositAddress)) return getAddress(config.hbTreasuryDepositAddress);
   const treasuryRows = await query<{ wallet_address: string | null }>(
     "select wallet_address from hb_treasury_settings where key = 'treasury_usdt_bep20_address' and wallet_address is not null limit 1"
   ).catch(() => []);
-  return treasuryRows[0]?.wallet_address || "";
+  const dbWallet = treasuryRows[0]?.wallet_address || "";
+  return dbWallet && isAddress(dbWallet) ? getAddress(dbWallet) : "";
 }
 
 function publicVerificationError(err: unknown) {
@@ -2587,25 +2588,35 @@ async function createAndVerifyHbDeposit(req: Request, res: Response) {
     fail(res, "Minimum deposit is $4", 400, "Deposit minimum not met");
     return;
   }
-  if (!parsed.data.txHash) {
-    fail(res, "Deposit transaction hash is required.", 400, "Deposit transaction required");
-    return;
-  }
   const userId = req.hbUser!.userId;
   const expectedAddress = await getExpectedDepositAddress(userId, parsed.data.walletAddress || undefined);
   if (!isValidBep20Address(expectedAddress)) {
-    fail(res, "Company receiving wallet is not configured for this network.", 503, "Deposit provider not configured");
+    fail(res, "Treasury wallet not configured", 503, "Deposit provider not configured");
     return;
   }
-  const idempotencyKey = parsed.data.idempotencyKey || `hb:deposit:${userId}:${parsed.data.txHash.toLowerCase()}`;
+  const idempotencyKey = parsed.data.idempotencyKey || `hb:deposit:${userId}:${parsed.data.txHash ? parsed.data.txHash.toLowerCase() : crypto.randomUUID()}`;
   const client = await pool.connect();
   try {
     await client.query("begin");
-    await client.query("select pg_advisory_xact_lock(hashtext($1))", [`deposit:${parsed.data.txHash.toLowerCase()}`]);
+    await client.query("select pg_advisory_xact_lock(hashtext($1))", [parsed.data.txHash ? `deposit:${parsed.data.txHash.toLowerCase()}` : idempotencyKey]);
     const existingByIdempotency = await client.query("select * from hb_deposits where user_id = $1 and idempotency_key = $2 limit 1", [userId, idempotencyKey]);
     if (existingByIdempotency.rows[0]) {
       await client.query("commit");
       ok(res, existingByIdempotency.rows[0], "Deposit already exists");
+      return;
+    }
+    if (!parsed.data.txHash) {
+      const depositRows = await client.query(
+        `insert into hb_deposits
+          (user_id, wallet_address, network, asset, amount, usd_amount, tx_hash, status, verification_status,
+           idempotency_key, provider, payment_status)
+         values ($1,$2,'bsc','USDT',$3,$3,null,'pending','pending',$4,'manual_bsc','awaiting_payment')
+         returning *`,
+        [userId, expectedAddress, parsed.data.amountUsd, idempotencyKey]
+      );
+      await client.query("commit");
+      await audit(userId, "hb.deposit.session.create", "hb_deposit", String((depositRows.rows[0] as any)?.id || ""), { amountUsd: parsed.data.amountUsd, walletAddress: expectedAddress, network: "bsc", token: "USDT" });
+      ok(res, depositRows.rows[0], "Deposit session created", 201);
       return;
     }
     const duplicateTx = await client.query("select id, user_id, status from hb_deposits where lower(tx_hash) = lower($1) limit 1", [parsed.data.txHash]);
