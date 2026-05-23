@@ -16,6 +16,7 @@ import { distributePackagePurchase } from "../services/halalBusiness/hbDistribut
 import { getHbCoinPrice, getHbCoinPrices, hbCoinName, hbCoinSymbols, hbNonUsdtCoinSymbols, normalizeHbCoinSymbol, type HbCoinSymbol } from "../services/halalBusiness/hbCoinPriceService.js";
 import { applyIncomeCap, getIncomeCapSummary } from "../services/halalBusiness/hbIncomeCapService.js";
 import { createLedgerProof, verifyLedgerProofChain, verifyLedgerProofReference } from "../services/halalBusiness/hbLedgerProofService.js";
+import { getHbDepositIndexerHealth } from "../services/halalBusiness/hbDepositIndexerService.js";
 import { getHbOnchainSyncHealth, syncHbOnchainRange } from "../services/halalBusiness/hbOnchainIndexerService.js";
 import { evaluateSalaryIncome, evaluateSalaryIncomeForPurchase } from "../services/halalBusiness/hbSalaryIncomeService.js";
 import { evaluateAllPendingSingleLegRewards, getSingleLegProgress, placeAndEvaluateSingleLegForPurchase } from "../services/halalBusiness/hbSingleLegService.js";
@@ -2302,8 +2303,9 @@ hbRouter.get("/hb/products/:slug", asyncHandler(async (req, res) => {
 hbRouter.get("/hb/wallet", requireHbUser, asyncHandler(async (req, res) => {
   const wallets = await query("select id, network, wallet_address, wallet_type, is_primary, created_at from hb_wallets where user_id = $1 order by created_at", [req.hbUser!.userId]);
   const deposits = await query(
-    `select id, network, asset, amount, usd_amount, tx_hash, wallet_address, status, verification_status, failure_reason, created_at, verified_at,
-            provider, payment_id, pay_address, pay_currency, price_amount, pay_amount, payment_status, payment_invoice_url
+    `select id, network, asset, amount, usd_amount, coalesce(tx_hash, onchain_tx_hash) as tx_hash, wallet_address, status, verification_status, failure_reason, created_at, verified_at,
+            provider, payment_id, pay_address, pay_currency, price_amount, pay_amount, payment_status, payment_invoice_url,
+            chain_id, from_address, to_address, confirmations, onchain_status, credited_at
      from hb_deposits
      where user_id = $1
      order by created_at desc
@@ -2557,9 +2559,9 @@ hbRouter.post("/hb/deposits/nowpayments/ipn", asyncHandler(async (req, res) => {
 
 hbRouter.get("/hb/deposits", requireHbUser, asyncHandler(async (req, res) => {
   const rows = await query(
-    `select id, network, asset, amount, usd_amount, tx_hash, wallet_address, status, verification_status, failure_reason,
+    `select id, network, asset, amount, usd_amount, coalesce(tx_hash, onchain_tx_hash) as tx_hash, wallet_address, status, verification_status, failure_reason,
             created_at, verified_at, credited_at, provider, payment_id, pay_address, pay_currency, price_amount, pay_amount,
-            payment_status, payment_invoice_url
+            payment_status, payment_invoice_url, chain_id, from_address, to_address, confirmations, onchain_status
      from hb_deposits
      where user_id = $1
      order by created_at desc
@@ -4373,7 +4375,9 @@ hbRouter.get("/admin/hb/deposits", requireAdmin, asyncHandler(async (req, res) =
   const status = typeof req.query.status === "string" ? req.query.status : "";
   const rows = await query(
     `select d.id, d.user_id, u.email, u.display_name, d.wallet_address, d.network, d.asset, d.usd_amount,
-            d.tx_hash, d.status, d.verification_status, d.failure_reason, d.created_at, d.verified_at
+            coalesce(d.tx_hash, d.onchain_tx_hash) as tx_hash, d.status, d.verification_status, d.payment_status,
+            d.failure_reason, d.created_at, d.verified_at, d.credited_at, d.chain_id, d.from_address, d.to_address,
+            d.confirmations, d.onchain_status
      from hb_deposits d
      join hb_users u on u.id = d.user_id
      where ($1::text = '' or d.status = $1)
@@ -4381,7 +4385,26 @@ hbRouter.get("/admin/hb/deposits", requireAdmin, asyncHandler(async (req, res) =
      limit 200`,
     [status]
   );
-  ok(res, { items: rows }, "HB9 deposits loaded");
+  const [eventRows, summaryRows, indexerHealth] = await Promise.all([
+    query(
+      `select event_id, tx_hash, log_index, block_number, token_address, from_address, to_address,
+              amount_usd::text, status, deposit_id, error, created_at, updated_at
+       from hb_deposit_event_logs
+       order by created_at desc
+       limit 100`
+    ).catch(() => []),
+    query(
+      `select count(*) filter (where status = 'pending')::int as pending_deposits,
+              count(*) filter (where status = 'failed')::int as failed_deposits,
+              count(*) filter (where status = 'rejected')::int as rejected_deposits,
+              count(*) filter (where status = 'verified')::int as verified_deposits,
+              coalesce(sum(usd_amount) filter (where status = 'pending'),0)::text as pending_amount,
+              coalesce(sum(usd_amount) filter (where status = 'verified'),0)::text as verified_amount
+       from hb_deposits`
+    ).catch(() => []),
+    getHbDepositIndexerHealth().catch((error) => ({ enabled: false, configReady: false, error: error instanceof Error ? error.message : "Deposit indexer health failed" }))
+  ]);
+  ok(res, { items: rows, events: eventRows, summary: summaryRows[0] || {}, indexerHealth }, "HB9 deposits loaded");
 }));
 
 hbRouter.get("/admin/hb/summary", requireAdmin, asyncHandler(async (_req, res) => {

@@ -38,6 +38,7 @@ import {
   saveHbToken,
   trackHbOnchainPurchase,
   type HbCoinBalance,
+  type HbDeposit,
   type HbIncome,
   type HbMyProductsDelivery,
   type HbOnchainPackageConfig,
@@ -136,6 +137,11 @@ function txUrl(config: HbOnchainPackageConfig, txHash: string) {
   return `${(config.explorerBaseUrl || "https://bscscan.com").replace(/\/$/, "")}/tx/${txHash}`;
 }
 
+function resolveClientTreasuryWallet(apiWallet?: string | null) {
+  const configured = apiWallet || process.env.NEXT_PUBLIC_BSC_TREASURY_WALLET || process.env.NEXT_PUBLIC_COMPANY_RECEIVING_WALLET_BSC || "";
+  return /^0x[a-fA-F0-9]{40}$/.test(configured) ? configured : "";
+}
+
 function onchainPackageIdForProduct(product: HbProduct) {
   return PACKAGE_AMOUNT_TO_ONCHAIN_ID[Number(product.package_price)] || null;
 }
@@ -199,6 +205,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   const [onchainConfig, setOnchainConfig] = useState<HbOnchainPackageConfig | null>(null);
   const [walletData, setWalletData] = useState({
     depositAddress: "",
+    deposits: [] as HbDeposit[],
     balances: { deposit: "0", income: "0" },
     pendingWithdrawals: { total: "0", count: 0 },
     verifiedDeposits: { total: "0", count: 0 },
@@ -224,6 +231,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   const dashboardUser = user || createHbDevDashboardUser(getHbDevWallet());
   const dashboardProducts = products;
   const boundWallet = dashboardUser.usdt_bep20_address || dashboardUser.hb9_wallet_address || dashboardUser.wallet_address || walletData.depositAddress || "";
+  const treasuryDepositAddress = useMemo(() => resolveClientTreasuryWallet(walletData.depositAddress), [walletData.depositAddress]);
   const totalBalance = Number(walletData.balances.deposit || 0) + Number(walletData.balances.income || 0);
   const orderedProducts = useMemo(() => [...products].sort((a, b) => Number(a.package_price) - Number(b.package_price)), [products]);
   const completePackageProducts = useMemo(() => {
@@ -286,6 +294,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       });
       setWalletData({
         depositAddress: getHbDevWallet(),
+        deposits: [],
         balances: { deposit: "0", income: "0" },
         pendingWithdrawals: { total: "0", count: 0 },
         verifiedDeposits: { total: "0", count: 0 },
@@ -374,6 +383,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       setOnchainConfig(config);
       setWalletData({
         depositAddress: wallet.depositAddress,
+        deposits: wallet.deposits,
         balances: wallet.balances,
         pendingWithdrawals: wallet.pendingWithdrawals,
         verifiedDeposits: wallet.verifiedDeposits,
@@ -460,7 +470,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       setNotice("Minimum deposit is $4");
       return false;
     }
-    const receiveAddress = walletData.depositAddress;
+    const receiveAddress = treasuryDepositAddress;
     if (!/^0x[a-fA-F0-9]{40}$/.test(receiveAddress || "")) {
       setError("Treasury wallet not configured");
       return false;
@@ -767,7 +777,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         {!loading && activeTab === "packages" ? <AllPackagesScreen products={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openBuyFlow} onBack={() => setActiveTab("home")} /> : null}
         {!loading && activeTab === "team" ? <TeamScreen user={dashboardUser} summary={referralSummary} /> : null}
         {!loading && activeTab === "income" ? <IncomeScreen income={income} singleLegReserve={singleLegReserve} singleLegProgress={singleLegProgress} summary={incomeSummary} availableBalance={walletData.balances.income} totalWithdrawn={withdrawals.filter((item) => item.status === "paid").reduce((sum, item) => sum + Number(item.amount_usd || 0), 0)} /> : null}
-        {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={walletData.depositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} onInstruction={playAssistant} onModalChange={setActiveWalletModal} /> : null}
+        {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} deposits={walletData.deposits} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={treasuryDepositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} onRefresh={() => token ? refresh(token) : Promise.resolve()} onInstruction={playAssistant} onModalChange={setActiveWalletModal} /> : null}
       </div>
 
       {activeWalletModal !== "deposit" ? <BottomNavigation activeTab={activeTab} onChange={handleTabChange} /> : null}
@@ -1071,11 +1081,12 @@ function StatusBadgeMini({ status }: { status: "Completed" | "In Progress" | "Pe
   return <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${cls}`}>{status}</span>;
 }
 
-function WalletScreen({ walletBalance, balances, withdrawals, activity, boundWallet, depositAddress, coins, convertingCoin, walletActionBusy, onConvert, onDeposit, onWithdraw, onInstruction, onModalChange }: { walletBalance: number; balances: { deposit: string; income: string }; withdrawals: HbWithdrawal[]; activity: HbWalletActivity[]; boundWallet: string; depositAddress: string; coins: HbCoinBalance[]; convertingCoin: string; walletActionBusy: string; onConvert: (coinSymbol: string, usdValue?: number) => void; onDeposit: (amountUsd: number) => Promise<boolean>; onWithdraw: (amountUsd: number, walletAddress: string) => Promise<void>; onInstruction: (script: HB9VoiceScript) => void; onModalChange: (modal: "deposit" | "withdraw" | null) => void }) {
+function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity, boundWallet, depositAddress, coins, convertingCoin, walletActionBusy, onConvert, onDeposit, onWithdraw, onRefresh, onInstruction, onModalChange }: { walletBalance: number; balances: { deposit: string; income: string }; deposits: HbDeposit[]; withdrawals: HbWithdrawal[]; activity: HbWalletActivity[]; boundWallet: string; depositAddress: string; coins: HbCoinBalance[]; convertingCoin: string; walletActionBusy: string; onConvert: (coinSymbol: string, usdValue?: number) => void; onDeposit: (amountUsd: number) => Promise<boolean>; onWithdraw: (amountUsd: number, walletAddress: string) => Promise<void>; onRefresh: () => Promise<void>; onInstruction: (script: HB9VoiceScript) => void; onModalChange: (modal: "deposit" | "withdraw" | null) => void }) {
   const [walletModal, setWalletModal] = useState<"deposit" | "withdraw" | null>(null);
   const [depositAmount, setDepositAmount] = useState("");
   const [depositSessionCreated, setDepositSessionCreated] = useState(false);
   const [depositCopied, setDepositCopied] = useState(false);
+  const [confirmedDepositId, setConfirmedDepositId] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawWallet, setWithdrawWallet] = useState(boundWallet || "");
   const depositValue = Number(depositAmount || 0);
@@ -1083,10 +1094,32 @@ function WalletScreen({ walletBalance, balances, withdrawals, activity, boundWal
   const withdrawValue = Number(withdrawAmount || 0);
   const withdrawFee = Number((withdrawValue * 0.1).toFixed(8));
   const withdrawNet = Math.max(0, Number((withdrawValue - withdrawFee).toFixed(8)));
+  const recentDeposits = deposits.slice(0, 4);
+  const activeDepositWatch = walletModal === "deposit" && deposits.some((item) => item.status === "pending");
+  const latestConfirmedDeposit = recentDeposits.find((item) => item.status === "verified" && item.credited_at);
   useEffect(() => {
     onModalChange(walletModal);
     return () => onModalChange(null);
   }, [onModalChange, walletModal]);
+  useEffect(() => {
+    if (!activeDepositWatch) return;
+    let cancelled = false;
+    const id = window.setInterval(() => {
+      if (!cancelled) onRefresh().catch(() => undefined);
+    }, 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [activeDepositWatch, onRefresh]);
+  useEffect(() => {
+    if (!depositSessionCreated) return;
+    const confirmed = deposits.find((item) => item.status === "verified" && item.credited_at);
+    if (confirmed?.id && confirmed.id !== confirmedDepositId) {
+      setConfirmedDepositId(confirmed.id);
+      onRefresh().catch(() => undefined);
+    }
+  }, [confirmedDepositId, depositSessionCreated, deposits, onRefresh]);
   return (
     <div className="space-y-3">
       <section className="relative overflow-hidden rounded-[22px] border border-cyan-300/10 bg-gradient-to-br from-[#071120] to-[#0d1d35] p-4 shadow-[0_0_20px_rgba(0,200,255,0.1),inset_0_1px_0_rgba(255,255,255,0.065),inset_0_-18px_44px_rgba(0,123,255,0.07)]">
@@ -1131,6 +1164,11 @@ function WalletScreen({ walletBalance, balances, withdrawals, activity, boundWal
             <input className="mt-1 w-full rounded-2xl border border-cyan-200/12 bg-[#020817] px-3 py-3 text-sm font-bold outline-none focus:border-cyan-300/45" inputMode="decimal" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} placeholder="4.00" />
             {depositValue > 0 && depositValue < 4 ? <p className="mt-2 text-xs font-semibold text-red-200">Minimum deposit is $4</p> : null}
             {depositSessionCreated ? <p className="mt-3 rounded-2xl border border-cyan-300/25 bg-cyan-300/10 p-3 text-xs font-semibold leading-5 text-cyan-100">Pending deposit request created. Send the exact USDT BEP20 amount to the treasury wallet above, then wait for BSC Mainnet confirmation.</p> : null}
+            {latestConfirmedDeposit ? <p className="mt-3 rounded-2xl border border-emerald-300/25 bg-emerald-300/10 p-3 text-xs font-black leading-5 text-emerald-100">Deposit confirmed and credited to your main wallet.</p> : null}
+            {recentDeposits.length ? <div className="mt-3 space-y-2 rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 p-3">
+              <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-[0.14em] text-sky-100/50"><span>Realtime deposit status</span><RefreshCw className={activeDepositWatch ? "animate-spin text-cyan-100" : "text-sky-100/45"} size={13} /></div>
+              {recentDeposits.map((item) => <DepositStatusRow key={item.id} item={item} />)}
+            </div> : null}
             </div>
             <button className="hb-interactive hb-glow-cyan w-full rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-black text-[#031326] disabled:cursor-wait disabled:opacity-70" disabled={walletActionBusy === "deposit"} onClick={async () => { const submitted = await onDeposit(depositValue); if (submitted) setDepositSessionCreated(true); }} type="button">{walletActionBusy === "deposit" ? "Creating request..." : depositSessionCreated ? "Create Another Deposit Request" : "Submit Deposit"}</button>
           </div>
@@ -1168,6 +1206,31 @@ function WalletActionModal({ title, children, onClose, panelClassName = "", body
           <button className="rounded-xl border border-cyan-200/12 px-3 py-2 text-xs font-black text-cyan-100" onClick={onClose} type="button">Close</button>
         </div>
         <div className={`mt-3 ${bodyClassName}`}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function depositStatusLabel(item: HbDeposit) {
+  if (item.status === "verified") return "Confirmed";
+  if (item.status === "failed" || item.status === "rejected") return "Failed";
+  if (item.payment_status === "verifying" || item.onchain_status === "confirming" || item.tx_hash) return "Verifying";
+  return "Pending";
+}
+
+function DepositStatusRow({ item }: { item: HbDeposit }) {
+  const label = depositStatusLabel(item);
+  const tone = label === "Confirmed" ? "border-emerald-300/25 bg-emerald-300/12 text-emerald-100" : label === "Failed" ? "border-red-300/25 bg-red-400/10 text-red-100" : label === "Verifying" ? "border-cyan-300/25 bg-cyan-300/12 text-cyan-100" : "border-slate-300/15 bg-slate-300/10 text-slate-200";
+  const confirmations = item.confirmations ? `${item.confirmations} conf` : "waiting";
+  return (
+    <div className="rounded-xl border border-white/10 bg-[#020817]/72 p-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-black text-white">{money(item.usd_amount)}</span>
+        <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${tone}`}>{label}</span>
+      </div>
+      <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-sky-100/55">
+        <span>{item.tx_hash ? shortAddress(item.tx_hash) : "Awaiting transfer"}</span>
+        <span>{label === "Confirmed" ? "credited" : confirmations}</span>
       </div>
     </div>
   );

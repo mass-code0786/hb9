@@ -510,20 +510,41 @@ function HbAdminPage({ page, data, token, query }: { page: AdminPage; data: Reco
   }
 
   if (page === "hb-deposits") {
+    const summary = (data.summary && typeof data.summary === "object" ? data.summary : {}) as Record<string, unknown>;
+    const indexerHealth = (data.indexerHealth && typeof data.indexerHealth === "object" ? data.indexerHealth : {}) as Record<string, unknown>;
+    const events = Array.isArray(data.events) ? data.events as Array<Record<string, unknown>> : [];
     return (
-      <Panel title="HB9 deposits">
-        <AdminTable headers={["Deposit", "User", "Wallet", "Tx hash", "Amount", "Network", "Status", "Created", "Actions"]}>
-          {filtered.map((row) => (
-            <tr key={compact(row.id)}>
-              <Td>{compact(row.id)}</Td><Td>{compact(row.email || row.display_name)}</Td><Td>{compact(row.wallet_address)}</Td><Td>{compact(row.tx_hash)}</Td><Td>{money(row.usd_amount)} {compact(row.asset)}</Td><Td>{compact(row.network)}</Td><Td><Badge value={compact(row.status)} /></Td><Td>{formatDate(row.created_at)}</Td>
-              <Td>
-                <ExplorerButton type="tx" value={String(row.tx_hash || "")} compact />
-                {row.status !== "verified" ? <button className="rounded-lg bg-danger/20 px-2 py-1 text-xs text-red-100" onClick={() => patch(`/admin/hb/deposits/${row.id}`, { status: "rejected", failureReason: "Rejected by admin review", adminRemark: "Rejected from admin panel" })} type="button">Reject</button> : null}
-              </Td>
-            </tr>
-          ))}
-        </AdminTable>
-      </Panel>
+      <div className="grid gap-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <Metric title="Pending deposits" value={compact(summary.pending_deposits || 0)} tone="accent" />
+          <Metric title="Failed deposits" value={compact(Number(summary.failed_deposits || 0) + Number(summary.rejected_deposits || 0))} tone="danger" />
+          <Metric title="Verified deposits" value={compact(summary.verified_deposits || 0)} tone="mint" />
+          <Metric title="Deposit indexer" value={indexerHealth.enabled ? indexerHealth.configReady ? "running" : "config missing" : "disabled"} tone={indexerHealth.enabled && indexerHealth.configReady ? "mint" : "danger"} />
+          <Metric title="RPC status" value={indexerHealth.rpcHealthy ? "healthy" : "offline"} tone={indexerHealth.rpcHealthy ? "mint" : "danger"} />
+        </div>
+        <Panel title="HB9 deposits">
+          <AdminTable headers={["Deposit", "User", "Sender", "Tx hash", "Amount", "Network", "Status", "Verification", "Created", "Actions"]}>
+            {filtered.map((row) => (
+              <tr key={compact(row.id)}>
+                <Td>{compact(row.id)}</Td><Td>{compact(row.email || row.display_name)}</Td><Td>{compact(row.from_address || row.wallet_address)}</Td><Td>{compact(row.tx_hash)}</Td><Td>{money(row.usd_amount)} {compact(row.asset)}</Td><Td>{compact(row.network)}</Td><Td><Badge value={compact(row.status)} /></Td><Td><Badge value={compact(row.payment_status || row.verification_status || row.onchain_status)} /></Td><Td>{formatDate(row.created_at)}</Td>
+                <Td>
+                  <ExplorerButton type="tx" value={String(row.tx_hash || "")} compact />
+                  {row.status !== "verified" ? <button className="rounded-lg bg-danger/20 px-2 py-1 text-xs text-red-100" onClick={() => patch(`/admin/hb/deposits/${row.id}`, { status: "rejected", failureReason: "Rejected by admin review", adminRemark: "Rejected from admin panel" })} type="button">Reject</button> : null}
+                </Td>
+              </tr>
+            ))}
+          </AdminTable>
+        </Panel>
+        <Panel title="USDT BEP20 deposit logs">
+          <AdminTable headers={["Tx hash", "Block", "From", "To", "Amount", "Status", "Deposit", "Error", "Seen"]}>
+            {events.map((row) => (
+              <tr key={compact(row.event_id)}>
+                <Td><ExplorerButton type="tx" value={String(row.tx_hash || "")} compact /></Td><Td>{compact(row.block_number)}</Td><Td>{compact(row.from_address)}</Td><Td>{compact(row.to_address)}</Td><Td>{money(row.amount_usd)}</Td><Td><Badge value={compact(row.status)} /></Td><Td>{compact(row.deposit_id)}</Td><Td>{compact(row.error)}</Td><Td>{formatDate(row.created_at)}</Td>
+              </tr>
+            ))}
+          </AdminTable>
+        </Panel>
+      </div>
     );
   }
 

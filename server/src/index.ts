@@ -10,10 +10,12 @@ import { hbRouter } from "./routes/halalBusiness.js";
 import { paymentsRouter } from "./routes/payments.js";
 import { providersRouter } from "./routes/providers.js";
 import { rechargeRouter } from "./routes/recharge.js";
+import { startHbDepositIndexer } from "./services/halalBusiness/hbDepositIndexerService.js";
 import { startHbOnchainIndexer } from "./services/halalBusiness/hbOnchainIndexerService.js";
 import { logger } from "./logger.js";
 import { pool } from "./db/pool.js";
 import { formatHbSchemaVerificationFailure, verifyHbProductionSchema } from "./schema/hbProductionSchema.js";
+import { isAddress } from "ethers";
 
 const app = express();
 
@@ -71,9 +73,11 @@ app.use(errorHandler);
 const onListen = () => {
   try {
     startHbOnchainIndexer();
+    startHbDepositIndexer();
   } catch (error) {
     logger.warn("hb.indexer.start_failed", { error: error instanceof Error ? error.message : "Indexer start failed" });
   }
+  logger.info(`treasury wallet configured: ${Boolean(config.hbTreasuryDepositAddress && isAddress(config.hbTreasuryDepositAddress))}`);
   logger.info("api.started", { host: config.host || "default", port: config.port, rolloutMode: config.hbRolloutMode });
 };
 

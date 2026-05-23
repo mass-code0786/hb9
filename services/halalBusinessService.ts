@@ -137,6 +137,12 @@ export type HbDeposit = {
   pay_amount?: string | number | null;
   payment_status?: string | null;
   payment_invoice_url?: string | null;
+  chain_id?: number | null;
+  from_address?: string | null;
+  to_address?: string | null;
+  confirmations?: number | string | null;
+  onchain_status?: string | null;
+  credited_at?: string | null;
 };
 
 export type HbWithdrawal = {
