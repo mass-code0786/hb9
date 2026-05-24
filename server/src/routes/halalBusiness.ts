@@ -3770,6 +3770,23 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
   const client = await pool.connect();
   let inTransaction = false;
   try {
+    await client.query("begin");
+    inTransaction = true;
+    await client.query("set local statement_timeout = '15000ms'");
+    await client.query("select pg_advisory_xact_lock(hashtext($1))", [`hb:buy:${req.hbUser!.userId}`]);
+
+    const userRows = await client.query<{ status: string }>(
+      "select status from hb_users where id = $1 for update",
+      [req.hbUser!.userId]
+    );
+    const user = userRows.rows[0];
+    if (!user || user.status === "blocked" || user.status === "suspended") {
+      await client.query("rollback");
+      inTransaction = false;
+      fail(res, "User is not allowed to purchase products.", 403, "Product purchase failed");
+      return;
+    }
+
     const productRows = await client.query<{
       id: string;
       title: string;
@@ -3781,23 +3798,21 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
       `select p.id, p.title, p.package_id, p.package_price::text, p.stock, pkg.name as package_name
        from hb_products p
        join hb_packages pkg on pkg.id = p.package_id
-       where p.id = $1 and p.active = true and pkg.status = 'available'`,
+       where p.id = $1 and p.active = true and pkg.status = 'available'
+       for update of p`,
       [productId]
     );
     const product = productRows.rows[0];
     if (!product) {
+      await client.query("rollback");
+      inTransaction = false;
       fail(res, "Product is not available or has no active mapped package.", 404, "Product purchase failed");
       return;
     }
     if (product.stock <= 0) {
+      await client.query("rollback");
+      inTransaction = false;
       fail(res, "Product is out of stock.", 409, "Product purchase failed");
-      return;
-    }
-
-    const userRows = await client.query<{ status: string }>("select status from hb_users where id = $1", [req.hbUser!.userId]);
-    const user = userRows.rows[0];
-    if (!user || user.status === "blocked" || user.status === "suspended") {
-      fail(res, "User is not allowed to purchase products.", 403, "Product purchase failed");
       return;
     }
 
@@ -3810,18 +3825,14 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
     const balance = Number(balanceRows.rows[0]?.balance || 0);
     const amount = Number(product.package_price);
     if (balance + Number.EPSILON < amount) {
+      await client.query("rollback");
+      inTransaction = false;
       fail(res, `Insufficient verified wallet balance. Required $${amount.toFixed(2)}, available $${balance.toFixed(2)}.`, 400, "Insufficient balance");
       return;
     }
 
-    await client.query("begin");
-    inTransaction = true;
-    await client.query("set local statement_timeout = '15000ms'");
-    await client.query("select pg_advisory_xact_lock(hashtext($1))", [idempotencyKey]);
-    await client.query("select pg_advisory_xact_lock(hashtext($1))", [req.hbUser!.userId]);
-
-    const existingPurchaseRows = await client.query<{ id: string; amount_usd: string; status: string; ledger_entry_id: string | null }>(
-      `select id, amount_usd::text, status, ledger_entry_id
+    const existingPurchaseRows = await client.query<{ id: string; amount_usd: string; status: string }>(
+      `select id, amount_usd::text, status
        from hb_package_purchases
        where user_id = $1 and package_id = $2 and status = 'completed'
        order by created_at desc
@@ -3836,39 +3847,7 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
         packagePurchaseId: existingPurchaseRows.rows[0].id,
         activated: user.status === "active",
         idempotent: true
-      }, "Package already active");
-      return;
-    }
-
-    const lockedProductRows = await client.query<{ stock: number }>(
-      "select stock from hb_products where id = $1 for update",
-      [product.id]
-    );
-    if (Number(lockedProductRows.rows[0]?.stock || 0) <= 0) {
-      await client.query("rollback");
-      inTransaction = false;
-      fail(res, "Product is out of stock.", 409, "Product purchase failed");
-      return;
-    }
-    const lockedUserRows = await client.query<{ status: string }>("select status from hb_users where id = $1 for update", [req.hbUser!.userId]);
-    const lockedUser = lockedUserRows.rows[0];
-    if (!lockedUser || lockedUser.status === "blocked" || lockedUser.status === "suspended") {
-      await client.query("rollback");
-      inTransaction = false;
-      fail(res, "User is not allowed to purchase products.", 403, "Product purchase failed");
-      return;
-    }
-    const lockedBalanceRows = await client.query<{ balance: string }>(
-      `select coalesce(sum(case when direction = 'credit' then amount_usd else -amount_usd end),0)::text as balance
-       from hb_internal_ledger
-       where user_id = $1 and wallet_type = 'deposit'`,
-      [req.hbUser!.userId]
-    );
-    const lockedBalance = Number(lockedBalanceRows.rows[0]?.balance || 0);
-    if (lockedBalance + Number.EPSILON < amount) {
-      await client.query("rollback");
-      inTransaction = false;
-      fail(res, `Insufficient verified wallet balance. Required $${amount.toFixed(2)}, available $${lockedBalance.toFixed(2)}.`, 400, "Insufficient balance");
+      }, "Package already purchased");
       return;
     }
 
@@ -3892,26 +3871,18 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
       ]
     );
     const ledgerEntryId = ledgerRows.rows[0]?.id || null;
-    await createLedgerProof(client, "hb_internal_ledger", ledgerEntryId);
     await client.query("update hb_package_purchases set ledger_entry_id = $2 where id = $1", [purchase.id, ledgerEntryId]);
+    await client.query(
+      `update hb_user_products
+       set status = 'inactive'
+       where user_id = $1 and package_amount < $2::numeric and status = 'active'`,
+      [req.hbUser!.userId, product.package_price]
+    );
     await client.query(
       `insert into hb_user_products (user_id, package_purchase_id, package_id, package_name, package_amount, activated_at)
        values ($1,$2,$3,$4,$5,now())`,
       [req.hbUser!.userId, purchase.id, product.package_id, product.package_name, product.package_price]
     );
-    if (config.hbProductPurchaseDebitsCoinUsdt) {
-      await applyHbCoinAdjustment({
-        client,
-        userId: req.hbUser!.userId,
-        coinSymbol: "USDT",
-        amount: product.package_price,
-        direction: "debit",
-        type: "debit",
-        reference: purchase.id,
-        note: "Configured USDT coin debit for product purchase",
-        idempotencyKey: `hb:coin:product_purchase:${purchase.id}:debit`
-      });
-    }
 
     const orderNumber = `HB${Date.now()}${crypto.randomInt(1000, 9999)}`;
     const orderRows = await client.query<{ id: string; order_number: string }>(
@@ -3938,20 +3909,6 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
       );
     }
 
-    await distributePackagePurchase({
-      client,
-      purchaseId: purchase.id,
-      buyerUserId: req.hbUser!.userId,
-      packageId: product.package_id,
-      amountUsd: purchase.amount_usd
-    });
-    await placeAndEvaluateSingleLegForPurchase({
-      client,
-      userId: req.hbUser!.userId,
-      packageAmount: product.package_price
-    });
-    await evaluateSalaryIncomeForPurchase(client, req.hbUser!.userId);
-    await client.query("update hb_product_orders set distribution_status = 'completed', updated_at = now() where id = $1", [order.id]);
     await client.query(
       `insert into hb_audit_logs (user_id, action, entity_type, entity_id, metadata)
        values ($1,'hb.product.buy','hb_product_order',$2,$3::jsonb)`,
@@ -3963,7 +3920,7 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
   } catch (err) {
     const errorStack = err instanceof Error ? err.stack || err.message : String(err);
     logger.error("HB9_BUY_FATAL", { error: errorStack, productId, userId: req.hbUser!.userId });
-    console.error("HB9_BUY_FATAL", errorStack);
+    console.error("HB9_BUY_FATAL", err);
     if (inTransaction) await client.query("rollback").catch(() => undefined);
     const message = err instanceof Error ? err.message : "Product purchase failed.";
     fail(res, message, 500, "Product purchase failed");
