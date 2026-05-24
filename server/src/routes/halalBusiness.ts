@@ -2110,11 +2110,11 @@ hbRouter.get("/hb/packages", asyncHandler(async (_req, res) => {
             p.sort_order,
             coalesce(p.active, p.status = 'available') as active,
             coalesce(p.visible, true) as visible,
-            coalesce(p.network, 'BSC') as network,
+            'BSC' as network,
             m.package_contract_id as "packageContractId",
             m.onchain_package_id as "onchainPackageId"
      from hb_packages p
-     left join hb_package_contract_mappings m on m.package_id = p.id and m.network = coalesce(p.network, 'BSC')
+     left join hb_package_contract_mappings m on m.package_id = p.id and m.network = 'BSC'
      where p.status = 'available'
        and coalesce(p.active, true) = true
        and coalesce(p.visible, true) = true
@@ -2133,7 +2133,7 @@ async function hbPackageConfigPayload() {
             m.package_contract_id as "packageContractId",
             m.onchain_package_id as "onchainPackageId"
      from hb_packages p
-     left join hb_package_contract_mappings m on m.package_id = p.id and m.network = coalesce(p.network, 'BSC')
+     left join hb_package_contract_mappings m on m.package_id = p.id and m.network = 'BSC'
      where p.status = 'available'
        and coalesce(p.active, true) = true
        and coalesce(p.visible, true) = true
