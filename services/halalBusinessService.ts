@@ -523,6 +523,12 @@ export const HB_TOKEN_KEY = "hb9.token";
 export const HB_DEV_WALLET_KEY = "hb9.dev.wallet";
 export const HB_DEV_MOCK_WALLET = "0xA1B2000000000000000000000000000000007890";
 
+export type HbPurchaseBalanceSnapshot = {
+  walletBalance: string;
+  mainWalletBalance: string;
+  availableBalance: string;
+};
+
 export function isHbDevDirectDashboardEnabled() {
   return process.env.NODE_ENV !== "production" && process.env.HB9_DEV_DIRECT_DASHBOARD === "true";
 }
@@ -630,6 +636,23 @@ export function saveHbToken(token: string) {
 
 export function clearHbToken() {
   window.localStorage.removeItem(HB_TOKEN_KEY);
+}
+
+export function clearHbWalletCacheStorage() {
+  if (typeof window === "undefined") return;
+  const shouldRemove = (key: string) => {
+    const normalized = key.toLowerCase();
+    if (!normalized.startsWith("hb9.")) return false;
+    if (normalized === HB_TOKEN_KEY || normalized === HB_DEV_WALLET_KEY || normalized === "hb9.usdtbep20address") return false;
+    if (normalized.includes("walletauth")) return false;
+    return normalized.includes("balance") || normalized.includes("wallet");
+  };
+  [window.localStorage, window.sessionStorage].forEach((storage) => {
+    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(Boolean) as string[];
+    keys.forEach((key) => {
+      if (shouldRemove(key)) storage.removeItem(key);
+    });
+  });
 }
 
 export function registerHb(input: { email?: string; mobileNumber: string; password: string; displayName: string; fullName?: string; referralCode?: string; walletAddress?: string }) {
@@ -871,7 +894,7 @@ export function fetchHbWithdrawals(token: string) {
 export function purchaseHbPackage(token: string, packageId: string) {
   const payload = { idempotencyKey: `hb-ui-${Date.now()}-${crypto.randomUUID()}` };
   console.log("HB9_PURCHASE_REQUEST payload", payload);
-  return hbRequestWithTimeout<{ purchaseId: string; status: string; activated: boolean }>(`/hb/packages/${packageId}/purchase`, token, {
+  return hbRequestWithTimeout<{ purchaseId: string; status: string; activated: boolean } & Partial<HbPurchaseBalanceSnapshot>>(`/hb/packages/${packageId}/purchase`, token, {
     method: "POST",
     body: JSON.stringify(payload)
   }, 15_000)
@@ -888,7 +911,7 @@ export function purchaseHbPackage(token: string, packageId: string) {
 export function buyHbProduct(token: string, productId: string) {
   const payload = { idempotencyKey: `hb-product-ui-${Date.now()}-${crypto.randomUUID()}` };
   console.log("HB9_PURCHASE_REQUEST payload", payload);
-  return hbRequestWithTimeout<{ order: { id: string; order_number: string }; packagePurchaseId: string; activated: boolean }>(`/hb/products/${productId}/buy`, token, {
+  return hbRequestWithTimeout<{ order: { id: string; order_number: string }; packagePurchaseId: string; activated: boolean } & Partial<HbPurchaseBalanceSnapshot>>(`/hb/products/${productId}/buy`, token, {
     method: "POST",
     body: JSON.stringify(payload)
   }, 15_000)

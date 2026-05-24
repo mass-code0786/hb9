@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Copy } from "lucide-react";
 import { PackageIllustration, packageIllustrationTypeForAmount } from "@/components/packages/PackageIllustration";
 import { EmptyState, ErrorText, Panel, PrimaryButton } from "@/components/ui/Primitives";
 import {
   buyHbProduct,
+  clearHbWalletCacheStorage,
   fetchHbIncome,
   fetchHbMe,
+  fetchHbMyProducts,
   fetchHbOrders,
   fetchHbProducts,
   fetchHbPurchases,
@@ -62,6 +65,7 @@ function money(value: unknown) {
 }
 
 export function HbMainFlow({ tab, walletAddress }: { tab: HbMainTab; walletAddress: string }) {
+  const queryClient = useQueryClient();
   const [token, setToken] = useState("");
   const [user, setUser] = useState<HbUser | null>(null);
   const [products, setProducts] = useState<HbProduct[]>(devProducts);
@@ -146,6 +150,46 @@ export function HbMainFlow({ tab, walletAddress }: { tab: HbMainTab; walletAddre
     }
   }
 
+  function invalidateHbBuyQueries() {
+    clearHbWalletCacheStorage();
+    ["wallet", "me", "purchases", "my-products", "orders", "income"].forEach((key) => {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    });
+  }
+
+  async function refetchAfterSuccessfulBuy(nextToken = activeToken) {
+    if (!nextToken) return;
+    invalidateHbBuyQueries();
+    const [me, wallet, purchaseData, orderData, incomeData] = await Promise.all([
+      fetchHbMe(nextToken),
+      fetchHbWallet(nextToken),
+      fetchHbPurchases(nextToken),
+      fetchHbMyProducts(nextToken).catch(() => null),
+      fetchHbOrders(nextToken),
+      fetchHbIncome(nextToken)
+    ]).then(([me, wallet, purchaseData, _myProducts, orderData, incomeData]) => [me, wallet, purchaseData, orderData, incomeData] as const);
+    setUser(me.user);
+    setWalletBalances(wallet.balances);
+    setWalletSummary({
+      depositAddress: wallet.depositAddress,
+      pendingDeposits: wallet.pendingDeposits,
+      verifiedDeposits: wallet.verifiedDeposits,
+      totalPurchased: wallet.totalPurchased
+    });
+    setDeposits(wallet.deposits);
+    setWithdrawals(wallet.withdrawals);
+    setPurchases(purchaseData.items);
+    setOrders(orderData.items);
+    setIncome(incomeData.items);
+    setSingleLegReserve(incomeData.singleLegReserve);
+    setIncomeSummary({
+      direct_income: incomeData.summary.direct_income || "0",
+      level_income: incomeData.summary.level_income || "0",
+      single_leg_reserve: incomeData.summary.single_leg_reserve || "0",
+      salaryIncome: "0"
+    });
+  }
+
   function requestBuy(product: HbProduct) {
     setError("");
     setNotice("");
@@ -165,11 +209,22 @@ export function HbMainFlow({ tab, walletAddress }: { tab: HbMainTab; walletAddre
     setBuySubmitting(true);
     setError("");
     setNotice("");
+    const product = products.find((item) => item.id === productId);
+    const previousBalances = walletBalances;
     try {
+      if (product) {
+        const optimisticDeposit = Math.max(0, Number(walletBalances.deposit || 0) - Number(product.package_price || 0));
+        setWalletBalances((current) => ({ ...current, deposit: String(optimisticDeposit) }));
+      }
       const result = await buyHbProduct(activeToken, productId);
+      const serverBalance = result.availableBalance ?? result.walletBalance ?? result.mainWalletBalance;
+      if (serverBalance !== undefined) {
+        setWalletBalances((current) => ({ ...current, deposit: String(serverBalance) }));
+      }
       setNotice(result.activated ? "Product purchased. Your ID is now active." : "Product purchased.");
-      await refresh(activeToken);
+      await refetchAfterSuccessfulBuy(activeToken);
     } catch (err) {
+      setWalletBalances(previousBalances);
       setError(err instanceof Error ? err.message : "Product purchase failed.");
     } finally {
       setBuySubmitting(false);

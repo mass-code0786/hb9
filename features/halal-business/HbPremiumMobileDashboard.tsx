@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ElementType, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDownToLine, Banknote, Bell, Box, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign, Copy, Download, Eye, Home, Layers3, PackageCheck, Plus, ReceiptText, RefreshCw, Send, Settings, Sparkles, TrendingUp, Users, Wallet } from "lucide-react";
 import { BrowserProvider, Contract, encodeBytes32String, parseUnits, ZeroAddress } from "ethers";
 import { createPublicClient, encodeFunctionData, http, parseUnits as viemParseUnits, type Hash } from "viem";
@@ -13,6 +14,7 @@ import { CoinLogo as CryptoCoinLogo } from "@/components/crypto/CoinLogo";
 import { HB9VoiceAssistant, type HB9VoiceEvent, type HB9VoiceScript } from "@/components/voice/HB9VoiceAssistant";
 import {
   buyHbProduct,
+  clearHbWalletCacheStorage,
   clearHbToken,
   convertHbCoinToUsdt,
   createHbCustomSoftwareRequest,
@@ -254,6 +256,7 @@ async function resolveFreshProductForBuy(product: HbProduct) {
 
 export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolean }) {
   const pathname = usePathname();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [token, setToken] = useState("");
   const [sourceReferralCode, setSourceReferralCode] = useState("");
@@ -337,6 +340,58 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       window.sessionStorage.removeItem("hb9.loginSuccess");
     }
     setLoginToast(LOGIN_SUCCESS_MESSAGE);
+  }
+
+  function invalidateHbBuyQueries() {
+    clearHbWalletCacheStorage();
+    ["wallet", "me", "purchases", "my-products", "orders", "income"].forEach((key) => {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    });
+  }
+
+  function applyPurchaseBalanceSnapshot(snapshot: { walletBalance?: string; mainWalletBalance?: string; availableBalance?: string }) {
+    const nextBalance = snapshot.availableBalance ?? snapshot.walletBalance ?? snapshot.mainWalletBalance;
+    if (nextBalance === undefined) return;
+    setWalletData((current) => ({
+      ...current,
+      balances: { ...current.balances, deposit: String(nextBalance) }
+    }));
+  }
+
+  async function refetchAfterSuccessfulBuy(activeToken: string) {
+    invalidateHbBuyQueries();
+    const [wallet, me, purchaseData, deliveryData, orderData, incomeData] = await Promise.all([
+      fetchHbWallet(activeToken),
+      fetchHbMe(activeToken),
+      fetchHbPurchases(activeToken),
+      fetchHbMyProducts(activeToken),
+      fetchHbOrders(activeToken),
+      fetchHbIncome(activeToken)
+    ]);
+    setUser(me.user);
+    setPurchases(purchaseData.items);
+    setMyProducts(deliveryData);
+    setOrders(orderData.items);
+    setIncome(incomeData.items);
+    setSingleLegReserve(incomeData.singleLegReserve);
+    setSingleLegProgress(incomeData.singleLegProgress || null);
+    setIncomeSummary({
+      direct_income: incomeData.summary.direct_income || "0",
+      level_income: incomeData.summary.level_income || "0",
+      single_leg_income: incomeData.summary.single_leg_income || "0",
+      single_leg_reserve: incomeData.summary.single_leg_reserve || "0",
+      salaryIncome: "0"
+    });
+    setWithdrawals(wallet.withdrawals);
+    setWalletData({
+      depositAddress: wallet.depositAddress,
+      deposits: wallet.deposits,
+      balances: wallet.balances,
+      pendingWithdrawals: wallet.pendingWithdrawals,
+      verifiedDeposits: wallet.verifiedDeposits,
+      pendingDeposits: wallet.pendingDeposits
+    });
+    setCurrentPackage(me.currentPackage?.package_name || purchaseData.items[0]?.package_name || orderData.items[0]?.package_name || "None");
   }
 
   useEffect(() => {
@@ -767,8 +822,17 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
     const onchainPackageId = packageConfig ? packageConfig.onchainPackageId ?? packageConfig.packageContractId ?? packageConfig.packageId ?? null : null;
     if (review.purchaseMode === "internal") {
       setPurchaseReview((current) => current ? { ...current, stage: "pending" } : current);
-      await buyHbProduct(token, product.id);
-      await refresh(token);
+      const previousWalletData = walletData;
+      const optimisticDeposit = Math.max(0, Number(walletData.balances.deposit || 0) - Number(product.package_price || 0));
+      setWalletData((current) => ({ ...current, balances: { ...current.balances, deposit: String(optimisticDeposit) } }));
+      try {
+        const result = await buyHbProduct(token, product.id);
+        applyPurchaseBalanceSnapshot(result);
+        await refetchAfterSuccessfulBuy(token);
+      } catch (err) {
+        setWalletData(previousWalletData);
+        throw err;
+      }
       setPurchaseReview((current) => current ? { ...current, stage: "activated" } : current);
       setNotice("Product purchased. Activation updated from HB9 system.");
       playAssistant("activationSuccess");

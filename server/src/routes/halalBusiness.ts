@@ -2531,12 +2531,9 @@ hbRouter.get("/hb/wallet", requireHbUser, asyncHandler(async (req, res) => {
      limit 50`,
     [req.hbUser!.userId]
   );
-  const coinBalances = await query<{ coin_symbol: string; balance: string }>(
-    "select coin_symbol, balance::text from hb_coin_balances where user_id = $1",
-    [req.hbUser!.userId]
-  ).catch(() => []);
-  const usdtBalance = coinBalances.find((item) => item.coin_symbol === "USDT")?.balance || "0";
-  const [pendingDeposits, verifiedDeposits, purchased, pendingWithdrawals] = await Promise.all([
+  const [depositBalance, incomeBalance, pendingDeposits, verifiedDeposits, purchased, pendingWithdrawals] = await Promise.all([
+    getBalance(req.hbUser!.userId, "deposit"),
+    getBalance(req.hbUser!.userId, "income"),
     query<{ total: string; count: number }>(
       "select coalesce(sum(usd_amount),0)::text as total, count(*)::int as count from hb_deposits where user_id = $1 and status in ('pending','pending_verification')",
       [req.hbUser!.userId]
@@ -2562,8 +2559,8 @@ hbRouter.get("/hb/wallet", requireHbUser, asyncHandler(async (req, res) => {
     deposits,
     withdrawals,
     withdrawalSettings: settings,
-    availableBalance: usdtBalance,
-    balances: { deposit: usdtBalance, income: "0" },
+    availableBalance: depositBalance,
+    balances: { deposit: depositBalance, income: incomeBalance },
     pendingDeposits: pendingDeposits[0] || { total: "0", count: 0 },
     verifiedDeposits: verifiedDeposits[0] || { total: "0", count: 0 },
     totalPurchased: purchased[0] || { total: "0", count: 0 },
@@ -3656,7 +3653,16 @@ hbRouter.post("/hb/packages/:id/purchase", requireHbUser, asyncHandler(async (re
     const existingPurchase = existingPurchaseRows.rows[0];
     if (existingPurchase) {
       await client.query("commit");
-      ok(res, { purchaseId: existingPurchase.id, status: existingPurchase.status, activated: false, idempotent: true }, "Package purchase already processed");
+      const wallet = await getWalletSummary(req.hbUser!.userId);
+      ok(res, {
+        purchaseId: existingPurchase.id,
+        status: existingPurchase.status,
+        activated: false,
+        idempotent: true,
+        walletBalance: wallet.balances.deposit,
+        mainWalletBalance: wallet.balances.deposit,
+        availableBalance: wallet.availableBalance
+      }, "Package purchase already processed");
       return;
     }
     const packageRows = await client.query<{ id: string; amount_usd: string; name: string }>(
@@ -3756,8 +3762,22 @@ hbRouter.post("/hb/packages/:id/purchase", requireHbUser, asyncHandler(async (re
        values ($1,'hb.package.purchase','hb_package_purchase',$2,$3::jsonb)`,
       [req.hbUser!.userId, purchase.id, JSON.stringify({ packageId: selectedPackage.id, amountUsd: selectedPackage.amount_usd })]
     );
+    const updatedBalanceRows = await client.query<{ balance: string }>(
+      `select coalesce(sum(case when direction = 'credit' then amount_usd else -amount_usd end),0)::text as balance
+       from hb_internal_ledger
+       where user_id = $1 and wallet_type = 'deposit'`,
+      [req.hbUser!.userId]
+    );
+    const updatedBalance = updatedBalanceRows.rows[0]?.balance || "0";
     await client.query("commit");
-    ok(res, { purchaseId: purchase.id, status: purchase.status, activated: user.status === "inactive" }, "Package purchased successfully", 201);
+    ok(res, {
+      purchaseId: purchase.id,
+      status: purchase.status,
+      activated: user.status === "inactive",
+      walletBalance: updatedBalance,
+      mainWalletBalance: updatedBalance,
+      availableBalance: updatedBalance
+    }, "Package purchased successfully", 201);
   } catch (err) {
     await client.query("rollback");
     const message = err instanceof Error ? err.message : "Package purchase failed.";
@@ -3885,11 +3905,15 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
     if (existingPurchaseRows.rows[0]) {
       await buyQuery("commit");
       inTransaction = false;
+      const wallet = await getWalletSummary(req.hbUser!.userId);
       ok(res, {
         order: { id: existingPurchaseRows.rows[0].id, order_number: "EXISTING-PACKAGE" },
         packagePurchaseId: existingPurchaseRows.rows[0].id,
         activated: user.status === "active",
-        idempotent: true
+        idempotent: true,
+        walletBalance: wallet.balances.deposit,
+        mainWalletBalance: wallet.balances.deposit,
+        availableBalance: wallet.availableBalance
       }, "Package already purchased");
       return;
     }
@@ -3957,9 +3981,23 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
        values ($1,'hb.product.buy','hb_product_order',$2,$3::jsonb)`,
       [req.hbUser!.userId, order.id, JSON.stringify({ productId: product.id, packagePurchaseId: purchase.id, amountUsd: product.package_price })]
     );
+    const updatedBalanceRows = await buyQuery<{ balance: string }>(
+      `select coalesce(sum(case when direction = 'credit' then amount_usd else -amount_usd end),0)::text as balance
+       from hb_internal_ledger
+       where user_id = $1 and wallet_type = 'deposit'`,
+      [req.hbUser!.userId]
+    );
+    const updatedBalance = updatedBalanceRows.rows[0]?.balance || "0";
     await buyQuery("commit");
     inTransaction = false;
-    ok(res, { order, packagePurchaseId: purchase.id, activated: user.status === "inactive" }, "Product purchased successfully", 201);
+    ok(res, {
+      order,
+      packagePurchaseId: purchase.id,
+      activated: user.status === "inactive",
+      walletBalance: updatedBalance,
+      mainWalletBalance: updatedBalance,
+      availableBalance: updatedBalance
+    }, "Product purchased successfully", 201);
   } catch (err) {
     const error = err as Error & { code?: string; detail?: string; hint?: string; constraint?: string; table?: string; column?: string };
     console.error("HB9_BUY_FATAL", error);

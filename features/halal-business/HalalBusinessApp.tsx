@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, BriefcaseBusiness, CheckCircle2, Copy, DollarSign, FileSearch, LayoutDashboard, LogOut, PackageCheck, Sparkles, Target, Users, Wallet } from "lucide-react";
 import { motion } from "framer-motion";
 import { BrowserProvider, Contract, encodeBytes32String, parseUnits, ZeroAddress } from "ethers";
@@ -14,9 +15,11 @@ import { ExternalWalletConnect } from "@/components/wallet/ExternalWalletConnect
 import { EmptyState, ErrorText, Field, Panel, PrimaryButton, SecondaryButton, Skeleton, StatusBadge } from "@/components/ui/Primitives";
 import {
   clearHbToken,
+  clearHbWalletCacheStorage,
   buyHbProduct,
   fetchHbIncome,
   fetchHbMe,
+  fetchHbMyProducts,
   fetchHbOrders,
   fetchHbOnchainPackageConfig,
   fetchHbPackages,
@@ -200,6 +203,7 @@ function LaunchStatusBanner({ rolloutMode, chainStatus, notice, maintenance }: {
 
 export function HalalBusinessApp() {
   const pathname = usePathname();
+  const queryClient = useQueryClient();
   const [token, setToken] = useState("");
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authSurface, setAuthSurface] = useState<"landing" | "auth">("landing");
@@ -469,6 +473,80 @@ export function HalalBusinessApp() {
     setWalletBalances({ deposit: String(nextState.balance), income: "0" });
     setPurchases(nextState.purchases);
     setOrders(nextState.orders);
+  }
+
+  function invalidateHbBuyQueries() {
+    clearHbWalletCacheStorage();
+    ["wallet", "me", "purchases", "my-products", "orders", "income"].forEach((key) => {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    });
+  }
+
+  async function refetchAfterSuccessfulBuy(activeToken: string) {
+    invalidateHbBuyQueries();
+    const [me, wallet, purchaseData, orderData, incomeData] = await Promise.all([
+      fetchHbMe(activeToken),
+      fetchHbWallet(activeToken),
+      fetchHbPurchases(activeToken),
+      fetchHbMyProducts(activeToken).catch(() => null),
+      fetchHbOrders(activeToken),
+      fetchHbIncome(activeToken)
+    ]).then(([me, wallet, purchaseData, _myProducts, orderData, incomeData]) => [me, wallet, purchaseData, orderData, incomeData] as const);
+    setUser(me.user);
+    setDepositBalance(wallet.balances.deposit);
+    setWalletBalances(wallet.balances);
+    setWalletSummary({
+      depositAddress: wallet.depositAddress,
+      pendingDeposits: wallet.pendingDeposits,
+      verifiedDeposits: wallet.verifiedDeposits,
+      totalPurchased: wallet.totalPurchased
+    });
+    setDeposits(wallet.deposits);
+    setWithdrawals(wallet.withdrawals);
+    setPurchases(purchaseData.items);
+    setOrders(orderData.items);
+    setIncome(incomeData.items);
+    setSingleLegReserve(incomeData.singleLegReserve);
+    setIncomeSummary({
+      referral_income: incomeData.summary.referral_income || incomeData.summary.direct_income || "0",
+      direct_income: incomeData.summary.direct_income || incomeData.summary.referral_income || "0",
+      level_income: incomeData.summary.level_income || "0",
+      single_leg_income: incomeData.summary.single_leg_income || "0",
+      single_leg_reserve: incomeData.summary.single_leg_reserve || "0",
+      salaryIncome: incomeData.summary.salary_income || "100"
+    });
+  }
+
+  async function buyProductAndRefresh(productId: string, closeSelected = false) {
+    if (!token) {
+      setError("Session unavailable. Please reconnect your wallet and try again.");
+      return;
+    }
+    const product = dashboardProducts.find((item) => item.id === productId);
+    const previousDepositBalance = depositBalance;
+    const previousWalletBalances = walletBalances;
+    setError("");
+    setNotice("");
+    try {
+      if (product) {
+        const optimisticDeposit = Math.max(0, Number(depositBalance || 0) - Number(product.package_price || 0));
+        setDepositBalance(String(optimisticDeposit));
+        setWalletBalances((current) => ({ ...current, deposit: String(optimisticDeposit) }));
+      }
+      const result = await buyHbProduct(token, productId);
+      const serverBalance = result.availableBalance ?? result.walletBalance ?? result.mainWalletBalance;
+      if (serverBalance !== undefined) {
+        setDepositBalance(String(serverBalance));
+        setWalletBalances((current) => ({ ...current, deposit: String(serverBalance) }));
+      }
+      setNotice(result.activated ? "Product purchased. Your ID is now active." : "Product purchased.");
+      if (closeSelected) setSelectedProduct(null);
+      await refetchAfterSuccessfulBuy(token);
+    } catch (err) {
+      setDepositBalance(previousDepositBalance);
+      setWalletBalances(previousWalletBalances);
+      setError(err instanceof Error ? err.message : "Product purchase failed.");
+    }
   }
 
   function buyMockProduct(productId: string) {
@@ -741,19 +819,7 @@ export function HalalBusinessApp() {
           {view === "home" && !selectedProduct && !isActive ? <ActivationView products={dashboardProducts} packages={dashboardPackages} user={dashboardUser} loading={loading} sponsor={referralSummary?.sponsor?.display_name || dashboardUser.sponsor_referral_code || dashboardUser.source_referral_code || "No sponsor"} onBuy={async (productId) => {
             if (buyMockProduct(productId)) return;
             if (await prepareOnchainProduct(productId)) return;
-            if (!token) {
-              setError("Session unavailable. Please reconnect your wallet and try again.");
-              return;
-            }
-            setError("");
-            setNotice("");
-            try {
-              const result = await buyHbProduct(token, productId);
-              setNotice(result.activated ? "Business ID Activated." : "Product purchased.");
-              await refreshUser();
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Product purchase failed.");
-            }
+            await buyProductAndRefresh(productId);
           }} /> : null}
           {view === "home" && !selectedProduct && isActive ? <HomeView products={dashboardProducts} packages={dashboardPackages} user={dashboardUser} loading={loading} balances={walletBalances} currentPackage={currentPackage} activity={walletActivity} onProductOpen={async (slug) => {
             setError("");
@@ -769,37 +835,12 @@ export function HalalBusinessApp() {
           }} onBuy={async (productId) => {
             if (buyMockProduct(productId)) return;
             if (await prepareOnchainProduct(productId)) return;
-            if (!token) {
-              setError("Session unavailable. Please reconnect your wallet and try again.");
-              return;
-            }
-            setError("");
-            setNotice("");
-            try {
-              const result = await buyHbProduct(token, productId);
-              setNotice(result.activated ? "Product purchased. Your ID is now active." : "Product purchased.");
-              await refreshUser();
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Product purchase failed.");
-            }
+            await buyProductAndRefresh(productId);
           }} /> : null}
           {view === "home" && selectedProduct ? <ProductDetail product={selectedProduct} availableBalance={depositBalance} onBack={() => setSelectedProduct(null)} onBuy={async (productId) => {
             if (buyMockProduct(productId)) return;
             if (await prepareOnchainProduct(productId)) return;
-            if (!token) {
-              setError("Session unavailable. Please reconnect your wallet and try again.");
-              return;
-            }
-            setError("");
-            setNotice("");
-            try {
-              const result = await buyHbProduct(token, productId);
-              setNotice(result.activated ? "Product purchased. Your ID is now active." : "Product purchased.");
-              setSelectedProduct(null);
-              await refreshUser();
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Product purchase failed.");
-            }
+            await buyProductAndRefresh(productId, true);
           }} /> : null}
           {view === "products" && !selectedProduct && isActive ? <ProductsView products={dashboardProducts} packages={dashboardPackages} loading={loading} availableBalance={depositBalance} onProductOpen={async (slug) => {
             setError("");
@@ -815,37 +856,12 @@ export function HalalBusinessApp() {
           }} onBuy={async (productId) => {
             if (buyMockProduct(productId)) return;
             if (await prepareOnchainProduct(productId)) return;
-            if (!token) {
-              setError("Session unavailable. Please reconnect your wallet and try again.");
-              return;
-            }
-            setError("");
-            setNotice("");
-            try {
-              const result = await buyHbProduct(token, productId);
-              setNotice(result.activated ? "Product purchased. Your ID is now active." : "Product purchased.");
-              await refreshUser();
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Product purchase failed.");
-            }
+            await buyProductAndRefresh(productId);
           }} /> : null}
           {view === "products" && selectedProduct && isActive ? <ProductDetail product={selectedProduct} availableBalance={depositBalance} onBack={() => setSelectedProduct(null)} onBuy={async (productId) => {
             if (buyMockProduct(productId)) return;
             if (await prepareOnchainProduct(productId)) return;
-            if (!token) {
-              setError("Session unavailable. Please reconnect your wallet and try again.");
-              return;
-            }
-            setError("");
-            setNotice("");
-            try {
-              const result = await buyHbProduct(token, productId);
-              setNotice(result.activated ? "Product purchased. Your ID is now active." : "Product purchased.");
-              setSelectedProduct(null);
-              await refreshUser();
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Product purchase failed.");
-            }
+            await buyProductAndRefresh(productId, true);
           }} /> : null}
           {view === "wallet" && isActive ? <WalletView balances={walletBalances} deposits={deposits} withdrawals={withdrawals} summary={walletSummary} /> : null}
           {view === "purchases" && isActive ? <ListView title="My Purchases" empty="No package purchases yet." items={purchases.map((item) => ({
