@@ -3784,13 +3784,19 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
   let inTransaction = false;
   let lastBuySql: string | undefined;
   let lastBuyParams: unknown[] | undefined;
+  let buyQueryNumber = 0;
   const buyQuery = async <T extends Record<string, unknown> = Record<string, unknown>>(sql: string, params: unknown[] = []) => {
     lastBuySql = sql;
     lastBuyParams = params;
+    buyQueryNumber += 1;
+    const currentBuyQueryNumber = buyQueryNumber;
+    console.log(`BEFORE_QUERY_${currentBuyQueryNumber}`);
     console.log("RUNNING_QUERY", sql, params);
     logger.info("HB9_BUY_SQL", { route: "hb.products.buy", productId, userId: req.hbUser!.userId, sql, params });
     try {
-      return await client.query<T>(sql, params);
+      const result = await client.query<T>(sql, params);
+      console.log(`AFTER_QUERY_${currentBuyQueryNumber}`);
+      return result;
     } catch (e) {
       const error = e as Error & { code?: string; detail?: string; constraint?: string; table?: string };
       console.error("HB9_BUY_QUERY_FAILED", {

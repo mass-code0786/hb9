@@ -1,3 +1,11 @@
+process.on("unhandledRejection", (err) => {
+  console.error("UNHANDLED_REJECTION_FULL", err);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT_EXCEPTION_FULL", err);
+});
+
 import express from "express";
 import cors from "cors";
 import { config } from "./config.js";
