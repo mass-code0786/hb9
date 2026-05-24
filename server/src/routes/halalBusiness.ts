@@ -3787,8 +3787,24 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
   const buyQuery = async <T extends Record<string, unknown> = Record<string, unknown>>(sql: string, params: unknown[] = []) => {
     lastBuySql = sql;
     lastBuyParams = params;
+    console.log("RUNNING_QUERY", sql, params);
     logger.info("HB9_BUY_SQL", { route: "hb.products.buy", productId, userId: req.hbUser!.userId, sql, params });
-    return client.query<T>(sql, params);
+    try {
+      return await client.query<T>(sql, params);
+    } catch (e) {
+      const error = e as Error & { code?: string; detail?: string; constraint?: string; table?: string };
+      console.error("FAILED_QUERY", {
+        sql,
+        values: params,
+        message: error.message,
+        detail: error.detail,
+        constraint: error.constraint,
+        table: error.table,
+        code: error.code,
+        stack: error.stack
+      });
+      throw e;
+    }
   };
   try {
     await buyQuery("begin");
