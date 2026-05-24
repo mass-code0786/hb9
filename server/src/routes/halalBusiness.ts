@@ -605,7 +605,7 @@ function walletSignatureAuthEnabled() {
 
 function packagePurchaseMode() {
   const mode = config.hbPackagePurchaseMode;
-  return mode === "internal" || mode === "hybrid" ? mode : "onchain";
+  return mode === "hybrid" ? "hybrid" : "internal";
 }
 
 type HbProductionControlState = {
@@ -757,7 +757,7 @@ async function enforceWithdrawalSafety(res: Response, action: string) {
 }
 
 function internalPackagePurchasesAllowed() {
-  return packagePurchaseMode() !== "onchain";
+  return true;
 }
 
 function onchainPackageIdForAmount(amount: string | number) {

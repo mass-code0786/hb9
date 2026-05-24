@@ -727,16 +727,9 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         setError(HB_PACKAGE_INACTIVE);
         return;
       }
-      const config = onchainConfig || await fetchHbOnchainPackageConfig(token);
+      const config = { ...(onchainConfig || await fetchHbOnchainPackageConfig(token)), mode: "internal" as const };
       setOnchainConfig(config);
       const packageConfig = packageConfigForProduct(config, freshProduct);
-      const useOnchainPurchase = onchainPurchaseReady(config, packageConfig);
-      const validationError = useOnchainPurchase ? validatePackageForPurchase(config, packageConfig) : "";
-      if (validationError) {
-        console.error("HB9 package configuration check failed.", { validationError, product: freshProduct, packageConfig, config });
-        setError(validationError);
-        return;
-      }
       const baseReview: PurchaseReview = {
         product: freshProduct,
         config,
@@ -744,38 +737,9 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         buyerAddress: boundWallet,
         sponsorRef: user.sponsor_referral_code || user.source_referral_code || "",
         stage: "review",
-        purchaseMode: useOnchainPurchase ? "onchain" : "internal"
+        purchaseMode: "internal"
       };
       setPurchaseReview(baseReview);
-      if (!useOnchainPurchase) {
-        return;
-      }
-      const ethereum = (window as unknown as { ethereum?: EthereumProvider }).ethereum;
-      if (!ethereum) {
-        setPurchaseReview(null);
-        setError("Please connect/login first.");
-        return;
-      }
-      const browserProvider = new BrowserProvider(ethereum);
-      await ethereum.request({ method: "eth_requestAccounts" });
-      const network = await browserProvider.getNetwork();
-      if (Number(network.chainId) !== Number(config.chainId)) {
-        await ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: `0x${Number(config.chainId).toString(16)}` }] });
-      }
-      const signer = await browserProvider.getSigner();
-      const buyerAddress = await signer.getAddress();
-      const expectedWallet = user.usdt_bep20_address || user.hb9_wallet_address || user.wallet_address || "";
-      if (expectedWallet && expectedWallet.toLowerCase() !== buyerAddress.toLowerCase()) {
-        setPurchaseReview(null);
-        setError("Connected wallet does not match this HB9 ID.");
-        return;
-      }
-      const connectedReview = {
-        ...baseReview,
-        buyerAddress,
-        stage: "review"
-      } satisfies PurchaseReview;
-      setPurchaseReview(connectedReview);
     } catch (err) {
       setError(err instanceof Error ? err.message : HB_PACKAGE_API_FAILURE);
     } finally {
