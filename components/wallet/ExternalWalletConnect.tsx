@@ -1,14 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Check, LogOut, QrCode, Wallet, Wifi, WifiOff, X } from "lucide-react";
 import { useConnect, useConnectors } from "wagmi";
 import { createPublicClient, encodeFunctionData, http, parseUnits, type Hash } from "viem";
 import { bsc } from "viem/chains";
 import type { Connector } from "wagmi";
-import { isHbDevDashboardBypassEnabled, requestHbWalletChallenge, saveHbDevWallet, verifyHbRegistrationFee, verifyHbWalletSignature, type HbRegistrationFee, type HbUser, type HbWalletAuthMode } from "@/services/halalBusinessService";
+import { HB_ACTIVE_WALLET_KEY, clearHbSessionStorageState, fetchHbMe, fetchHbMyProducts, fetchHbWallet, hbWalletScopedStorageKey, isHbDevDashboardBypassEnabled, normalizeHbWalletAddress, requestHbWalletChallenge, saveHbDevWallet, saveHbToken, verifyHbRegistrationFee, verifyHbWalletSignature, type HbRegistrationFee, type HbUser, type HbWalletAuthMode } from "@/services/halalBusinessService";
 import { BSC_RPC_URL } from "@/lib/config";
 import { walletConnectProjectId } from "@/lib/wagmiConfig";
+import { initialTx, useWalletStore } from "@/store/walletStore";
+import { useTransactionStore } from "@/store/transactionStore";
+import { useTokenStore } from "@/store/tokenStore";
+import { useRechargeStore } from "@/store/rechargeStore";
 
 type EthereumProvider = {
   isMetaMask?: boolean;
@@ -168,6 +173,7 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
   showConnectedAddress?: boolean;
   onAuthenticated?: (token: string, user: HbUser) => void;
 }) {
+  const queryClient = useQueryClient();
   const connectors = useConnectors();
   const { connectAsync } = useConnect();
   const [wallets, setWallets] = useState<WalletProviderInfo[]>([]);
@@ -180,6 +186,7 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
   const autoCheckedRef = useRef(false);
   const authPendingRef = useRef(false);
   const lastAuthClickAtRef = useRef(0);
+  const previousWalletRef = useRef("");
 
   const walletConnectConnector = useMemo(() => connectors.find((connector) => connector.id === "walletConnect"), [connectors]);
   const walletBrowserDetected = wallets.length > 0;
@@ -205,13 +212,68 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
     });
   }
 
+  function resetInMemoryStores() {
+    useWalletStore.setState({
+      screen: "landing",
+      activeTab: "home",
+      vault: null,
+      sessionMnemonic: "",
+      activeAddress: "",
+      balances: { bnb: "0", usdt: "0" },
+      loadingBalance: false,
+      balanceVisible: true,
+      network: "bsc",
+      tx: initialTx
+    });
+    useTransactionStore.setState({ transactions: [] });
+    useTokenStore.setState({
+      search: "",
+      selectedToken: null,
+      customTokens: [],
+      hiddenSymbols: [],
+      favorites: ["bsc:BNB", "bsc:USDT", "bsc:USDC", "ethereum:ETH", "ethereum:USDT", "polygon:MATIC", "polygon:USDT", "tron:TRX", "tron:USDT", "bitcoin:BTC"]
+    });
+    useRechargeStore.setState({
+      country: "IN",
+      operatorId: "in-airtel",
+      operator: "Airtel",
+      mobile: "",
+      productId: "in-airtel-199",
+      cryptoAsset: "USDT",
+      history: []
+    });
+  }
+
+  function clearHbWalletSessionState(nextWallet = "") {
+    clearHbSessionStorageState();
+    queryClient.clear();
+    resetInMemoryStores();
+    if (nextWallet) {
+      window.localStorage.setItem(HB_ACTIVE_WALLET_KEY, normalizeHbWalletAddress(nextWallet));
+      window.localStorage.removeItem(hbWalletScopedStorageKey(nextWallet));
+    }
+    window.dispatchEvent(new CustomEvent("hb9:session-cleared", { detail: { walletAddress: nextWallet } }));
+  }
+
+  function handleWalletAddressChanged(nextAddress: string) {
+    const normalizedNext = normalizeHbWalletAddress(nextAddress);
+    const previous = previousWalletRef.current || normalizeHbWalletAddress(window.localStorage.getItem(HB_ACTIVE_WALLET_KEY));
+    if (previous && previous !== normalizedNext) {
+      clearHbWalletSessionState(normalizedNext);
+      setMessage("Wallet changed. Previous HB9 session cleared.");
+    }
+    previousWalletRef.current = normalizedNext;
+  }
+
   async function refresh(provider = getPrimaryProvider()) {
     if (!provider) return;
     const [accounts, chain] = await Promise.all([
       provider.request({ method: "eth_accounts" }).catch(() => []),
       provider.request({ method: "eth_chainId" }).catch(() => "0x0")
     ]);
-    setAddress(Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] : "");
+    const nextAddress = Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] : "";
+    if (nextAddress) handleWalletAddressChanged(nextAddress);
+    setAddress(nextAddress);
     setChainId(parseChainId(chain));
   }
 
@@ -229,6 +291,12 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
       return;
     }
     const response = await verifyHbWalletSignature({ walletAddress: nextAddress, chainId: challenge.chainId, nonce: challenge.nonce, signature, authMode });
+    saveHbToken(response.token, nextAddress);
+    await Promise.all([
+      fetchHbMe(response.token),
+      fetchHbWallet(response.token),
+      fetchHbMyProducts(response.token)
+    ]).catch(() => undefined);
     if (authMode === "login") {
       onAuthenticated?.(response.token, response.user);
       clearAuthUiState();
@@ -247,6 +315,12 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
       });
       setMessage("confirmed");
       const activated = await verifyHbRegistrationFee(response.token, { txHash });
+      saveHbToken(response.token, nextAddress);
+      await Promise.all([
+        fetchHbMe(response.token),
+        fetchHbWallet(response.token),
+        fetchHbMyProducts(response.token)
+      ]).catch(() => undefined);
       onAuthenticated?.(response.token, activated.user);
       setRegistrationFee(null);
       setMessage("");
@@ -279,6 +353,7 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
         setMessage("Wallet account was not returned.");
         return;
       }
+      handleWalletAddressChanged(nextAddress);
       const nextChainId = await switchToBsc(wallet.provider);
       setAddress(nextAddress);
       setChainId(nextChainId);
@@ -319,6 +394,7 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
         setMessage("Wallet account was not returned.");
         return;
       }
+      handleWalletAddressChanged(nextAddress);
       const provider = await walletConnectConnector.getProvider() as EthereumProvider;
       const nextChainId = await switchToBsc(provider).catch(() => result.chainId || BSC_CHAIN_ID);
       setAddress(nextAddress);
@@ -356,7 +432,19 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
     const provider = detected[0]?.provider;
     if (!provider) return;
     refresh(provider);
-    const accountsChanged = (accounts: unknown) => setAddress(Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] : "");
+    const accountsChanged = (accounts: unknown) => {
+      const nextAddress = Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] : "";
+      if (!nextAddress) {
+        clearHbWalletSessionState("");
+        previousWalletRef.current = "";
+        setAddress("");
+        setChainId(0);
+        setMessage("Wallet disconnected. HB9 session cleared.");
+        return;
+      }
+      handleWalletAddressChanged(nextAddress);
+      setAddress(nextAddress);
+    };
     const chainChanged = (nextChainId: unknown) => setChainId(parseChainId(nextChainId));
     provider.on?.("accountsChanged", accountsChanged);
     provider.on?.("chainChanged", chainChanged);
@@ -374,6 +462,7 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
       .then(async (accounts) => {
         const nextAddress = Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] : "";
         if (!nextAddress) return;
+        handleWalletAddressChanged(nextAddress);
         const nextChainId = await switchToBsc(provider).catch(() => BSC_CHAIN_ID);
         setAddress(nextAddress);
         setChainId(nextChainId);
@@ -382,9 +471,11 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
   }, [walletBrowserDetected, wallets]);
 
   function disconnect() {
+    clearHbWalletSessionState("");
+    previousWalletRef.current = "";
     setAddress("");
     setChainId(0);
-    setMessage("Wallet disconnected from this session. Reconnect from your external wallet when ready.");
+    setMessage("Wallet disconnected. HB9 session cleared.");
   }
 
   const buttonClass = hero

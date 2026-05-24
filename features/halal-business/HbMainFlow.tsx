@@ -107,6 +107,35 @@ export function HbMainFlow({ tab, walletAddress }: { tab: HbMainTab; walletAddre
     }
   }, []);
 
+  useEffect(() => {
+    const handleSessionCleared = () => {
+      if (HB_BYPASS_AUTH) return;
+      setToken("");
+      setUser(null);
+      setWalletBalances({ deposit: "0", income: "0" });
+      setWalletSummary({
+        depositAddress: "",
+        pendingDeposits: { total: "0", count: 0 },
+        verifiedDeposits: { total: "0", count: 0 },
+        totalPurchased: { total: "0", count: 0 }
+      });
+      setDeposits([]);
+      setWithdrawals([]);
+      setPurchases([]);
+      setOrders([]);
+      setIncome([]);
+      setSingleLegReserve([]);
+      setIncomeSummary({ direct_income: "0", level_income: "0", single_leg_reserve: "0", salaryIncome: "0" });
+      setReferrals([]);
+      setReferralSummary(null);
+      setNotice("");
+      setError("");
+      setBuyPrompt(null);
+    };
+    window.addEventListener("hb9:session-cleared", handleSessionCleared);
+    return () => window.removeEventListener("hb9:session-cleared", handleSessionCleared);
+  }, []);
+
   async function refresh(nextToken = activeToken) {
     if (!nextToken) return;
     setLoading(true);

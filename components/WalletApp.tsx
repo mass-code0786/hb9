@@ -84,6 +84,16 @@ export function WalletApp() {
       .finally(() => setAuthChecked(true));
   }, [setScreen, setTransactions]);
 
+  useEffect(() => {
+    const handleSessionCleared = () => {
+      setToken("");
+      setTransactions([]);
+      setScreen("dashboard");
+    };
+    window.addEventListener("hb9:session-cleared", handleSessionCleared);
+    return () => window.removeEventListener("hb9:session-cleared", handleSessionCleared);
+  }, [setScreen, setTransactions]);
+
   async function handleLogout() {
     const activeToken = token || getHbToken();
     if (activeToken) await logoutHb(activeToken).catch(() => undefined);

@@ -462,6 +462,39 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
     setLoginToast("");
   }, [pathname, activeTab]);
 
+  useEffect(() => {
+    const handleSessionCleared = () => {
+      if (devDashboardActive) return;
+      setToken("");
+      setUser(null);
+      setPurchases([]);
+      setOrders([]);
+      setWithdrawals([]);
+      setIncome([]);
+      setSingleLegReserve([]);
+      setSingleLegProgress(null);
+      setIncomeSummary({ direct_income: "0", level_income: "0", single_leg_income: "0", single_leg_reserve: "0", salaryIncome: "0" });
+      setReferralSummary(null);
+      setWalletActivity([]);
+      setMyProducts(null);
+      setCoins([]);
+      setWalletData({
+        depositAddress: "",
+        deposits: [],
+        balances: { deposit: "0", income: "0" },
+        pendingWithdrawals: { total: "0", count: 0 },
+        verifiedDeposits: { total: "0", count: 0 },
+        pendingDeposits: { total: "0", count: 0 }
+      });
+      setCurrentPackage("None");
+      setNotice("");
+      setError("");
+      setActiveTab("home");
+    };
+    window.addEventListener("hb9:session-cleared", handleSessionCleared);
+    return () => window.removeEventListener("hb9:session-cleared", handleSessionCleared);
+  }, [devDashboardActive]);
+
   async function refresh(activeToken = token, initial = false) {
     if (devDashboardActive) {
       setError("");

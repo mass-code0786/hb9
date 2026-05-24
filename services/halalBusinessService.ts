@@ -520,6 +520,7 @@ export type HbSponsorPreview = {
 } | null;
 
 export const HB_TOKEN_KEY = "hb9.token";
+export const HB_ACTIVE_WALLET_KEY = "hb9.wallet.activeAddress";
 export const HB_DEV_WALLET_KEY = "hb9.dev.wallet";
 export const HB_DEV_MOCK_WALLET = "0xA1B2000000000000000000000000000000007890";
 
@@ -545,6 +546,15 @@ export function saveHbDevWallet(address: string) {
 export function getHbDevWallet() {
   if (typeof window === "undefined") return HB_DEV_MOCK_WALLET;
   return window.localStorage.getItem(HB_DEV_WALLET_KEY) || HB_DEV_MOCK_WALLET;
+}
+
+export function normalizeHbWalletAddress(address?: string | null) {
+  return String(address || "").trim().toLowerCase();
+}
+
+export function hbWalletScopedStorageKey(address?: string | null) {
+  const normalized = normalizeHbWalletAddress(address);
+  return normalized ? `hb9_wallet_${normalized}` : "";
 }
 
 export function createHbDevDashboardUser(walletAddress = HB_DEV_MOCK_WALLET): HbUser {
@@ -627,15 +637,29 @@ async function hbRequestWithTimeout<T>(path: string, token: string | undefined, 
 
 export function getHbToken() {
   if (typeof window === "undefined") return "";
+  const activeWallet = normalizeHbWalletAddress(window.localStorage.getItem(HB_ACTIVE_WALLET_KEY));
+  const scopedKey = hbWalletScopedStorageKey(activeWallet);
+  if (scopedKey) return window.localStorage.getItem(scopedKey) || "";
   return window.localStorage.getItem(HB_TOKEN_KEY) || "";
 }
 
-export function saveHbToken(token: string) {
+export function saveHbToken(token: string, walletAddress?: string | null) {
+  const normalizedWallet = normalizeHbWalletAddress(walletAddress || window.localStorage.getItem(HB_ACTIVE_WALLET_KEY));
+  if (normalizedWallet) {
+    window.localStorage.setItem(HB_ACTIVE_WALLET_KEY, normalizedWallet);
+    window.localStorage.setItem(hbWalletScopedStorageKey(normalizedWallet), token);
+    window.localStorage.removeItem(HB_TOKEN_KEY);
+    return;
+  }
   window.localStorage.setItem(HB_TOKEN_KEY, token);
 }
 
 export function clearHbToken() {
   window.localStorage.removeItem(HB_TOKEN_KEY);
+  window.localStorage.removeItem(HB_ACTIVE_WALLET_KEY);
+  Object.keys(window.localStorage)
+    .filter((key) => key.startsWith("hb9_wallet_"))
+    .forEach((key) => window.localStorage.removeItem(key));
 }
 
 export function clearHbWalletCacheStorage() {
@@ -653,6 +677,21 @@ export function clearHbWalletCacheStorage() {
       if (shouldRemove(key)) storage.removeItem(key);
     });
   });
+}
+
+export function clearHbSessionStorageState() {
+  if (typeof window === "undefined") return;
+  const removeFromStorage = (storage: Storage) => {
+    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(Boolean) as string[];
+    keys.forEach((key) => {
+      const normalized = key.toLowerCase();
+      if (normalized.startsWith("hb9.") || normalized.startsWith("hb9-") || normalized.startsWith("hb9_")) {
+        storage.removeItem(key);
+      }
+    });
+  };
+  removeFromStorage(window.localStorage);
+  removeFromStorage(window.sessionStorage);
 }
 
 export function registerHb(input: { email?: string; mobileNumber: string; password: string; displayName: string; fullName?: string; referralCode?: string; walletAddress?: string }) {

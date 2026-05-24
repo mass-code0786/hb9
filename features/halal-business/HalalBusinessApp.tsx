@@ -327,6 +327,45 @@ export function HalalBusinessApp() {
     setLoginToast("");
   }, [pathname, view]);
 
+  useEffect(() => {
+    const handleSessionCleared = () => {
+      if (HB_BYPASS_AUTH) return;
+      setToken("");
+      setUser(null);
+      setSelectedProduct(null);
+      setDepositBalance("0");
+      setWalletBalances({ deposit: "0", income: "0" });
+      setWalletSummary({
+        depositAddress: "",
+        pendingDeposits: { total: "0", count: 0 },
+        verifiedDeposits: { total: "0", count: 0 },
+        totalPurchased: { total: "0", count: 0 }
+      });
+      setDeposits([]);
+      setWithdrawals([]);
+      setPurchases([]);
+      setOrders([]);
+      setIncome([]);
+      setSingleLegReserve([]);
+      setSalaryIncome(null);
+      setSingleLegProgress(null);
+      setIncomeCap(null);
+      setLevelUnlockProgress(null);
+      setIncomeSummary({ referral_income: "0", direct_income: "0", level_income: "0", single_leg_income: "0", single_leg_reserve: "0", salaryIncome: "0" });
+      setReferrals([]);
+      setReferralSummary(null);
+      setProofs([]);
+      setTreasuryTransparency(null);
+      setWalletActivity([]);
+      setActivationSuccess(null);
+      setView("home");
+      setError("");
+      setNotice("");
+    };
+    window.addEventListener("hb9:session-cleared", handleSessionCleared);
+    return () => window.removeEventListener("hb9:session-cleared", handleSessionCleared);
+  }, []);
+
   async function refreshUser(activeToken = token) {
     if (HB_BYPASS_AUTH) return;
     setLoading(true);
