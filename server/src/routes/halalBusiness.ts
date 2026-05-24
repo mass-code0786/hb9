@@ -3782,7 +3782,11 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
   const idempotencyKey = parsed.data.idempotencyKey || `hb:product-order:${req.hbUser!.userId}:${productId}:${crypto.randomUUID()}`;
   const client = await pool.connect();
   let inTransaction = false;
+  let lastBuySql: string | undefined;
+  let lastBuyParams: unknown[] | undefined;
   const buyQuery = async <T extends Record<string, unknown> = Record<string, unknown>>(sql: string, params: unknown[] = []) => {
+    lastBuySql = sql;
+    lastBuyParams = params;
     logger.info("HB9_BUY_SQL", { route: "hb.products.buy", productId, userId: req.hbUser!.userId, sql, params });
     return client.query<T>(sql, params);
   };
@@ -3935,12 +3939,38 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
     inTransaction = false;
     ok(res, { order, packagePurchaseId: purchase.id, activated: user.status === "inactive" }, "Product purchased successfully", 201);
   } catch (err) {
-    const errorStack = err instanceof Error ? err.stack || err.message : String(err);
-    logger.error("HB9_BUY_FATAL", { error: errorStack, productId, userId: req.hbUser!.userId });
-    console.error("HB9_BUY_FATAL", err);
+    const error = err as Error & { code?: string; detail?: string; hint?: string; constraint?: string; table?: string; column?: string };
+    console.error("HB9_BUY_FATAL", {
+      message: error?.message,
+      code: error?.code,
+      detail: error?.detail,
+      hint: error?.hint,
+      constraint: error?.constraint,
+      table: error?.table,
+      column: error?.column,
+      stack: error?.stack
+    });
+    logger.error("HB9_BUY_FATAL", {
+      message: error?.message,
+      code: error?.code,
+      detail: error?.detail,
+      hint: error?.hint,
+      constraint: error?.constraint,
+      table: error?.table,
+      column: error?.column,
+      stack: error?.stack,
+      sql: lastBuySql,
+      params: lastBuyParams,
+      productId,
+      userId: req.hbUser!.userId
+    });
     if (inTransaction) await client.query("rollback").catch(() => undefined);
-    const message = err instanceof Error ? err.message : "Product purchase failed.";
-    fail(res, message, 500, "Product purchase failed");
+    res.status(500).json({
+      success: false,
+      message: error?.message || "Product purchase failed.",
+      code: error?.code,
+      constraint: error?.constraint
+    });
   } finally {
     client.release();
   }

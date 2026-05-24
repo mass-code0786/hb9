@@ -1,2 +1,0 @@
-2026-05-22 14:53:53 +05:30: {"ts":"2026-05-22T09:23:53.015Z","level":"info","event":"http.request","service":"hb9-api","method":"GET","path":"/health","statusCode":200,"durationMs":6}
-2026-05-22 14:53:53 +05:30: {"ts":"2026-05-22T09:23:53.358Z","level":"info","event":"http.request","service":"hb9-api","method":"GET","path":"/hb/wallet","statusCode":401,"durationMs":2}
