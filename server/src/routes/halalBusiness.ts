@@ -1019,12 +1019,12 @@ async function applyHbCoinAdjustment(input: {
   );
   if (!ledgerRows.rows[0]) return null;
   const balanceDelta = input.direction === "credit" ? amount : -amount;
-  const balanceUpdateRows = await input.client.query<{ id: string }>(
+  const balanceUpdateRows = await input.client.query<{ user_id: string; coin_symbol: string }>(
     `update hb_coin_balances
      set balance = balance + $3::numeric,
          updated_at = now()
      where user_id = $1 and coin_symbol = $2
-     returning id`,
+     returning user_id, coin_symbol`,
     [input.userId, input.coinSymbol, balanceDelta]
   );
   if (!balanceUpdateRows.rows[0]) {
@@ -2111,7 +2111,7 @@ hbRouter.get("/hb/packages", asyncHandler(async (_req, res) => {
             coalesce(p.active, p.status = 'available') as active,
             coalesce(p.visible, true) as visible,
             'BSC' as network,
-            m.package_contract_id as "packageContractId",
+            m.onchain_package_id as "packageContractId",
             m.onchain_package_id as "onchainPackageId"
      from hb_packages p
      left join hb_package_contract_mappings m on m.package_id = p.id and m.network = 'BSC'
@@ -2130,7 +2130,7 @@ async function hbPackageConfigPayload() {
             p.amount_usd::text,
             p.status,
             p.sort_order,
-            m.package_contract_id as "packageContractId",
+            m.onchain_package_id as "packageContractId",
             m.onchain_package_id as "onchainPackageId"
      from hb_packages p
      left join hb_package_contract_mappings m on m.package_id = p.id and m.network = 'BSC'
