@@ -2078,7 +2078,7 @@ hbRouter.get("/hb/me", requireHbUser, asyncHandler(async (req, res) => {
        from hb_package_purchases p
        join hb_packages pkg on pkg.id = p.package_id
        where p.user_id = $1 and p.status = 'completed'
-       order by p.created_at desc
+       order by p.amount_usd desc, p.created_at desc
        limit 1`,
       [req.hbUser!.userId]
     ),
@@ -3840,24 +3840,6 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
       return;
     }
 
-    const existingRows = await client.query<{ id: string; order_number: string; package_purchase_id: string | null }>(
-      `select o.id, o.order_number, o.package_purchase_id
-       from hb_product_orders o
-       join hb_product_order_items item on item.order_id = o.id
-       where o.buyer_user_id = $1
-         and item.product_id = $2
-         and o.payment_status = 'paid'
-       order by o.created_at desc
-       limit 1`,
-      [req.hbUser!.userId, product.id]
-    );
-    if (existingRows.rows[0]) {
-      await client.query("commit");
-      inTransaction = false;
-      ok(res, { order: existingRows.rows[0], packagePurchaseId: existingRows.rows[0].package_purchase_id, activated: user.status === "active", idempotent: true }, "Product order already processed");
-      return;
-    }
-
     const lockedProductRows = await client.query<{ stock: number }>(
       "select stock from hb_products where id = $1 for update",
       [product.id]
@@ -3912,6 +3894,11 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
     const ledgerEntryId = ledgerRows.rows[0]?.id || null;
     await createLedgerProof(client, "hb_internal_ledger", ledgerEntryId);
     await client.query("update hb_package_purchases set ledger_entry_id = $2 where id = $1", [purchase.id, ledgerEntryId]);
+    await client.query(
+      `insert into hb_user_products (user_id, package_purchase_id, package_id, package_name, package_amount, activated_at)
+       values ($1,$2,$3,$4,$5,now())`,
+      [req.hbUser!.userId, purchase.id, product.package_id, product.package_name, product.package_price]
+    );
     if (config.hbProductPurchaseDebitsCoinUsdt) {
       await applyHbCoinAdjustment({
         client,
