@@ -3793,10 +3793,10 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
       return await client.query<T>(sql, params);
     } catch (e) {
       const error = e as Error & { code?: string; detail?: string; constraint?: string; table?: string };
-      console.error("FAILED_QUERY", {
-        sql,
+      console.error("HB9_BUY_QUERY_FAILED", {
+        SQL: sql,
         values: params,
-        message: error.message,
+        errorMessage: error.message,
         detail: error.detail,
         constraint: error.constraint,
         table: error.table,
@@ -3956,6 +3956,7 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
     ok(res, { order, packagePurchaseId: purchase.id, activated: user.status === "inactive" }, "Product purchased successfully", 201);
   } catch (err) {
     const error = err as Error & { code?: string; detail?: string; hint?: string; constraint?: string; table?: string; column?: string };
+    console.error("HB9_BUY_FATAL", error);
     console.error("HB9_BUY_FATAL", {
       message: error?.message,
       code: error?.code,
