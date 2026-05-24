@@ -19,11 +19,21 @@ import { isAddress } from "ethers";
 
 const app = express();
 
-const productionOrigins = new Set(
-  [config.frontendUrl, config.corsOrigin]
+const hb9ProductionOrigins = [
+  "https://hb9.live",
+  "https://www.hb9.live",
+  "http://hb9.live",
+  "http://www.hb9.live"
+];
+
+const parseCorsOrigins = (...values: string[]) =>
+  values
     .flatMap((value) => value.split(","))
     .map((item) => item.trim())
-    .filter(Boolean)
+    .filter(Boolean);
+
+const productionOrigins = new Set(
+  parseCorsOrigins(config.frontendUrl, config.corsOrigin, ...hb9ProductionOrigins)
 );
 const developmentOrigins = new Set(["http://localhost:3000", "http://127.0.0.1:3000"]);
 
@@ -37,8 +47,12 @@ app.use(cors({
       callback(null, true);
       return;
     }
-    callback(new Error("CORS origin not allowed"));
+    callback(null, false);
   },
+  methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  optionsSuccessStatus: 204,
+  maxAge: 86400,
   credentials: false
 }));
 app.use(express.json({ limit: "64kb" }));

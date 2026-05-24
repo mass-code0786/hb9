@@ -3820,24 +3820,6 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
     await client.query("select pg_advisory_xact_lock(hashtext($1))", [idempotencyKey]);
     await client.query("select pg_advisory_xact_lock(hashtext($1))", [req.hbUser!.userId]);
 
-    const existingRows = await client.query<{ id: string; order_number: string; package_purchase_id: string | null }>(
-      `select o.id, o.order_number, o.package_purchase_id
-       from hb_product_orders o
-       join hb_product_order_items item on item.order_id = o.id
-       where o.buyer_user_id = $1
-         and item.product_id = $2
-         and o.payment_status = 'paid'
-       order by o.created_at desc
-       limit 1`,
-      [req.hbUser!.userId, product.id]
-    );
-    if (existingRows.rows[0]) {
-      await client.query("commit");
-      inTransaction = false;
-      ok(res, { order: existingRows.rows[0], packagePurchaseId: existingRows.rows[0].package_purchase_id, activated: user.status === "active", idempotent: true }, "Product order already processed");
-      return;
-    }
-
     const existingPurchaseRows = await client.query<{ id: string; amount_usd: string; status: string; ledger_entry_id: string | null }>(
       `select id, amount_usd::text, status, ledger_entry_id
        from hb_package_purchases
@@ -3855,6 +3837,24 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
         activated: user.status === "active",
         idempotent: true
       }, "Package already active");
+      return;
+    }
+
+    const existingRows = await client.query<{ id: string; order_number: string; package_purchase_id: string | null }>(
+      `select o.id, o.order_number, o.package_purchase_id
+       from hb_product_orders o
+       join hb_product_order_items item on item.order_id = o.id
+       where o.buyer_user_id = $1
+         and item.product_id = $2
+         and o.payment_status = 'paid'
+       order by o.created_at desc
+       limit 1`,
+      [req.hbUser!.userId, product.id]
+    );
+    if (existingRows.rows[0]) {
+      await client.query("commit");
+      inTransaction = false;
+      ok(res, { order: existingRows.rows[0], packagePurchaseId: existingRows.rows[0].package_purchase_id, activated: user.status === "active", idempotent: true }, "Product order already processed");
       return;
     }
 
@@ -3974,7 +3974,9 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
     inTransaction = false;
     ok(res, { order, packagePurchaseId: purchase.id, activated: user.status === "inactive" }, "Product purchased successfully", 201);
   } catch (err) {
-    console.error("HB9_BUY_FATAL", err instanceof Error ? err.stack || err.message : err);
+    const errorStack = err instanceof Error ? err.stack || err.message : String(err);
+    logger.error("HB9_BUY_FATAL", { error: errorStack, productId, userId: req.hbUser!.userId });
+    console.error("HB9_BUY_FATAL", errorStack);
     if (inTransaction) await client.query("rollback").catch(() => undefined);
     const message = err instanceof Error ? err.message : "Product purchase failed.";
     fail(res, message, 500, "Product purchase failed");
