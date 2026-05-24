@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ElementType, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDownToLine, Banknote, Bell, Box, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign, Copy, Download, Eye, Home, Layers3, PackageCheck, Plus, ReceiptText, RefreshCw, Send, Settings, Sparkles, TrendingUp, Users, Wallet } from "lucide-react";
@@ -14,6 +14,8 @@ import { CoinLogo as CryptoCoinLogo } from "@/components/crypto/CoinLogo";
 import { HB9VoiceAssistant, type HB9VoiceEvent, type HB9VoiceScript } from "@/components/voice/HB9VoiceAssistant";
 import {
   buyHbProduct,
+  HB_ACTIVE_WALLET_KEY,
+  clearHbSessionStorageState,
   clearHbWalletCacheStorage,
   clearHbToken,
   convertHbCoinToUsdt,
@@ -39,8 +41,11 @@ import {
   getHbToken,
   hbDevDashboardProducts,
   isHbDevDashboardBypassEnabled,
+  normalizeHbWalletAddress,
+  requestHbWalletChallenge,
   saveHbToken,
   trackHbOnchainPurchase,
+  verifyHbWalletSignature,
   type HbCoinBalance,
   type HbDeposit,
   type HbIncome,
@@ -61,7 +66,12 @@ import { captureHbReferralFromUrl, getStoredHbReferral } from "@/lib/referral";
 import { BSC_RPC_URL, USDT_CONTRACT } from "@/lib/config";
 
 type TabId = "home" | "products" | "team" | "income" | "wallet" | "packages";
-type EthereumProvider = { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> };
+type EthereumProvider = {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+  on?: (event: string, handler: (...args: unknown[]) => void) => void;
+  removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
+};
+type WalletWindow = Window & { ethereum?: EthereumProvider };
 type OnchainPackageItem = HbOnchainPackageConfig["packages"][number];
 type PurchaseStage = "review" | "approving" | "submitting" | "pending" | "activated";
 type PurchaseMode = "internal" | "onchain";
@@ -151,6 +161,17 @@ function chainLabel(chainId: number | string) {
 
 function txUrl(config: HbOnchainPackageConfig, txHash: string) {
   return `${(config.explorerBaseUrl || "https://bscscan.com").replace(/\/$/, "")}/tx/${txHash}`;
+}
+
+function getInjectedProvider() {
+  if (typeof window === "undefined") return null;
+  return (window as WalletWindow).ethereum || null;
+}
+
+async function readProviderAddress(provider = getInjectedProvider()) {
+  if (!provider) return "";
+  const accounts = await provider.request({ method: "eth_accounts" }).catch(() => []);
+  return Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] : "";
 }
 
 function resolveClientTreasuryWallet(apiWallet?: string | null) {
@@ -261,6 +282,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   const [token, setToken] = useState("");
   const [sourceReferralCode, setSourceReferralCode] = useState("");
   const [user, setUser] = useState<HbUser | null>(null);
+  const [providerWalletAddress, setProviderWalletAddress] = useState("");
   const [products, setProducts] = useState<HbProduct[]>(() => buildDefaultHbPackageProducts());
   const [purchases, setPurchases] = useState<HbPurchase[]>([]);
   const [orders, setOrders] = useState<HbOrder[]>([]);
@@ -298,13 +320,15 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   const [walletActionBusy, setWalletActionBusy] = useState("");
   const [depositPaymentStatus, setDepositPaymentStatus] = useState<DepositPaymentStatus>("idle");
   const [activeWalletModal, setActiveWalletModal] = useState<"deposit" | "withdraw" | null>(null);
+  const providerWalletRef = useRef("");
+  const providerAuthRef = useRef("");
 
   const devDashboardActive = devMode && HB_DEV_DASHBOARD_BYPASS;
   const authenticated = devDashboardActive || Boolean(token && user);
   const currentTitle = useMemo(() => activeTab === "packages" ? "All Packages" : navItems.find((item) => item.id === activeTab)?.label || "Home", [activeTab]);
   const dashboardUser = user || createHbDevDashboardUser(getHbDevWallet());
   const dashboardProducts = products;
-  const boundWallet = dashboardUser.usdt_bep20_address || dashboardUser.hb9_wallet_address || dashboardUser.wallet_address || walletData.depositAddress || "";
+  const boundWallet = providerWalletAddress || dashboardUser.usdt_bep20_address || dashboardUser.hb9_wallet_address || dashboardUser.wallet_address || walletData.depositAddress || "";
   const treasuryDepositAddress = useMemo(() => resolveClientTreasuryWallet(walletData.depositAddress), [walletData.depositAddress]);
   const totalBalance = Number(walletData.balances.deposit || 0) + Number(walletData.balances.income || 0);
   const orderedProducts = useMemo(() => [...products].sort((a, b) => Number(a.package_price) - Number(b.package_price)), [products]);
@@ -340,6 +364,67 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       window.sessionStorage.removeItem("hb9.loginSuccess");
     }
     setLoginToast(LOGIN_SUCCESS_MESSAGE);
+  }
+
+  function clearDashboardStateForWallet(nextWallet = "") {
+    if (devDashboardActive) return;
+    clearHbSessionStorageState();
+    queryClient.clear();
+    if (nextWallet) window.localStorage.setItem(HB_ACTIVE_WALLET_KEY, normalizeHbWalletAddress(nextWallet));
+    window.dispatchEvent(new CustomEvent("hb9:session-cleared", { detail: { walletAddress: nextWallet } }));
+  }
+
+  async function authenticateCurrentProviderWallet(provider: EthereumProvider, walletAddress: string) {
+    const normalized = normalizeHbWalletAddress(walletAddress);
+    if (!normalized || providerAuthRef.current === normalized) return;
+    providerAuthRef.current = normalized;
+    try {
+      const chain = await provider.request({ method: "eth_chainId" }).catch(() => "0x38");
+      const chainId = typeof chain === "string" ? Number.parseInt(chain, 16) : Number(chain || 56);
+      const challenge = await requestHbWalletChallenge({ walletAddress, chainId: chainId || 56, referralCode: sourceReferralCode || getStoredHbReferral(), authMode: "login" });
+      const signature = await provider.request({ method: "personal_sign", params: [challenge.message, walletAddress] });
+      if (typeof signature !== "string") return;
+      const response = await verifyHbWalletSignature({ walletAddress, chainId: challenge.chainId, nonce: challenge.nonce, signature, authMode: "login" });
+      saveHbToken(response.token, walletAddress);
+      setToken(response.token);
+      await Promise.all([
+        fetchHbMe(response.token),
+        fetchHbWallet(response.token),
+        fetchHbMyProducts(response.token)
+      ]);
+      await refresh(response.token, true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Wallet verification failed.");
+    } finally {
+      providerAuthRef.current = "";
+    }
+  }
+
+  async function syncProviderWallet(provider = getInjectedProvider(), authenticateChangedWallet = true) {
+    if (devDashboardActive || !provider) return;
+    const currentAddress = await readProviderAddress(provider);
+    const normalizedCurrent = normalizeHbWalletAddress(currentAddress);
+    const appWallet = normalizeHbWalletAddress(providerWalletRef.current || providerWalletAddress || dashboardUser.usdt_bep20_address || dashboardUser.hb9_wallet_address || dashboardUser.wallet_address || window.localStorage.getItem(HB_ACTIVE_WALLET_KEY));
+    if (!normalizedCurrent) {
+      if (appWallet || token || user) {
+        providerWalletRef.current = "";
+        setProviderWalletAddress("");
+        clearDashboardStateForWallet("");
+      }
+      return;
+    }
+    setProviderWalletAddress(currentAddress);
+    if (!appWallet) {
+      providerWalletRef.current = currentAddress;
+      window.localStorage.setItem(HB_ACTIVE_WALLET_KEY, normalizedCurrent);
+      return;
+    }
+    if (normalizedCurrent !== appWallet) {
+      providerWalletRef.current = currentAddress;
+      setProviderWalletAddress(currentAddress);
+      clearDashboardStateForWallet(currentAddress);
+      if (authenticateChangedWallet) await authenticateCurrentProviderWallet(provider, currentAddress);
+    }
   }
 
   function invalidateHbBuyQueries() {
@@ -463,7 +548,30 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   }, [pathname, activeTab]);
 
   useEffect(() => {
-    const handleSessionCleared = () => {
+    if (devDashboardActive) return;
+    const provider = getInjectedProvider();
+    if (!provider) return;
+    syncProviderWallet(provider, true).catch(() => undefined);
+    const accountsChanged = () => syncProviderWallet(provider, true).catch(() => undefined);
+    const chainChanged = () => syncProviderWallet(provider, true).catch(() => undefined);
+    const focusHandler = () => syncProviderWallet(provider, true).catch(() => undefined);
+    const visibilityHandler = () => {
+      if (document.visibilityState === "visible") syncProviderWallet(provider, true).catch(() => undefined);
+    };
+    provider.on?.("accountsChanged", accountsChanged);
+    provider.on?.("chainChanged", chainChanged);
+    window.addEventListener("focus", focusHandler);
+    document.addEventListener("visibilitychange", visibilityHandler);
+    return () => {
+      provider.removeListener?.("accountsChanged", accountsChanged);
+      provider.removeListener?.("chainChanged", chainChanged);
+      window.removeEventListener("focus", focusHandler);
+      document.removeEventListener("visibilitychange", visibilityHandler);
+    };
+  }, [devDashboardActive, providerWalletAddress, token, user]);
+
+  useEffect(() => {
+    const handleSessionCleared = (event: Event) => {
       if (devDashboardActive) return;
       setToken("");
       setUser(null);
@@ -487,6 +595,9 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         pendingDeposits: { total: "0", count: 0 }
       });
       setCurrentPackage("None");
+      const nextWallet = (event as CustomEvent<{ walletAddress?: string }>).detail?.walletAddress || "";
+      providerWalletRef.current = nextWallet;
+      setProviderWalletAddress(nextWallet);
       setNotice("");
       setError("");
       setActiveTab("home");

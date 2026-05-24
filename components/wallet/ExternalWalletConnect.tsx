@@ -277,6 +277,11 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
     setChainId(parseChainId(chain));
   }
 
+  async function syncProviderAccounts(provider = getPrimaryProvider()) {
+    if (!provider) return;
+    await refresh(provider);
+  }
+
   async function finishAuthentication(provider: EthereumProvider, nextAddress: string, nextChainId: number) {
     if (HB_DEV_DASHBOARD_BYPASS) {
       saveHbDevWallet(nextAddress);
@@ -448,9 +453,17 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
     const chainChanged = (nextChainId: unknown) => setChainId(parseChainId(nextChainId));
     provider.on?.("accountsChanged", accountsChanged);
     provider.on?.("chainChanged", chainChanged);
+    const focusHandler = () => syncProviderAccounts(provider).catch(() => undefined);
+    const visibilityHandler = () => {
+      if (document.visibilityState === "visible") syncProviderAccounts(provider).catch(() => undefined);
+    };
+    window.addEventListener("focus", focusHandler);
+    document.addEventListener("visibilitychange", visibilityHandler);
     return () => {
       provider.removeListener?.("accountsChanged", accountsChanged);
       provider.removeListener?.("chainChanged", chainChanged);
+      window.removeEventListener("focus", focusHandler);
+      document.removeEventListener("visibilitychange", visibilityHandler);
     };
   }, []);
 
