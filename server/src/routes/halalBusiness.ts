@@ -843,6 +843,15 @@ function isHb9AdminWallet(address: string) {
   }
 }
 
+function normalizedHb9AdminWallet(address: string) {
+  try {
+    const normalized = getAddress(address).toLowerCase();
+    return config.hb9AdminWallets.includes(normalized) ? normalized : "";
+  } catch {
+    return "";
+  }
+}
+
 function walletChallengeRateLimit(req: Request, walletAddress: string) {
   const now = Date.now();
   const ip = req.ip || req.socket.remoteAddress || "unknown";
@@ -4649,6 +4658,8 @@ hbRouter.post("/hb/auth/wallet/challenge", asyncHandler(async (req, res) => {
     return;
   }
   const walletAddress = getAddress(parsed.data.walletAddress);
+  const adminWalletAddress = normalizedHb9AdminWallet(walletAddress);
+  if (adminWalletAddress) logger.info("ADMIN_WALLET_MATCH", { walletAddress: adminWalletAddress, authMode: parsed.data.authMode || null, phase: "challenge" });
   const rate = walletChallengeRateLimit(req, walletAddress);
   if (!rate.allowed) {
     logger.warn("hb.wallet_challenge.rate_limited", { walletAddress, retryAfter: rate.retryAfter });
@@ -4661,7 +4672,7 @@ hbRouter.post("/hb/auth/wallet/challenge", asyncHandler(async (req, res) => {
     });
     return;
   }
-  if (!isHb9AdminWallet(walletAddress) && !(await enforceRolloutAccess(res, { walletAddress: parsed.data.walletAddress, referralCode: parsed.data.referralCode, action: "wallet.challenge" }))) return;
+  if (!adminWalletAddress && !(await enforceRolloutAccess(res, { walletAddress: parsed.data.walletAddress, referralCode: parsed.data.referralCode, action: "wallet.challenge" }))) return;
   if (!pool) {
     fail(res, "HB9 database is not configured.", 503, "Wallet auth unavailable");
     return;
@@ -4699,6 +4710,7 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
     return;
   }
   const walletAddress = getAddress(parsed.data.walletAddress);
+  const adminWalletAddress = normalizedHb9AdminWallet(walletAddress);
   const client = await pool.connect();
   try {
     await ensureWalletAuthUserColumns(client);
@@ -4747,8 +4759,9 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
       return;
     }
 
-    if (parsed.data.authMode === "login" && isHb9AdminWallet(walletAddress)) {
-      const adminEmail = config.adminEmail || `wallet:${walletAddress.toLowerCase()}`;
+    if (adminWalletAddress) {
+      logger.info("ADMIN_WALLET_MATCH", { walletAddress: adminWalletAddress, authMode: parsed.data.authMode || null, phase: "verify" });
+      const adminEmail = config.adminEmail || `wallet:${adminWalletAddress}`;
       const adminToken = createAdminToken(adminEmail, "super_admin");
       await client.query(
         `update hb_wallet_auth_challenges
@@ -4757,9 +4770,11 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
         [challenge.id, parsed.data.signature]
       );
       await client.query("commit");
+      logger.info("ADMIN_LOGIN_SUCCESS", { walletAddress: adminWalletAddress, role: "super_admin", redirect: "/admin" });
       ok(res, {
         adminToken,
-        admin: { email: adminEmail, role: "super_admin", walletAddress },
+        role: "super_admin",
+        admin: { email: adminEmail, role: "super_admin", walletAddress: adminWalletAddress },
         adminRedirect: "/admin"
       }, "HB9 admin wallet login successful");
       return;

@@ -361,6 +361,7 @@ export type HbWalletAuthResponse = {
   registrationFeeRequired?: boolean;
   registrationFee?: HbRegistrationFee;
   adminToken?: string;
+  role?: "admin" | "super_admin" | "support_admin";
   admin?: { email: string; role: "super_admin" | "support_admin"; walletAddress?: string };
   adminRedirect?: string;
 };

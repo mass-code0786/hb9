@@ -68,6 +68,11 @@ const BSC_ADD_CHAIN_PARAMS = {
 let globalAuthPending = false;
 let globalLastAuthClickAt = 0;
 
+function adminRedirectTarget(response: { adminToken?: string; role?: string; admin?: { role?: string }; adminRedirect?: string }) {
+  const role = response.admin?.role || response.role || "";
+  return response.adminToken && (role === "admin" || role === "super_admin" || role === "support_admin") ? response.adminRedirect || "/admin" : "";
+}
+
 function providerMatches(provider: EthereumProvider, id: string) {
   if (id === "metamask") return Boolean(provider.isMetaMask);
   if (id === "tokenpocket") return Boolean(provider.isTokenPocket);
@@ -296,10 +301,12 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
       return;
     }
     const response = await verifyHbWalletSignature({ walletAddress: nextAddress, chainId: challenge.chainId, nonce: challenge.nonce, signature, authMode });
-    if (response.adminToken) {
-      window.localStorage.setItem(ADMIN_TOKEN_KEY, response.adminToken);
+    const adminRedirect = adminRedirectTarget(response);
+    if (adminRedirect) {
+      window.localStorage.setItem(ADMIN_TOKEN_KEY, response.adminToken!);
       clearAuthUiState();
-      window.location.assign(response.adminRedirect || "/admin");
+      console.info("ADMIN_REDIRECT", { role: response.admin?.role || response.role, redirect: adminRedirect });
+      window.location.assign(adminRedirect);
       return;
     }
     if (!response.token || !response.user) {
