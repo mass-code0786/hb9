@@ -1187,22 +1187,38 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
   const [softwareType, setSoftwareType] = useState("");
   const [architecture, setArchitecture] = useState<"centralized" | "decentralized">("centralized");
   const [requirementsNote, setRequirementsNote] = useState("");
-  const productRows = delivery?.activeProducts?.length ? delivery.activeProducts.map((item) => ({
-    id: item.package_purchase_id,
+  const deliveredProductsByPurchase = new Map<string, NonNullable<HbMyProductsDelivery["activeProducts"]>[number]>();
+  (delivery?.activeProducts || []).forEach((item) => {
+    const purchaseId = item.purchaseId || item.purchase_id || item.package_purchase_id;
+    if (purchaseId && !deliveredProductsByPurchase.has(purchaseId)) deliveredProductsByPurchase.set(purchaseId, item);
+  });
+  const uniqueDeliveredProducts = Array.from(deliveredProductsByPurchase.values());
+  const dedupeResources = (resources: typeof uniqueDeliveredProducts[number]["resources"] = []) => {
+    const seen = new Set<string>();
+    return resources.filter((resource) => {
+      const key = resource.id || `${resource.title}:${resource.url}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const productRows = uniqueDeliveredProducts.length ? uniqueDeliveredProducts.map((item) => ({
+    id: item.purchaseId || item.purchase_id || item.package_purchase_id,
+    purchaseId: item.purchaseId || item.purchase_id || item.package_purchase_id,
     packageId: item.package_id,
     title: item.package_name,
-    productTitle: item.product_title || item.package_name,
+    productTitle: item.productName || item.product_name || item.product_title || item.package_name,
     productImage: item.product_image || "",
-    price: item.package_price,
+    price: item.price || item.package_price,
     status: item.status,
-    date: item.purchased_at || item.activation_date,
-    imageAmount: item.package_price,
+    date: item.purchaseDate || item.purchase_date || item.purchased_at || item.activation_date,
+    imageAmount: item.price || item.package_price,
     followersCount: Number(item.followers_count || 0),
     bookLimit: Number(item.book_limit || 0),
-    resourcesCount: Number(item.resources_count || item.resources?.length || 0),
-    resources: item.resources || []
+    resources: dedupeResources(item.resources)
   })) : purchases.map((purchase) => ({
     id: purchase.id,
+    purchaseId: purchase.id,
     packageId: "",
     title: purchase.package_name,
     productTitle: purchase.package_name,
@@ -1217,6 +1233,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
     resources: []
   })).concat(orders.map((order) => ({
     id: order.id,
+    purchaseId: order.id,
     packageId: "",
     title: order.product_title,
     productTitle: order.product_title,
@@ -1230,18 +1247,19 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
     resourcesCount: 0,
     resources: []
   })));
-  const hasPurchases = productRows.length > 0;
+  const productRowsWithCounts = productRows.map((item) => ({ ...item, resourcesCount: item.resources.length }));
+  const hasPurchases = productRowsWithCounts.length > 0;
   const books = delivery?.books || [];
   const unlockedBooks = books.filter((book) => book.unlocked);
-  const selectedFollowerProduct = productRows.find((item) => item.id === requestProductId) || productRows[0] || null;
+  const selectedFollowerProduct = productRowsWithCounts.find((item) => item.id === requestProductId) || productRowsWithCounts[0] || null;
   const validSubmittedLink = /^https?:\/\/\S+\.\S+/i.test(submittedLink.trim());
   const canSendFollowersRequest = Boolean(selectedFollowerProduct && platform && validSubmittedLink);
   return (
     <div className="space-y-3">
-      <HeroPanel title="My Product" subtitle={`${productRows.length} active products`} icon={PackageCheck} art="package" />
+      <HeroPanel title="My Product" subtitle={`${productRowsWithCounts.length} active products`} icon={PackageCheck} art="package" />
       <SegmentedTabs tabs={[["active", "Active"], ["books", "Books"], ["requests", "Requests"]]} active={tab} onChange={(next) => setTab(next as typeof tab)} />
       {!hasPurchases ? <EmptyState title="No purchased product yet." action={<PrimaryAction onClick={onBuy}>Buy Package</PrimaryAction>} /> : null}
-      {tab === "active" ? productRows.map((item) => (
+      {tab === "active" ? productRowsWithCounts.map((item) => (
         <GlassCard key={item.id} className="p-3">
           <div className="flex gap-3">
             {item.productImage ? <img src={item.productImage} alt="" className="h-20 w-20 shrink-0 rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 object-cover" /> : <HbPackageVisual amount={item.imageAmount} size="md" />}
@@ -1292,7 +1310,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
             <div className="relative z-30 mt-3 grid gap-2 pb-28">
               <select className="field relative z-40" value={requestProductId || selectedFollowerProduct?.id || ""} onChange={(event) => setRequestProductId(event.target.value)} disabled={!hasPurchases}>
                 {!hasPurchases ? <option value="">Buy a package first</option> : null}
-                {productRows.map((item) => <option key={item.id} value={item.id}>{item.title} - {money(item.price)}</option>)}
+                {productRowsWithCounts.map((item) => <option key={item.id} value={item.id}>{item.title} - {money(item.price)}</option>)}
               </select>
               <select className="field relative z-40" value={platform} onChange={(event) => setPlatform(event.target.value as HbFollowersPlatform | "")}>
                 <option value="">Select platform</option>

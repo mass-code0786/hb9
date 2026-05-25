@@ -405,13 +405,21 @@ export type HbSingleLegProgress = {
 
 export type HbDeliveredProduct = {
   package_purchase_id: string;
+  purchase_id?: string;
+  purchaseId?: string;
   product_id?: string | null;
+  productId?: string | null;
   package_id: string;
   package_name: string;
+  product_name?: string | null;
+  productName?: string | null;
   product_title?: string | null;
   product_slug?: string | null;
   product_image?: string | null;
+  price?: string | number;
   package_price: string | number;
+  purchase_date?: string;
+  purchaseDate?: string;
   activation_date: string;
   purchased_at?: string;
   status: string;
@@ -484,6 +492,7 @@ export type HbCustomSoftwareRequest = {
 };
 
 export type HbMyProductsDelivery = {
+  items?: HbDeliveredProduct[];
   activeProducts: HbDeliveredProduct[];
   bestPackage: HbDeliveredProduct | null;
   bookLimit: number;
