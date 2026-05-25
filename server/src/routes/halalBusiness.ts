@@ -3522,8 +3522,9 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
             l.sort_order,
             coalesce(count(log.id) filter (where log.action = 'download'), 0)::int as download_count
      from hb_package_purchases p
+     join hb_packages pkg on pkg.id = p.package_id
      join lateral (
-       select hp.id, coalesce(link_counts.resource_count, 0)::int as resource_count
+       select hp.id, hp.title, coalesce(link_counts.resource_count, 0)::int as resource_count
        from hb_products hp
        left join hb_product_order_items oi on oi.product_id = hp.id
        left join hb_product_orders po on po.id = oi.order_id and po.package_purchase_id = p.id
@@ -3539,9 +3540,17 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
                 hp.created_at desc
        limit 1
      ) product on true
-     join product_delivery_links l on l.product_id = product.id and l.is_active = true
+     join product_delivery_links l on l.is_active = true
+     join hb_products delivery_product on delivery_product.id = l.product_id
      left join product_delivery_access_logs log on log.product_delivery_link_id = l.id and log.package_purchase_id = p.id
      where p.user_id = $1 and p.status = 'completed'
+       and (
+         delivery_product.id = product.id
+         or delivery_product.package_id = p.package_id
+         or delivery_product.package_price = p.amount_usd
+         or regexp_replace(lower(delivery_product.title), '[^a-z0-9]+', '', 'g') = regexp_replace(lower(product.title), '[^a-z0-9]+', '', 'g')
+         or regexp_replace(lower(delivery_product.title), '[^a-z0-9]+', '', 'g') = regexp_replace(lower(pkg.name), '[^a-z0-9]+', '', 'g')
+       )
      group by p.id, l.id
      order by p.created_at desc, l.sort_order asc, l.created_at asc`,
     [userId]
