@@ -1247,17 +1247,27 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
   const history = Array.isArray(data.items) ? data.items as Array<Record<string, unknown>> : [];
   const [tab, setTab] = useState<"transfer" | "credit" | "deduct" | "history" | "bulk">("transfer");
   const [users, setUsers] = useState<Array<Record<string, unknown>>>([]);
-  const [form, setForm] = useState({ senderUserId: "", receiverUserId: "", userId: "", coinSymbol: "USDT", amount: "", note: "", userIds: "" });
+  const [coins, setCoins] = useState<Array<Record<string, unknown>>>(Array.isArray(data.coins) ? data.coins as Array<Record<string, unknown>> : []);
+  const [form, setForm] = useState({ senderUserId: "", receiverUserId: "", userId: "", coinSymbol: "USDT", amount: "", note: "", userIds: "", targetMode: "manual", packageAmount: "4" });
+  const [bulkPreview, setBulkPreview] = useState<Record<string, unknown> | null>(null);
+  const [bulkIdempotencyKey, setBulkIdempotencyKey] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const coins = ["USDT", "BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"];
+  const coinOptions: Array<Record<string, unknown>> = coins.length ? coins : ["USDT", "BTC", "BNB", "HB9"].map((coin) => ({ coin_symbol: coin, name: displayAdminCoinSymbol(coin) }));
+  const bulkPackages = [
+    { amount: "4", label: "Starter Package ($4)" },
+    { amount: "20", label: "Builder Package ($20)" },
+    { amount: "100", label: "Growth Package ($100)" }
+  ];
   const filteredHistory = history.filter((row) => !query || JSON.stringify(row).toLowerCase().includes(query.toLowerCase()));
 
   useEffect(() => {
     adminRequest<Record<string, unknown>>("/admin/hb/coins/users", token)
       .then((result) => {
         const nextUsers = Array.isArray(result.users) ? result.users as Array<Record<string, unknown>> : [];
+        const nextCoins = Array.isArray(result.coins) ? result.coins as Array<Record<string, unknown>> : [];
         setUsers(nextUsers);
+        if (nextCoins.length) setCoins(nextCoins);
         const first = String(nextUsers[0]?.id || "");
         setForm((current) => ({
           ...current,
@@ -1271,6 +1281,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
 
   function setField(field: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
+    if (field === "amount" || field === "coinSymbol" || field === "userIds" || field === "targetMode" || field === "packageAmount") setBulkPreview(null);
   }
 
   async function submit(path: string, body: Record<string, unknown>, warning: string) {
@@ -1310,7 +1321,10 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
       <label className="space-y-2 text-sm text-slate-400">
         <span>Coin</span>
         <select className="field" value={form.coinSymbol} onChange={(event) => setField("coinSymbol", event.target.value)}>
-          {coins.map((coin) => <option key={coin} value={coin}>{displayAdminCoinSymbol(coin)}</option>)}
+          {coinOptions.map((coin) => {
+            const symbol = compact(coin.coin_symbol || coin.symbol);
+            return <option key={symbol} value={symbol}>{compact(coin.name || displayAdminCoinSymbol(symbol))}</option>;
+          })}
         </select>
       </label>
       <label className="space-y-2 text-sm text-slate-400">
@@ -1358,19 +1372,105 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
         ) : null}
         {tab === "bulk" ? (
           <div className="grid gap-4">
-            <label className="space-y-2 text-sm text-slate-400">
-              <span>User IDs</span>
-              <textarea className="field min-h-28" value={form.userIds} onChange={(event) => setField("userIds", event.target.value)} placeholder="Paste one user ID per line or comma-separated" />
-            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button className={`rounded-2xl border px-3 py-3 text-left text-sm font-semibold ${form.targetMode === "package" ? "border-accent bg-accent/15 text-accent" : "border-sky-200/10 bg-[#0b1728]/75 text-slate-200"}`} onClick={() => setField("targetMode", "package")} type="button">Package Target</button>
+              <button className={`rounded-2xl border px-3 py-3 text-left text-sm font-semibold ${form.targetMode === "manual" ? "border-accent bg-accent/15 text-accent" : "border-sky-200/10 bg-[#0b1728]/75 text-slate-200"}`} onClick={() => setField("targetMode", "manual")} type="button">Manual User IDs</button>
+            </div>
+            {form.targetMode === "package" ? (
+              <div className="grid gap-2 sm:grid-cols-3">
+                {bulkPackages.map((item) => (
+                  <button key={item.amount} className={`min-h-12 rounded-2xl border px-3 py-3 text-left text-xs font-bold ${form.packageAmount === item.amount ? "border-accent bg-accent text-black" : "border-sky-200/10 bg-[#0b1728]/75 text-slate-200"}`} onClick={() => setField("packageAmount", item.amount)} type="button">{item.label}</button>
+                ))}
+              </div>
+            ) : (
+              <label className="space-y-2 text-sm text-slate-400">
+                <span>User IDs</span>
+                <textarea className="field min-h-28 w-full" value={form.userIds} onChange={(event) => setField("userIds", event.target.value)} placeholder="Paste one user ID per line or comma-separated" />
+              </label>
+            )}
             {controls}
-            <button className="w-fit rounded-2xl bg-accent px-4 py-3 font-semibold text-black disabled:opacity-60" disabled={busy} onClick={() => {
-              const userIds = form.userIds.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
-              submit("/admin/hb/funds/bulk-distribution", { userIds }, `Distribute ${form.amount} ${form.coinSymbol} to ${userIds.length} users? Rollback requires manual correcting entries.`);
-            }} type="button">Run Bulk Distribution</button>
+            {bulkPreview ? (
+              <div className="grid gap-3 rounded-2xl border border-accent/25 bg-accent/10 p-3 text-sm text-slate-100 sm:grid-cols-3">
+                <Metric title="Matched users" value={compact(bulkPreview.matchedUsers || 0)} tone="accent" />
+                <Metric title="Estimated total" value={`${compact(bulkPreview.estimatedTotal || 0)} ${form.coinSymbol}`} tone="mint" />
+                <Metric title="Package" value={compact(bulkPreview.packageName || "Manual selection")} />
+              </div>
+            ) : null}
+            <div className="grid gap-2 sm:flex sm:flex-wrap">
+              <button className="w-full rounded-2xl border border-accent/30 bg-[#0b1728]/75 px-4 py-3 font-semibold text-accent disabled:opacity-60 sm:w-fit" disabled={busy} onClick={async () => {
+                if (!form.note.trim() || Number(form.amount) <= 0) {
+                  setMessage("Amount and note are required before preview.");
+                  return;
+                }
+                const userIds = form.userIds.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+                const key = `hb-ui-bulk-${Date.now()}-${crypto.randomUUID()}`;
+                setBusy(true);
+                setMessage("");
+                try {
+                  const preview = await adminRequest<Record<string, unknown>>("/admin/hb/funds/bulk-distribution", token, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      targetMode: form.targetMode,
+                      userIds,
+                      packageAmount: Number(form.packageAmount),
+                      coinSymbol: form.coinSymbol,
+                      amount: form.amount,
+                      note: form.note.trim(),
+                      preview: true,
+                      idempotencyKey: key
+                    })
+                  });
+                  setBulkPreview(preview);
+                  setBulkIdempotencyKey(key);
+                } catch (err) {
+                  setMessage(err instanceof Error ? err.message : "Bulk preview failed.");
+                } finally {
+                  setBusy(false);
+                }
+              }} type="button">Preview Distribution</button>
+              <button className="w-full rounded-2xl bg-accent px-4 py-3 font-semibold text-black disabled:opacity-60 sm:w-fit" disabled={busy || !bulkPreview} onClick={() => setBulkPreview((current) => current ? { ...current, confirmOpen: true } : current)} type="button">Execute Bulk Distribution</button>
+            </div>
           </div>
         ) : null}
         {message ? <p className="mt-4 text-sm text-sky-100">{message}</p> : null}
       </Panel>
+      {bulkPreview?.confirmOpen ? (
+        <div className="fixed inset-0 z-[90] grid place-items-end bg-black/70 p-3 sm:place-items-center">
+          <div className="w-full max-w-md rounded-2xl border border-accent/20 bg-[#07111f] p-4 shadow-2xl">
+            <h3 className="text-lg font-black text-white">Confirm bulk distribution</h3>
+            <p className="mt-2 text-sm text-slate-300">Send {compact(form.amount)} {form.coinSymbol} to {compact(bulkPreview.matchedUsers)} matched users. Estimated total: {compact(bulkPreview.estimatedTotal)} {form.coinSymbol}. This creates ledger entries and proof records.</p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <button className="rounded-xl border border-sky-200/10 bg-[#0b1728]/75 px-4 py-3 text-sm font-semibold text-slate-200" onClick={() => setBulkPreview((current) => current ? { ...current, confirmOpen: false } : current)} type="button">Cancel</button>
+              <button className="rounded-xl bg-accent px-4 py-3 text-sm font-black text-black disabled:opacity-60" disabled={busy} onClick={async () => {
+                const userIds = form.userIds.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+                setBusy(true);
+                setMessage("");
+                try {
+                  await adminRequest("/admin/hb/funds/bulk-distribution", token, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      targetMode: form.targetMode,
+                      userIds,
+                      packageAmount: Number(form.packageAmount),
+                      coinSymbol: form.coinSymbol,
+                      amount: form.amount,
+                      note: form.note.trim(),
+                      idempotencyKey: bulkIdempotencyKey || `hb-ui-bulk-${Date.now()}-${crypto.randomUUID()}`
+                    })
+                  });
+                  setMessage("Bulk distribution recorded with proofs.");
+                  window.location.reload();
+                } catch (err) {
+                  setMessage(err instanceof Error ? err.message : "Bulk distribution failed.");
+                  setBulkPreview((current) => current ? { ...current, confirmOpen: false } : current);
+                } finally {
+                  setBusy(false);
+                }
+              }} type="button">{busy ? "Processing..." : "Confirm Execute"}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <Panel title="Funds History">
         <AdminTable headers={["Type", "Sender", "Receiver/User", "Coin", "Amount", "Before", "After", "Proof", "Admin", "Note", "Created"]}>

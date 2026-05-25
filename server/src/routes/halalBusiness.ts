@@ -360,11 +360,21 @@ const adminFundActionSchema = z.object({
 });
 
 const adminBulkDistributionSchema = z.object({
-  userIds: z.array(z.string().uuid()).min(1).max(200),
+  targetMode: z.enum(["manual", "package"]).default("manual"),
+  userIds: z.array(z.string().uuid()).max(500).optional(),
+  packageAmount: z.union([z.literal(4), z.literal(20), z.literal(100)]).optional(),
   coinSymbol: hbCoinSymbolSchema,
   amount: decimalAmountSchema,
   note: z.string().trim().min(3).max(500),
+  preview: z.boolean().optional(),
   idempotencyKey: z.string().trim().min(12).max(160).optional()
+}).superRefine((value, ctx) => {
+  if (value.targetMode === "manual" && (!value.userIds || value.userIds.length === 0)) {
+    ctx.addIssue({ code: "custom", path: ["userIds"], message: "At least one user ID is required for manual mode." });
+  }
+  if (value.targetMode === "package" && !value.packageAmount) {
+    ctx.addIssue({ code: "custom", path: ["packageAmount"], message: "Package amount is required for package mode." });
+  }
 });
 
 const purchaseSchema = z.object({
@@ -1031,6 +1041,12 @@ const supportedCoins = hbCoinSymbols.map((symbol) => ({
   symbol,
   usd_price: symbol === "USDT" ? "1" : null
 }));
+
+const bulkDistributionPackages: Record<number, string> = {
+  4: "Starter Package",
+  20: "Builder Package",
+  100: "Growth Package"
+};
 
 async function applyHbCoinAdjustment(input: {
   client: PoolClient;
@@ -6526,9 +6542,55 @@ hbRouter.post("/admin/hb/funds/bulk-distribution", requireAdmin, asyncHandler(as
   const rootKey = parsed.data.idempotencyKey || `hb:funds:bulk:${crypto.randomUUID()}`;
   const client = await pool.connect();
   try {
+    const targets = parsed.data.targetMode === "package"
+      ? (await client.query<{ user_id: string; email: string | null; display_name: string | null; package_name: string }>(
+          `select distinct on (p.user_id)
+                  p.user_id, u.email, u.display_name, $2::text as package_name
+           from hb_package_purchases p
+           join hb_users u on u.id = p.user_id
+           where p.status = 'completed'
+             and p.amount_usd = $1::numeric
+             and u.status <> 'blocked'
+           order by p.user_id, p.created_at desc`,
+          [parsed.data.packageAmount, bulkDistributionPackages[Number(parsed.data.packageAmount)] || "Package"]
+        )).rows.map((row) => ({
+          userId: row.user_id,
+          email: row.email,
+          displayName: row.display_name,
+          packageName: row.package_name
+        }))
+      : [...new Set(parsed.data.userIds || [])].map((userId) => ({ userId, packageName: "Manual selection" }));
+    if (targets.length === 0) {
+      fail(res, "No users matched this bulk distribution target.", 400, "No matched users");
+      return;
+    }
+    if (parsed.data.preview) {
+      ok(res, {
+        preview: true,
+        targetMode: parsed.data.targetMode,
+        packageAmount: parsed.data.packageAmount || null,
+        packageName: parsed.data.packageAmount ? bulkDistributionPackages[Number(parsed.data.packageAmount)] : "Manual selection",
+        coinSymbol: parsed.data.coinSymbol,
+        amount: parsed.data.amount,
+        matchedUsers: targets.length,
+        estimatedTotal: Number(parsed.data.amount) * targets.length,
+        users: targets.slice(0, 200)
+      }, "Bulk distribution preview ready");
+      return;
+    }
     await client.query("begin");
+    const existingBatch = await client.query(
+      "select id from hb_admin_balance_actions where idempotency_key like $1 || ':%' limit 1",
+      [rootKey]
+    );
+    if (existingBatch.rows[0]) {
+      await client.query("commit");
+      ok(res, { items: [], count: 0, duplicate: true, idempotencyKey: rootKey }, "Bulk distribution already submitted");
+      return;
+    }
     const results: Array<Record<string, unknown>> = [];
-    for (const userId of [...new Set(parsed.data.userIds)]) {
+    for (const target of targets) {
+      const userId = target.userId;
       await ensureHbUserExists(client, userId);
       const before = await readCoinBalance(client, userId, parsed.data.coinSymbol);
       const ledgerId = await applyHbCoinAdjustment({
@@ -6542,7 +6604,7 @@ hbRouter.post("/admin/hb/funds/bulk-distribution", requireAdmin, asyncHandler(as
         adminId: adminEmail,
         note: parsed.data.note,
         idempotencyKey: `${rootKey}:${userId}`,
-        metadata: { action: "bulk_distribution", batchKey: rootKey }
+        metadata: { action: "bulk_distribution", batchKey: rootKey, targetMode: parsed.data.targetMode, packageAmount: parsed.data.packageAmount || null, packageName: target.packageName }
       });
       if (!ledgerId) continue;
       const proof = await createLedgerProof(client, "hb_coin_balance_ledger", ledgerId);
@@ -6557,9 +6619,16 @@ hbRouter.post("/admin/hb/funds/bulk-distribution", requireAdmin, asyncHandler(as
       results.push(actionRows.rows[0]);
     }
     await client.query("commit");
-    await adminActionLog({ adminEmail, action: "admin.hb.funds.bulk_distribution", entityType: "hb_admin_balance_action", entityId: rootKey, metadata: { ...parsed.data, userCount: results.length }, req });
-    await adminHbAudit(adminEmail, "admin.hb.funds.bulk_distribution", "hb_admin_balance_action", rootKey, { ...parsed.data, userCount: results.length });
-    ok(res, { items: results, count: results.length }, "Bulk distribution completed", 201);
+    const metadata = {
+      ...parsed.data,
+      userIds: undefined,
+      userCount: results.length,
+      packageName: parsed.data.packageAmount ? bulkDistributionPackages[Number(parsed.data.packageAmount)] : "Manual selection",
+      estimatedTotal: Number(parsed.data.amount) * results.length
+    };
+    await adminActionLog({ adminEmail, action: "admin.hb.funds.bulk_distribution", entityType: "hb_admin_balance_action", entityId: rootKey, metadata, req });
+    await adminHbAudit(adminEmail, "admin.hb.funds.bulk_distribution", "hb_admin_balance_action", rootKey, metadata);
+    ok(res, { items: results, count: results.length, idempotencyKey: rootKey }, "Bulk distribution completed", 201);
   } catch (err) {
     await client.query("rollback");
     fail(res, err instanceof Error ? err.message : "Bulk distribution failed.", 400, "Bulk distribution failed");
@@ -6593,7 +6662,7 @@ hbRouter.get("/admin/hb/funds/history", requireAdmin, asyncHandler(async (req, r
      limit 300`,
     [search]
   );
-  ok(res, { items: rows }, "Fund history loaded");
+  ok(res, { items: rows, coins: supportedCoins }, "Fund history loaded");
 }));
 
 hbRouter.get("/admin/hb/users", requireAdmin, asyncHandler(async (_req, res) => {
