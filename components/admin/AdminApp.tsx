@@ -12,6 +12,7 @@ import {
   Gauge,
   Image as ImageIcon,
   LogOut,
+  Menu,
   RefreshCcw,
   Settings,
   Shield,
@@ -22,7 +23,8 @@ import {
   TreePine,
   Upload,
   Users,
-  WalletCards
+  WalletCards,
+  X
 } from "lucide-react";
 import { HalalBusinessLogo } from "@/components/brand/HalalBusinessLogo";
 import { ExplorerButton } from "@/components/ExplorerButton";
@@ -257,6 +259,7 @@ export function AdminApp({ page }: { page: AdminPage }) {
   const [providerSettings, setProviderSettings] = useState<ProviderSettingsData | null>(null);
   const [fees, setFees] = useState<FeesData | null>(null);
   const [hbData, setHbData] = useState<Record<string, unknown>>({});
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const title = nav.find((item) => item.page === page)?.label || "Admin";
 
   useEffect(() => {
@@ -364,6 +367,24 @@ export function AdminApp({ page }: { page: AdminPage }) {
     };
   }, [page, query, searchParams, token]);
 
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [mobileNavOpen]);
+
   async function logout() {
     try {
       if (token) await adminRequest("/admin/logout", token, { method: "POST" });
@@ -388,29 +409,61 @@ export function AdminApp({ page }: { page: AdminPage }) {
     return <Overview summary={summary} auditRows={auditRows} />;
   }, [auditRows, error, fees, hbData, loading, page, paymentRows, providerSettings, query, rechargeRows, summary, token, userRows]);
 
+  const adminNav = (linkClassName = "", onNavigate?: () => void) => (
+    <nav className={`grid gap-2 ${linkClassName}`}>
+      {nav.map((item) => {
+        const Icon = item.icon;
+        const active = pathname === item.href;
+        return (
+          <Link key={item.href} href={item.href} onClick={onNavigate} className={`tap-feedback flex min-w-0 items-center gap-2 rounded-xl px-3 py-2 text-sm ${active ? "bg-accent text-black" : "text-slate-300 hover:bg-[#0b1728]/75 hover:text-white"}`}>
+            <Icon className="shrink-0" size={16} /> <span className="truncate">{item.label}</span>
+          </Link>
+        );
+      })}
+    </nav>
+  );
+
   return (
     <main className="min-h-dvh text-slate-50">
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-sky-200/10 bg-[#0b1728]/95 px-3 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur-2xl md:hidden">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+          <div className="min-w-0">
+            <HalalBusinessLogo size="sm" showText />
+            <div className="truncate text-xs text-slate-500">{title}</div>
+          </div>
+          <button className="tap-feedback flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[#0b1728]/80 text-slate-100" onClick={() => setMobileNavOpen(true)} type="button" aria-label="Open admin navigation" aria-expanded={mobileNavOpen}>
+            <Menu size={22} />
+          </button>
+        </div>
+      </header>
+      <div className={`fixed inset-0 z-[70] md:hidden ${mobileNavOpen ? "" : "pointer-events-none"}`} role="dialog" aria-modal="true" aria-label="Admin navigation" aria-hidden={!mobileNavOpen}>
+        <button className={`absolute inset-0 z-0 cursor-default bg-black/60 transition-opacity duration-200 ${mobileNavOpen ? "opacity-100" : "opacity-0"}`} onClick={() => setMobileNavOpen(false)} type="button" aria-label="Close admin navigation overlay" tabIndex={mobileNavOpen ? 0 : -1} />
+        <aside className={`relative z-10 flex h-dvh w-[min(22rem,88vw)] flex-col border-r border-sky-200/10 bg-[#0b1728] p-4 shadow-[18px_0_55px_rgba(0,0,0,0.45)] transition-transform duration-200 ease-out ${mobileNavOpen ? "translate-x-0" : "-translate-x-full"}`}>
+          <div className="mb-5 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <HalalBusinessLogo size="sm" showText />
+              <div className="truncate text-xs text-slate-500">{adminRole} ready</div>
+            </div>
+            <button className="tap-feedback flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[#0b1728]/75 text-slate-100" onClick={() => setMobileNavOpen(false)} type="button" aria-label="Close admin navigation" tabIndex={mobileNavOpen ? 0 : -1}>
+              <X size={20} />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            {adminNav("", () => setMobileNavOpen(false))}
+          </div>
+        </aside>
+      </div>
       <div className="mx-auto grid min-h-dvh max-w-7xl grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="sticky top-0 z-30 border-b border-sky-200/10 bg-[#0b1728]/82 p-3 shadow-[0_0_28px_rgba(56,189,248,0.08)] backdrop-blur-2xl md:h-dvh md:overflow-y-auto md:border-b-0 md:border-r md:p-4">
+        <aside className="sticky top-0 z-30 hidden border-b border-sky-200/10 bg-[#0b1728]/82 p-3 shadow-[0_0_28px_rgba(56,189,248,0.08)] backdrop-blur-2xl md:block md:h-dvh md:overflow-y-auto md:border-b-0 md:border-r md:p-4">
           <div className="mb-6 flex items-center gap-3">
             <div>
               <HalalBusinessLogo size="sm" showText />
               <div className="text-xs text-slate-500">{adminRole} ready</div>
             </div>
           </div>
-          <nav className="grid max-h-[44dvh] grid-cols-2 gap-2 overflow-y-auto pr-1 md:max-h-none md:grid-cols-1 md:overflow-visible md:pr-0">
-            {nav.map((item) => {
-              const Icon = item.icon;
-              const active = pathname === item.href;
-              return (
-                <Link key={item.href} href={item.href} className={`tap-feedback flex min-w-0 items-center gap-2 rounded-xl px-3 py-2 text-sm ${active ? "bg-accent text-black" : "text-slate-300 hover:bg-[#0b1728]/75 hover:text-white"}`}>
-                  <Icon className="shrink-0" size={16} /> <span className="truncate">{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
+          {adminNav("md:max-h-none md:grid-cols-1 md:overflow-visible md:pr-0")}
         </aside>
-        <section className="min-w-0 p-3 sm:p-4 md:p-6">
+        <section className="min-w-0 p-3 pt-24 sm:p-4 sm:pt-24 md:p-6">
           <header className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-2xl font-semibold">{title}</h1>
