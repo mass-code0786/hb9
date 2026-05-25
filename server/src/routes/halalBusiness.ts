@@ -329,7 +329,7 @@ const hbCustomSoftwareRequestSchema = z.object({
   requirementsNote: z.string().trim().min(10).max(2000)
 });
 const adminRequestStatusSchema = z.object({
-  status: z.enum(["pending", "processing", "completed", "rejected"]),
+  status: z.enum(["pending", "completed", "rejected"]),
   adminNote: z.string().trim().max(1000).optional().or(z.literal(""))
 });
 
@@ -3690,6 +3690,24 @@ hbRouter.post("/hb/followers-request", requireHbUser, asyncHandler(async (req, r
     fail(res, "This package does not include followers.", 403, "Followers not included");
     return;
   }
+  const latestRequestRows = await query<{ status: string }>(
+    `select status
+     from hb_followers_requests
+     where user_id = $1 and package_purchase_id = $2
+     order by created_at desc
+     limit 1`,
+    [req.hbUser!.userId, parsed.data.packagePurchaseId]
+  );
+  const latestStatus = String(latestRequestRows[0]?.status || "").toLowerCase();
+  if (["pending", "approved", "processing", "completed"].includes(latestStatus)) {
+    const message = latestStatus === "pending"
+      ? "Request already pending."
+      : latestStatus === "completed"
+        ? "Followers completed."
+        : "Followers request is already in progress.";
+    fail(res, message, 409, message);
+    return;
+  }
   try {
     const rows = await query(
       `insert into hb_followers_requests (user_id, package_id, package_purchase_id, platform, submitted_link, followers_count)
@@ -3700,7 +3718,7 @@ hbRouter.post("/hb/followers-request", requireHbUser, asyncHandler(async (req, r
     await audit(req.hbUser!.userId, "hb.followers_request.create", "hb_followers_request", String((rows[0] as any)?.id || ""), { followersCount });
     ok(res, rows[0], "Followers request sent", 201);
   } catch (err) {
-    fail(res, err instanceof Error && err.message.includes("duplicate") ? "A pending followers request already exists for this package." : err instanceof Error ? err.message : "Followers request failed.", 400, "Followers request failed");
+    fail(res, err instanceof Error && err.message.includes("duplicate") ? "Request already pending." : err instanceof Error ? err.message : "Followers request failed.", 400, "Followers request failed");
   }
 }));
 
@@ -6875,7 +6893,7 @@ hbRouter.get("/admin/hb/followers-requests", requireAdmin, asyncHandler(async (_
      left join hb_wallets w on w.user_id = u.id and w.wallet_type = 'deposit'
      left join hb_package_purchases p on p.id = r.package_purchase_id
      left join hb_packages pkg on pkg.id = r.package_id
-     order by case r.status when 'pending' then 0 when 'processing' then 1 when 'rejected' then 2 else 3 end, r.created_at desc
+     order by case r.status when 'pending' then 0 when 'rejected' then 1 when 'completed' then 2 else 3 end, r.created_at desc
      limit 500`
   );
   const summary = await query("select status, count(*)::int as count from hb_followers_requests group by status");

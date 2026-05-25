@@ -2164,8 +2164,8 @@ function RequestAdminActions({ row, onPatch }: { row: Record<string, unknown>; o
   const note = () => window.prompt("Admin note") || "";
   return (
     <div className="flex flex-wrap gap-1">
-      {status === "pending" ? <button className="rounded-lg bg-[#0b1728]/75 px-2 py-1 text-xs" onClick={() => onPatch("processing", note() || "Processing request")} type="button">Processing</button> : null}
-      {status === "pending" || status === "processing" ? <button className="rounded-lg bg-mint/20 px-2 py-1 text-xs text-mint" onClick={() => onPatch("completed", note() || "Completed")} type="button">Complete</button> : null}
+      {status !== "pending" && status !== "completed" ? <button className="rounded-lg bg-[#0b1728]/75 px-2 py-1 text-xs" onClick={() => onPatch("pending", note() || "Pending")} type="button">Pending</button> : null}
+      {status !== "completed" ? <button className="rounded-lg bg-mint/20 px-2 py-1 text-xs text-mint" onClick={() => onPatch("completed", note() || "Completed")} type="button">Complete</button> : null}
       {status !== "completed" ? <button className="rounded-lg bg-danger/20 px-2 py-1 text-xs text-red-100" onClick={() => onPatch("rejected", note() || "Rejected")} type="button">Reject</button> : null}
     </div>
   );

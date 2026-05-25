@@ -451,7 +451,7 @@ export type HbFollowersRequest = {
   platform: HbFollowersPlatform;
   submitted_link: string;
   followers_count: number;
-  status: "pending" | "processing" | "completed" | "rejected";
+  status: "pending" | "approved" | "processing" | "completed" | "rejected" | "failed" | "cancelled";
   admin_note?: string | null;
   created_at: string;
   completed_at?: string | null;

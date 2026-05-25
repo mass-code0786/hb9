@@ -1271,9 +1271,37 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
   const hasPurchases = productRows.length > 0;
   const books = delivery?.books || [];
   const unlockedBooks = books.filter((book) => book.unlocked);
+  const latestFollowersRequestsByPurchase = useMemo(() => {
+    const requests = new Map<string, HbMyProductsDelivery["followersRequests"][number]>();
+    (delivery?.followersRequests || []).forEach((request) => {
+      const purchaseId = request.package_purchase_id || "";
+      if (purchaseId && !requests.has(purchaseId)) requests.set(purchaseId, request);
+    });
+    return requests;
+  }, [delivery?.followersRequests]);
+  const visibleFollowersRequests = useMemo(() => {
+    const requests = new Map<string, HbMyProductsDelivery["followersRequests"][number]>();
+    (delivery?.followersRequests || []).forEach((request) => {
+      const key = request.package_purchase_id || `${request.package_id || "package"}:${request.platform}:${request.submitted_link}`;
+      if (!requests.has(key)) requests.set(key, request);
+    });
+    return Array.from(requests.values());
+  }, [delivery?.followersRequests]);
+  const followersRequestLabel = (status?: string) => {
+    const normalized = String(status || "").toLowerCase();
+    if (normalized === "pending") return "Request already pending";
+    if (normalized === "completed") return "Followers completed";
+    if (normalized === "rejected") return "Rejected - resubmit allowed";
+    if (normalized === "approved" || normalized === "processing") return "Request in progress";
+    return "No request";
+  };
+  const isFollowersRequestBlocked = (status?: string) => ["pending", "approved", "processing", "completed"].includes(String(status || "").toLowerCase());
   const selectedFollowerProduct = productRows.find((item) => item.id === selectedFollowerPackageId) || productRows[0] || null;
+  const selectedFollowerRequest = selectedFollowerProduct ? latestFollowersRequestsByPurchase.get(selectedFollowerProduct.id) : undefined;
+  const selectedFollowerRequestStatus = selectedFollowerRequest?.status;
+  const selectedFollowerBlocked = isFollowersRequestBlocked(selectedFollowerRequestStatus);
   const hasSubmittedLink = submittedLink.trim().length > 0;
-  const canSendFollowersRequest = Boolean(selectedFollowerProduct && selectedPlatform && hasSubmittedLink);
+  const canSendFollowersRequest = Boolean(selectedFollowerProduct && selectedPlatform && hasSubmittedLink && !selectedFollowerBlocked);
   return (
     <div className="space-y-3">
       <HeroPanel title="My Product" subtitle={`${productRows.length} active products`} icon={PackageCheck} art="package" />
@@ -1298,7 +1326,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
             {featuresForHbPackageAmount(item.imageAmount).slice(0, 3).map((feature) => <FeatureBullet key={feature}>{feature}</FeatureBullet>)}
           </div>
           <div className="mt-4 grid gap-2">
-            <button className="hb-interactive hb-glow-purple flex items-center justify-center gap-2 rounded-[1rem] border border-cyan-200/18 bg-cyan-300/10 px-3 py-3 text-sm font-bold text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition duration-200 disabled:opacity-45" disabled={item.followersCount <= 0} onClick={() => { setSelectedFollowerPackageId(item.id); setTab("requests"); }} type="button"><Eye size={16} /> Followers Request</button>
+            <button className="hb-interactive hb-glow-purple flex items-center justify-center gap-2 rounded-[1rem] border border-cyan-200/18 bg-cyan-300/10 px-3 py-3 text-sm font-bold text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition duration-200 disabled:opacity-45" disabled={item.followersCount <= 0} onClick={() => { setSelectedFollowerPackageId(item.id); setTab("requests"); }} type="button"><Eye size={16} /> {followersRequestLabel(latestFollowersRequestsByPurchase.get(item.id)?.status)}</button>
           </div>
         </GlassCard>
       )) : null}
@@ -1332,11 +1360,19 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
                       type="button"
                     >
                       <span className="min-w-0 truncate text-sm font-black">{item.title}</span>
-                      <span className="shrink-0 text-xs font-bold">{money(item.price)}</span>
+                      <span className="shrink-0 text-right text-xs font-bold">
+                        <span className="block">{money(item.price)}</span>
+                        <span className={`${latestFollowersRequestsByPurchase.get(item.id)?.status === "rejected" ? "text-red-100/80" : "text-cyan-100/62"}`}>{followersRequestLabel(latestFollowersRequestsByPurchase.get(item.id)?.status)}</span>
+                      </span>
                     </button>
                   );
                 }) : <button className="rounded-2xl border border-cyan-200/16 bg-[#071b34]/78 px-3 py-3 text-sm font-black text-sky-100/72" onClick={onBuy} type="button">Buy a package first</button>}
               </div>
+              {selectedFollowerRequestStatus ? (
+                <div className={`rounded-2xl border px-3 py-2 text-xs font-bold ${selectedFollowerRequestStatus === "rejected" ? "border-red-200/18 bg-red-500/10 text-red-100" : "border-cyan-200/14 bg-cyan-300/8 text-cyan-100/78"}`}>
+                  {followersRequestLabel(selectedFollowerRequestStatus)}
+                </div>
+              ) : null}
               <div className="grid gap-1.5">
                 <label className="text-[11px] font-black uppercase tracking-[0.14em] text-cyan-100/60">Platform</label>
                 <button
@@ -1391,7 +1427,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
               </div>
             </div>
           ) : null}
-          <GlassCard className="p-3"><SectionTitle title="Request Status" /><div className="mt-2 space-y-2">{delivery?.followersRequests?.length ? delivery.followersRequests.map((item) => <HistoryRow key={item.id} title={`${item.platform} - ${item.status}`} meta={`${item.followers_count} followers - ${new Date(item.created_at).toLocaleString()}${item.admin_note ? ` - ${item.admin_note}` : ""}`} value={item.package_name || "Package"} />) : <EmptyState title="No followers requests yet." />}</div></GlassCard>
+          <GlassCard className="p-3"><SectionTitle title="Request Status" /><div className="mt-2 space-y-2">{visibleFollowersRequests.length ? visibleFollowersRequests.map((item) => <HistoryRow key={item.id} title={`${item.platform} - ${item.status}`} meta={`${item.followers_count} followers - ${new Date(item.created_at).toLocaleString()}${item.admin_note ? ` - ${item.admin_note}` : ""}`} value={item.package_name || "Package"} />) : <EmptyState title="No followers requests yet." />}</div></GlassCard>
           {Number(delivery?.bestPackage?.package_price || 0) >= 12500 ? (
             <GlassCard className="p-3">
               <SectionTitle title="Custom Software Request" action="3 slots" />
