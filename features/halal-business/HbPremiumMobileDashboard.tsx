@@ -1318,6 +1318,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
           <GlassCard className="p-3">
             <SectionTitle title="Followers Request" action={selectedFollowerProduct?.followersCount ? `${selectedFollowerProduct.followersCount} followers` : "Locked"} />
             <div className="mt-3 grid gap-3 pb-[calc(env(safe-area-inset-bottom)+7rem)]">
+              <div className="rounded-xl border border-cyan-200/12 bg-[#071b34]/70 px-3 py-2 font-mono text-[10px] font-bold text-cyan-100/70">UI_VERSION: platform-buttons-v2</div>
               <div className="grid gap-2">
                 {hasPurchases ? productRows.map((item) => {
                   const selected = selectedFollowerProduct?.id === item.id;
