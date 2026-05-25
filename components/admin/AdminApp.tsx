@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { Children, isValidElement, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   Banknote,
@@ -424,7 +424,7 @@ export function AdminApp({ page }: { page: AdminPage }) {
   );
 
   return (
-    <main className="min-h-dvh text-slate-50">
+    <main className="min-h-dvh w-full max-w-[100vw] overflow-x-hidden text-slate-50">
       <header className="fixed inset-x-0 top-0 z-50 border-b border-sky-200/10 bg-[#0b1728]/95 px-3 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur-2xl md:hidden">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
           <div className="min-w-0">
@@ -453,7 +453,7 @@ export function AdminApp({ page }: { page: AdminPage }) {
           </div>
         </aside>
       </div>
-      <div className="mx-auto grid min-h-dvh max-w-7xl grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)]">
+      <div className="mx-auto grid min-h-dvh w-full max-w-[100vw] grid-cols-1 overflow-x-hidden md:max-w-7xl md:grid-cols-[240px_minmax(0,1fr)]">
         <aside className="sticky top-0 z-30 hidden border-b border-sky-200/10 bg-[#0b1728]/82 p-3 shadow-[0_0_28px_rgba(56,189,248,0.08)] backdrop-blur-2xl md:block md:h-dvh md:overflow-y-auto md:border-b-0 md:border-r md:p-4">
           <div className="mb-6 flex items-center gap-3">
             <div>
@@ -463,7 +463,7 @@ export function AdminApp({ page }: { page: AdminPage }) {
           </div>
           {adminNav("md:max-h-none md:grid-cols-1 md:overflow-visible md:pr-0")}
         </aside>
-        <section className="min-w-0 p-3 pt-24 sm:p-4 sm:pt-24 md:p-6">
+        <section className="min-w-0 w-full max-w-[100vw] overflow-x-hidden p-3 pt-24 sm:p-4 sm:pt-24 md:p-6">
           <header className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-2xl font-semibold">{title}</h1>
@@ -2087,7 +2087,7 @@ function AdminLoadingState() {
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="premium-surface rounded-[1.2rem] p-4 sm:rounded-[1.35rem]"><h2 className="mb-4 text-lg font-semibold">{title}</h2>{children}</section>;
+  return <section className="premium-surface min-w-0 max-w-full overflow-hidden rounded-[1.2rem] p-3 sm:rounded-[1.35rem] sm:p-4"><h2 className="mb-4 text-lg font-semibold">{title}</h2>{children}</section>;
 }
 
 function Metric({ title, value, tone = "slate" }: { title: string; value: string; tone?: "slate" | "mint" | "danger" | "accent" }) {
@@ -2100,18 +2100,44 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 function AdminTable({ headers, children }: { headers: string[]; children: React.ReactNode }) {
+  const rows = Children.toArray(children);
+  const mobileRows = rows.map((row, rowIndex) => {
+    if (!isValidElement(row)) return null;
+    const cells = Children.toArray((row.props as { children?: React.ReactNode }).children);
+    if (cells.length === 0) return null;
+    return (
+      <article key={(row.key as string | null) || rowIndex} className="grid gap-2 rounded-2xl border border-sky-200/10 bg-[#0b1728]/70 p-3 shadow-[0_0_18px_rgba(56,189,248,0.05)]">
+        {cells.map((cell, cellIndex) => {
+          const label = headers[cellIndex] || `Field ${cellIndex + 1}`;
+          const value = isValidElement(cell) ? (cell.props as { children?: React.ReactNode }).children : cell;
+          return (
+            <div key={`${label}-${cellIndex}`} className="grid gap-1 border-b border-sky-200/10 pb-2 last:border-b-0 last:pb-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+              <div className="min-w-0 break-all text-sm text-slate-100 [overflow-wrap:anywhere]">{value}</div>
+            </div>
+          );
+        })}
+      </article>
+    );
+  }).filter(Boolean);
+
   return (
-    <div className="-mx-1 overflow-x-auto px-1 [scrollbar-width:thin]" role="region" aria-label="Scrollable admin table">
-      <table className="w-full min-w-[760px] border-separate border-spacing-y-2 text-left text-sm lg:min-w-[900px]">
-        <thead><tr>{headers.map((header) => <th key={header} className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{header}</th>)}</tr></thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
+    <>
+      <div className="grid max-w-full gap-3 md:hidden" role="list" aria-label="Admin table cards">
+        {mobileRows.length ? mobileRows : <div className="rounded-2xl border border-sky-200/10 bg-[#0b1728]/70 p-3 text-sm text-slate-400">No records found.</div>}
+      </div>
+      <div className="-mx-1 hidden max-w-full overflow-x-auto px-1 [scrollbar-width:thin] md:block" role="region" aria-label="Scrollable admin table">
+        <table className="w-full min-w-[760px] border-separate border-spacing-y-2 text-left text-sm lg:min-w-[900px]">
+          <thead><tr>{headers.map((header) => <th key={header} className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{header}</th>)}</tr></thead>
+          <tbody>{children}</tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
 function Td({ children }: { children: React.ReactNode }) {
-  return <td className="max-w-[18rem] break-words border-y border-sky-200/10 bg-[#0b1728]/70 px-3 py-3 align-top first:rounded-l-xl first:border-l last:rounded-r-xl last:border-r">{children}</td>;
+  return <td className="max-w-[18rem] break-all border-y border-sky-200/10 bg-[#0b1728]/70 px-3 py-3 align-top [overflow-wrap:anywhere] first:rounded-l-xl first:border-l last:rounded-r-xl last:border-r">{children}</td>;
 }
 
 function Badge({ value }: { value: string }) {
