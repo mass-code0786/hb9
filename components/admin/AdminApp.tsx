@@ -1713,15 +1713,6 @@ function HbTreasury({ data, token }: { data: Record<string, unknown>; token: str
 function HbProductsAdmin({ rows, token, onToggleActive }: { rows: Array<Record<string, unknown>>; token: string; onToggleActive: (row: Record<string, unknown>) => Promise<void> }) {
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
-  const [resourceDrafts, setResourceDrafts] = useState<Record<string, { title: string; type: string; downloadUrl: string }>>({});
-
-  function resourceDraft(productId: string) {
-    return resourceDrafts[productId] || { title: "", type: "", downloadUrl: "" };
-  }
-
-  function setResourceField(productId: string, field: "title" | "type" | "downloadUrl", value: string) {
-    setResourceDrafts((current) => ({ ...current, [productId]: { ...resourceDraft(productId), [field]: value } }));
-  }
 
   async function upload(row: Record<string, unknown>, file: File | undefined, gallery = false) {
     if (!file) return;
@@ -1755,53 +1746,18 @@ function HbProductsAdmin({ rows, token, onToggleActive }: { rows: Array<Record<s
     }
   }
 
-  async function addResource(row: Record<string, unknown>) {
-    const productId = String(row.id);
-    const draft = resourceDraft(productId);
-    setBusyId(productId);
-    setError("");
-    try {
-      await adminRequest(`/admin/hb/products/${productId}/resources`, token, {
-        method: "POST",
-        body: JSON.stringify({ title: draft.title, type: draft.type, downloadUrl: draft.downloadUrl })
-      });
-      window.location.reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Product resource add failed.");
-    } finally {
-      setBusyId("");
-    }
-  }
-
-  async function deleteResource(row: Record<string, unknown>, resourceId: string) {
-    const productId = String(row.id);
-    setBusyId(productId);
-    setError("");
-    try {
-      await adminRequest(`/admin/hb/products/${productId}/resources/${resourceId}`, token, { method: "DELETE" });
-      window.location.reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Product resource delete failed.");
-    } finally {
-      setBusyId("");
-    }
-  }
-
   return (
     <Panel title="HB9 products">
       <div className="mb-4 rounded-2xl border border-white/10 bg-[#0b1728]/60 p-3 text-sm text-slate-300">
         Upload JPG, JPEG, PNG, or WEBP product images up to 5MB. SVG and executable files are rejected.
       </div>
       {error ? <p className="mb-4 rounded-xl border border-danger/30 bg-danger/10 p-3 text-sm text-red-100">{error}</p> : null}
-      <AdminTable headers={["Product", "Slug", "Package", "Price", "Stock", "Featured", "Active", "Image", "Gallery", "Resources", "Updated", "Actions"]}>
+      <AdminTable headers={["Product", "Slug", "Package", "Price", "Stock", "Featured", "Active", "Image", "Gallery", "Updated", "Actions"]}>
         {rows.map((row) => {
           const imageUrl = compact(row.thumbnail_url || row.image_url);
           const hasImage = imageUrl !== "-";
           const gallery = Array.isArray(row.gallery) ? row.gallery as Array<Record<string, unknown>> : [];
-          const resources = Array.isArray(row.resources) ? row.resources as Array<Record<string, unknown>> : [];
           const busy = busyId === String(row.id);
-          const draft = resourceDraft(String(row.id));
-          const canAddResource = draft.title.trim() && draft.type.trim() && /^https?:\/\/\S+\.\S+/i.test(draft.downloadUrl.trim());
           return (
             <tr key={compact(row.id)}>
               <Td>{compact(row.title)}</Td>
@@ -1844,21 +1800,6 @@ function HbProductsAdmin({ rows, token, onToggleActive }: { rows: Array<Record<s
                     <Upload size={13} /> Add gallery
                     <input className="hidden" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => upload(row, event.target.files?.[0], true)} />
                   </label>
-                </div>
-              </Td>
-              <Td>
-                <div className="grid min-w-[240px] gap-2">
-                  {resources.map((resource) => (
-                    <div key={compact(resource.id)} className="rounded-xl border border-sky-200/10 bg-[#081526]/80 p-2">
-                      <div className="truncate text-xs font-semibold text-slate-100">{compact(resource.title)}</div>
-                      <div className="truncate text-[11px] text-slate-500">{compact(resource.type)}</div>
-                      <button className="mt-2 rounded-lg bg-danger/20 px-2 py-1 text-xs text-red-100 disabled:opacity-60" onClick={() => deleteResource(row, String(resource.id))} disabled={busy} type="button">Delete</button>
-                    </div>
-                  ))}
-                  <input className="field py-2 text-xs" placeholder="Resource title" value={draft.title} onChange={(event) => setResourceField(String(row.id), "title", event.target.value)} />
-                  <input className="field py-2 text-xs" placeholder="Type" value={draft.type} onChange={(event) => setResourceField(String(row.id), "type", event.target.value)} />
-                  <input className="field py-2 text-xs" placeholder="https://download-url" value={draft.downloadUrl} onChange={(event) => setResourceField(String(row.id), "downloadUrl", event.target.value)} />
-                  <button className="rounded-lg bg-accent px-2 py-2 text-xs font-semibold text-black disabled:opacity-50" onClick={() => addResource(row)} disabled={busy || !canAddResource} type="button">Add resource</button>
                 </div>
               </Td>
               <Td>{formatDate(row.updated_at)}</Td>
