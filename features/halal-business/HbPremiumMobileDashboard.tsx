@@ -14,6 +14,7 @@ import { CoinLogo as CryptoCoinLogo } from "@/components/crypto/CoinLogo";
 import { HB9VoiceAssistant, type HB9VoiceEvent, type HB9VoiceScript } from "@/components/voice/HB9VoiceAssistant";
 import {
   buyHbProduct,
+  accessHbProductResource,
   HB_ACTIVE_WALLET_KEY,
   clearHbSessionStorageState,
   clearHbWalletCacheStorage,
@@ -878,6 +879,24 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
     }
   }
 
+  async function handleProductResourceAccess(resourceId: string, action: "open" | "download" | "copy") {
+    if (!token) return;
+    setError("");
+    setNotice("");
+    try {
+      const result = await accessHbProductResource(token, resourceId, action);
+      if (action === "copy") {
+        await navigator.clipboard.writeText(result.downloadUrl);
+        setNotice("Resource link copied.");
+        return;
+      }
+      window.open(result.downloadUrl, "_blank", "noopener,noreferrer");
+      setNotice(action === "download" ? "Resource download opened." : "Resource opened.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Resource access failed.");
+    }
+  }
+
   async function handleFollowersRequest(input: { packagePurchaseId: string; platform: HbFollowersPlatform; submittedLink: string }) {
     if (!token) return;
     setError("");
@@ -1099,7 +1118,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         {loading ? <DashboardSkeleton /> : null}
 
         {!loading && activeTab === "home" ? <HomeScreen walletBalance={totalBalance} balances={walletData.balances} user={dashboardUser} boundWallet={boundWallet} currentPackage={currentPackage} products={devDashboardActive ? completePackageProducts : orderedProducts.length > 0 ? orderedProducts : completePackageProducts} coins={coins} convertingCoin={convertingCoin} buyLoadingProductId={buyLoadingProductId} onConvert={convertCoin} onTab={handleTabChange} onBuy={openBuyFlow} onInstruction={playAssistant} /> : null}
-        {!loading && activeTab === "products" ? <MyProductsScreen purchases={purchases} orders={orders} delivery={myProducts} packages={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openPackagesScreen} onPackageBuy={openBuyFlow} onBookDownload={handleBookDownload} onFollowersRequest={handleFollowersRequest} onCustomSoftwareRequest={handleCustomSoftwareRequest} /> : null}
+        {!loading && activeTab === "products" ? <MyProductsScreen purchases={purchases} orders={orders} delivery={myProducts} packages={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openPackagesScreen} onPackageBuy={openBuyFlow} onBookDownload={handleBookDownload} onProductResourceAccess={handleProductResourceAccess} onFollowersRequest={handleFollowersRequest} onCustomSoftwareRequest={handleCustomSoftwareRequest} /> : null}
         {!loading && activeTab === "packages" ? <AllPackagesScreen products={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openBuyFlow} onBack={() => setActiveTab("home")} /> : null}
         {!loading && activeTab === "team" ? <TeamScreen user={dashboardUser} summary={referralSummary} /> : null}
         {!loading && activeTab === "income" ? <IncomeScreen income={income} singleLegReserve={singleLegReserve} singleLegProgress={singleLegProgress} summary={incomeSummary} availableBalance={walletData.balances.income} totalWithdrawn={withdrawals.filter((item) => item.status === "paid").reduce((sum, item) => sum + Number(item.amount_usd || 0), 0)} /> : null}
@@ -1167,7 +1186,7 @@ function HomeScreen({ walletBalance, balances, user, boundWallet, currentPackage
   );
 }
 
-function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingProductId, onBuy, onPackageBuy, onBookDownload, onFollowersRequest, onCustomSoftwareRequest }: { purchases: HbPurchase[]; orders: HbOrder[]; delivery: HbMyProductsDelivery | null; packages: HbProduct[]; buyLoadingProductId: string; onBuy: () => void; onPackageBuy: (product: HbProduct) => void; onBookDownload: (bookId: string) => void; onFollowersRequest: (input: { packagePurchaseId: string; platform: HbFollowersPlatform; submittedLink: string }) => void; onCustomSoftwareRequest: (input: { packagePurchaseId?: string; softwareType: string; architecture: "centralized" | "decentralized"; requirementsNote: string }) => void }) {
+function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingProductId, onBuy, onPackageBuy, onBookDownload, onProductResourceAccess, onFollowersRequest, onCustomSoftwareRequest }: { purchases: HbPurchase[]; orders: HbOrder[]; delivery: HbMyProductsDelivery | null; packages: HbProduct[]; buyLoadingProductId: string; onBuy: () => void; onPackageBuy: (product: HbProduct) => void; onBookDownload: (bookId: string) => void; onProductResourceAccess: (resourceId: string, action: "open" | "download" | "copy") => void; onFollowersRequest: (input: { packagePurchaseId: string; platform: HbFollowersPlatform; submittedLink: string }) => void; onCustomSoftwareRequest: (input: { packagePurchaseId?: string; softwareType: string; architecture: "centralized" | "decentralized"; requirementsNote: string }) => void }) {
   const [tab, setTab] = useState<"active" | "books" | "requests">("active");
   const [requestProductId, setRequestProductId] = useState("");
   const [platform, setPlatform] = useState<HbFollowersPlatform | "">("");
@@ -1200,7 +1219,8 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
     date: item.purchaseDate || item.purchase_date || item.purchased_at || item.activation_date,
     imageAmount: item.price || item.package_price,
     followersCount: Number(item.followers_count || 0),
-    bookLimit: Number(item.book_limit || 0)
+    bookLimit: Number(item.book_limit || 0),
+    resources: item.product_resources || []
   })) : purchases.map((purchase) => ({
     id: purchase.id,
     purchaseId: purchase.id,
@@ -1213,7 +1233,8 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
     date: purchase.created_at,
     imageAmount: purchase.amount_usd,
     followersCount: 0,
-    bookLimit: 0
+    bookLimit: 0,
+    resources: []
   })).concat(orders.map((order) => ({
     id: order.id,
     purchaseId: order.id,
@@ -1226,7 +1247,8 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
     date: order.created_at,
     imageAmount: order.package_price,
     followersCount: 0,
-    bookLimit: 0
+    bookLimit: 0,
+    resources: []
   })));
   const hasPurchases = productRows.length > 0;
   const books = delivery?.books || [];
@@ -1257,6 +1279,25 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
           <div className="mt-4 grid gap-1.5 text-xs text-sky-100/68">
             {featuresForHbPackageAmount(item.imageAmount).slice(0, 3).map((feature) => <FeatureBullet key={feature}>{feature}</FeatureBullet>)}
           </div>
+          {item.resources.length ? (
+            <div className="mt-4 grid gap-2">
+              {item.resources.map((resource) => (
+                <div key={resource.id} className="rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 p-2.5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-black text-cyan-50">{resource.title}</div>
+                      <div className="mt-0.5 truncate text-[11px] font-semibold uppercase tracking-normal text-sky-100/48">{resource.type}</div>
+                    </div>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-1.5">
+                    <button className="hb-interactive hb-glow-cyan flex items-center justify-center gap-1 rounded-xl border border-cyan-200/12 bg-cyan-300/10 px-2 py-2 text-[11px] font-black text-cyan-100" onClick={() => onProductResourceAccess(resource.id, "open")} type="button"><Eye size={13} /> Open</button>
+                    <button className="hb-interactive hb-glow-cyan flex items-center justify-center gap-1 rounded-xl border border-cyan-200/12 bg-cyan-300/10 px-2 py-2 text-[11px] font-black text-cyan-100" onClick={() => onProductResourceAccess(resource.id, "download")} type="button"><Download size={13} /> Download</button>
+                    <button className="hb-interactive hb-glow-cyan flex items-center justify-center gap-1 rounded-xl border border-cyan-200/12 bg-cyan-300/10 px-2 py-2 text-[11px] font-black text-cyan-100" onClick={() => onProductResourceAccess(resource.id, "copy")} type="button"><Copy size={13} /> Copy</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="mt-4 grid gap-2">
             <button className="hb-interactive hb-glow-purple flex items-center justify-center gap-2 rounded-[1rem] border border-cyan-200/18 bg-cyan-300/10 px-3 py-3 text-sm font-bold text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition duration-200 disabled:opacity-45" disabled={item.followersCount <= 0} onClick={() => { setRequestProductId(item.id); setTab("requests"); }} type="button"><Eye size={16} /> Followers Request</button>
           </div>

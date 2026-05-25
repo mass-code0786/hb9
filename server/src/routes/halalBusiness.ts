@@ -410,6 +410,18 @@ const adminProductImageSchema = z.object({
   sortOrder: z.number().int().min(0).max(10000).default(0)
 });
 
+const adminProductResourceSchema = z.object({
+  title: z.string().trim().min(2).max(160),
+  type: z.string().trim().min(2).max(80),
+  downloadUrl: z.string().trim().url().max(1000),
+  sortOrder: z.number().int().min(0).max(10000).default(0),
+  active: z.boolean().default(true)
+});
+
+const hbProductResourceAccessSchema = z.object({
+  action: z.enum(["open", "download", "copy"]).default("open")
+});
+
 const rolloutModeSchema = z.enum(["closed_beta", "limited_live", "public_live"]);
 
 const adminProductionControlsSchema = z.object({
@@ -3444,10 +3456,11 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
     status: string;
     book_limit: number;
     followers_count: number;
+    product_resources: Array<Record<string, unknown>>;
   }>(
     `select p.id as package_purchase_id,
             p.id as purchase_id,
-            null::uuid as product_id,
+            resource_product.id as product_id,
             p.package_id,
             package_display.name as package_name,
             package_display.name as product_name,
@@ -3461,7 +3474,8 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
             p.created_at as purchased_at,
             p.status,
             case when p.amount_usd >= 100 then 100 when p.amount_usd >= 20 then 20 when p.amount_usd >= 4 then 4 else 0 end as book_limit,
-            case when p.amount_usd >= 100 then 4000 when p.amount_usd >= 20 then 700 else 0 end as followers_count
+            case when p.amount_usd >= 100 then 4000 when p.amount_usd >= 20 then 700 else 0 end as followers_count,
+            coalesce(resource_bundle.resources, '[]'::json) as product_resources
      from hb_package_purchases p
      join hb_packages pkg on pkg.id = p.package_id
      cross join lateral (
@@ -3472,6 +3486,25 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
          else pkg.name
        end as name
      ) package_display
+     left join lateral (
+       select hp.id
+       from hb_products hp
+       where hp.package_id = p.package_id and hp.active = true
+       order by hp.featured desc, hp.created_at desc
+       limit 1
+     ) resource_product on true
+     left join lateral (
+       select json_agg(json_build_object(
+         'id', r.id,
+         'product_id', r.product_id,
+         'title', r.title,
+         'type', r.type,
+         'download_url', r.download_url,
+         'sort_order', r.sort_order
+       ) order by r.sort_order asc, r.created_at asc) as resources
+       from hb_product_resources r
+       where r.product_id = resource_product.id and r.active = true
+     ) resource_bundle on true
      where p.user_id = $1 and p.status = 'completed'
      order by p.created_at desc`,
     [userId]
@@ -3602,6 +3635,45 @@ hbRouter.post("/hb/books/:id/download", requireHbUser, asyncHandler(async (req, 
   );
   await audit(userId, "hb.book.download", "hb_product_library", book.id, { packagePurchaseId: best.package_purchase_id });
   ok(res, { download: logRows[0], fileUrl: book.file_url }, "Book download ready");
+}));
+
+hbRouter.post("/hb/product-resources/:id/access", requireHbUser, asyncHandler(async (req, res) => {
+  const parsed = hbProductResourceAccessSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid product resource access");
+    return;
+  }
+  const userId = req.hbUser!.userId;
+  const rows = await query<{
+    resource_id: string;
+    title: string;
+    type: string;
+    download_url: string;
+    product_id: string;
+    package_purchase_id: string;
+  }>(
+    `select r.id as resource_id, r.title, r.type, r.download_url, hp.id as product_id, p.id as package_purchase_id
+     from hb_product_resources r
+     join hb_products hp on hp.id = r.product_id
+     join hb_package_purchases p on p.package_id = hp.package_id and p.user_id = $2 and p.status = 'completed'
+     where r.id = $1 and r.active = true
+     order by p.created_at desc
+     limit 1`,
+    [req.params.id, userId]
+  );
+  const resource = rows[0];
+  if (!resource) {
+    fail(res, "Resource was not found for this purchased product.", 404, "Resource locked");
+    return;
+  }
+  const logRows = await query(
+    `insert into hb_product_resource_access_logs (user_id, product_resource_id, package_purchase_id, action)
+     values ($1,$2,$3,$4)
+     returning *`,
+    [userId, resource.resource_id, resource.package_purchase_id, parsed.data.action]
+  );
+  await audit(userId, "hb.product_resource.access", "hb_product_resource", resource.resource_id, { action: parsed.data.action, packagePurchaseId: resource.package_purchase_id });
+  ok(res, { resource, access: logRows[0], downloadUrl: resource.download_url }, "Product resource ready");
 }));
 
 hbRouter.get("/hb/followers-request", requireHbUser, asyncHandler(async (req, res) => {
@@ -6887,13 +6959,21 @@ hbRouter.get("/admin/hb/products", requireAdmin, asyncHandler(async (_req, res) 
   const rows = await query(
     `select p.id, p.title, p.slug, p.description, p.short_description, p.package_id, p.package_price,
             p.package_type, p.image_url, p.thumbnail_url, p.stock, p.active, p.featured, p.created_at, p.updated_at,
-            coalesce(json_agg(json_build_object('id', img.id, 'image_url', img.image_url, 'alt_text', img.alt_text, 'sort_order', img.sort_order) order by img.sort_order asc)
-              filter (where img.id is not null), '[]'::json) as gallery,
+            coalesce(gallery.items, '[]'::json) as gallery,
+            coalesce(resources.items, '[]'::json) as resources,
             pkg.name as package_name
      from hb_products p
      join hb_packages pkg on pkg.id = p.package_id
-     left join hb_product_images img on img.product_id = p.id
-     group by p.id, pkg.name
+     left join lateral (
+       select json_agg(json_build_object('id', img.id, 'image_url', img.image_url, 'alt_text', img.alt_text, 'sort_order', img.sort_order) order by img.sort_order asc) as items
+       from hb_product_images img
+       where img.product_id = p.id
+     ) gallery on true
+     left join lateral (
+       select json_agg(json_build_object('id', r.id, 'title', r.title, 'type', r.type, 'download_url', r.download_url, 'active', r.active, 'sort_order', r.sort_order) order by r.sort_order asc, r.created_at asc) as items
+       from hb_product_resources r
+       where r.product_id = p.id
+     ) resources on true
      order by p.created_at desc
      limit 300`
   );
@@ -7068,6 +7148,42 @@ hbRouter.post("/admin/hb/products/:id/images", requireAdmin, asyncHandler(async 
   );
   await adminHbAudit(req.admin?.email || "admin", "admin.hb.product.image.create", "hb_product", String(req.params.id), parsed.data);
   ok(res, rows[0], "HB9 product image added", 201);
+}));
+
+hbRouter.post("/admin/hb/products/:id/resources", requireAdmin, asyncHandler(async (req, res) => {
+  const parsed = adminProductResourceSchema.safeParse(req.body);
+  if (!parsed.success) {
+    fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid product resource request");
+    return;
+  }
+  const productRows = await query<{ id: string }>("select id from hb_products where id = $1 limit 1", [req.params.id]);
+  if (!productRows[0]) {
+    fail(res, "Product was not found.", 404, "Product resource failed");
+    return;
+  }
+  const rows = await query(
+    `insert into hb_product_resources (product_id, title, type, download_url, sort_order, active)
+     values ($1,$2,$3,$4,$5,$6)
+     returning *`,
+    [req.params.id, parsed.data.title, parsed.data.type, parsed.data.downloadUrl, parsed.data.sortOrder, parsed.data.active]
+  );
+  await adminHbAudit(req.admin?.email || "admin", "admin.hb.product_resource.create", "hb_product", String(req.params.id), parsed.data);
+  ok(res, rows[0], "HB9 product resource added", 201);
+}));
+
+hbRouter.delete("/admin/hb/products/:productId/resources/:resourceId", requireAdmin, asyncHandler(async (req, res) => {
+  const rows = await query(
+    `delete from hb_product_resources
+     where id = $1 and product_id = $2
+     returning *`,
+    [req.params.resourceId, req.params.productId]
+  );
+  if (!rows[0]) {
+    fail(res, "Product resource was not found.", 404, "Product resource delete failed");
+    return;
+  }
+  await adminHbAudit(req.admin?.email || "admin", "admin.hb.product_resource.delete", "hb_product", String(req.params.productId), { resourceId: req.params.resourceId });
+  ok(res, rows[0], "HB9 product resource deleted");
 }));
 
 hbRouter.get("/admin/hb/reports", requireAdmin, asyncHandler(async (_req, res) => {

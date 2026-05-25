@@ -425,6 +425,16 @@ export type HbDeliveredProduct = {
   status: string;
   book_limit: number;
   followers_count: number;
+  product_resources?: HbProductResource[];
+};
+
+export type HbProductResource = {
+  id: string;
+  product_id?: string;
+  title: string;
+  type: string;
+  download_url?: string;
+  sort_order?: number;
 };
 
 export type HbBook = {
@@ -1000,6 +1010,13 @@ export function downloadHbBook(token: string, bookId: string) {
   return hbRequest<{ fileUrl: string; download: Record<string, unknown> }>(`/hb/books/${encodeURIComponent(bookId)}/download`, token, {
     method: "POST",
     body: JSON.stringify({})
+  });
+}
+
+export function accessHbProductResource(token: string, resourceId: string, action: "open" | "download" | "copy") {
+  return hbRequest<{ downloadUrl: string; resource: HbProductResource; access: Record<string, unknown> }>(`/hb/product-resources/${encodeURIComponent(resourceId)}/access`, token, {
+    method: "POST",
+    body: JSON.stringify({ action })
   });
 }
 
