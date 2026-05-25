@@ -1318,7 +1318,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
           <GlassCard className="p-3">
             <SectionTitle title="Followers Request" action={selectedFollowerProduct?.followersCount ? `${selectedFollowerProduct.followersCount} followers` : "Locked"} />
             <div className="mt-3 grid gap-3 pb-[calc(env(safe-area-inset-bottom)+7rem)]">
-              <div className="rounded-xl border border-cyan-200/12 bg-[#071b34]/70 px-3 py-2 font-mono text-[10px] font-bold text-cyan-100/70">UI_VERSION: platform-buttons-v2</div>
+              <div className="rounded-xl border border-cyan-200/12 bg-[#071b34]/70 px-3 py-2 font-mono text-[10px] font-bold text-cyan-100/70">UI_VERSION: followers-buttons-v3</div>
               <div className="grid gap-2">
                 {hasPurchases ? productRows.map((item) => {
                   const selected = selectedFollowerProduct?.id === item.id;
@@ -1336,25 +1336,13 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
                 }) : <button className="rounded-2xl border border-cyan-200/16 bg-[#071b34]/78 px-3 py-3 text-sm font-black text-sky-100/72" onClick={onBuy} type="button">Buy a package first</button>}
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {followerPlatforms.map((item) => {
-                  const selected = selectedPlatform === item.value;
-                  return (
-                    <button
-                      key={item.value}
-                      className={`hb-interactive hb-glow-cyan min-h-[3rem] rounded-2xl border px-2 py-3 text-xs font-black transition active:scale-[0.98] ${selected ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_20px_rgba(34,211,238,0.28)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`}
-                      onClick={() => {
-                        setSelectedPlatform(item.value);
-                        console.info("PLATFORM_SELECTED", { platform: item.value });
-                      }}
-                      type="button"
-                      aria-pressed={selected}
-                    >
-                      {item.label}
-                    </button>
-                  );
-                })}
+                <button className={`hb-interactive hb-glow-cyan min-h-[3rem] rounded-2xl border px-2 py-3 text-xs font-black transition active:scale-[0.98] ${selectedPlatform === "Instagram" ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_20px_rgba(34,211,238,0.28)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`} onClick={() => setSelectedPlatform("Instagram")} type="button" aria-pressed={selectedPlatform === "Instagram"}>Instagram</button>
+                <button className={`hb-interactive hb-glow-cyan min-h-[3rem] rounded-2xl border px-2 py-3 text-xs font-black transition active:scale-[0.98] ${selectedPlatform === "Facebook" ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_20px_rgba(34,211,238,0.28)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`} onClick={() => setSelectedPlatform("Facebook")} type="button" aria-pressed={selectedPlatform === "Facebook"}>Facebook</button>
+                <button className={`hb-interactive hb-glow-cyan min-h-[3rem] rounded-2xl border px-2 py-3 text-xs font-black transition active:scale-[0.98] ${selectedPlatform === "Telegram" ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_20px_rgba(34,211,238,0.28)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`} onClick={() => setSelectedPlatform("Telegram")} type="button" aria-pressed={selectedPlatform === "Telegram"}>Telegram</button>
+                <button className={`hb-interactive hb-glow-cyan min-h-[3rem] rounded-2xl border px-2 py-3 text-xs font-black transition active:scale-[0.98] ${selectedPlatform === "Twitter" ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_20px_rgba(34,211,238,0.28)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`} onClick={() => setSelectedPlatform("Twitter")} type="button" aria-pressed={selectedPlatform === "Twitter"}>Twitter</button>
+                <button className={`hb-interactive hb-glow-cyan min-h-[3rem] rounded-2xl border px-2 py-3 text-xs font-black transition active:scale-[0.98] ${selectedPlatform === "YouTube" ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_20px_rgba(34,211,238,0.28)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`} onClick={() => setSelectedPlatform("YouTube")} type="button" aria-pressed={selectedPlatform === "YouTube"}>YouTube</button>
               </div>
-              <div className="text-xs font-bold text-cyan-100/70">Selected platform: {selectedPlatform || "none"}</div>
+              <div className="text-xs font-bold text-cyan-100/70">Selected platform: {selectedPlatform || "None"}</div>
               <input className="field" placeholder="Profile/page/channel/group link" value={submittedLink} onChange={(event) => setSubmittedLink(event.target.value)} />
               <button className="hb-interactive hb-glow-cyan rounded-2xl bg-cyan-300 px-4 py-3 font-black text-[#031326] disabled:opacity-45" disabled={!canSendFollowersRequest} onClick={() => canSendFollowersRequest && selectedFollowerProduct && selectedPlatform ? onFollowersRequest({ packagePurchaseId: selectedFollowerProduct.id, platform: selectedPlatform, submittedLink: submittedLink.trim() }) : undefined} type="button">Send Request</button>
             </div>
