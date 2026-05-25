@@ -1268,7 +1268,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
   const hasPurchases = productRows.length > 0;
   const books = delivery?.books || [];
   const unlockedBooks = books.filter((book) => book.unlocked);
-  const selectedFollowerProduct = productRows.find((item) => item.id === selectedFollowerPackageId) || null;
+  const selectedFollowerProduct = productRows.find((item) => item.id === selectedFollowerPackageId) || productRows[0] || null;
   const hasSubmittedLink = submittedLink.trim().length > 0;
   const canSendFollowersRequest = Boolean(selectedFollowerProduct && selectedPlatform && hasSubmittedLink);
   return (
@@ -1320,7 +1320,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
             <div className="mt-3 grid gap-3 pb-[calc(env(safe-area-inset-bottom)+7rem)]">
               <div className="grid gap-2">
                 {hasPurchases ? productRows.map((item) => {
-                  const selected = selectedFollowerPackageId === item.id;
+                  const selected = selectedFollowerProduct?.id === item.id;
                   return (
                     <button
                       key={item.id}
@@ -1353,7 +1353,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
                   );
                 })}
               </div>
-              <div className="text-xs font-bold text-cyan-100/70">Selected: {selectedPlatform || "none"}</div>
+              <div className="text-xs font-bold text-cyan-100/70">Selected platform: {selectedPlatform || "none"}</div>
               <input className="field" placeholder="Profile/page/channel/group link" value={submittedLink} onChange={(event) => setSubmittedLink(event.target.value)} />
               <button className="hb-interactive hb-glow-cyan rounded-2xl bg-cyan-300 px-4 py-3 font-black text-[#031326] disabled:opacity-45" disabled={!canSendFollowersRequest} onClick={() => canSendFollowersRequest && selectedFollowerProduct && selectedPlatform ? onFollowersRequest({ packagePurchaseId: selectedFollowerProduct.id, platform: selectedPlatform, submittedLink: submittedLink.trim() }) : undefined} type="button">Send Request</button>
             </div>
