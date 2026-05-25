@@ -552,8 +552,6 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
       {registrationFee ? (
         <div className="mt-2 rounded-xl border border-yellow-200/20 bg-yellow-300/10 p-3 text-xs leading-5 text-yellow-100">
           <div className="font-black">One-time activation fee: ${registrationFee.amountUSD} USDT BEP20</div>
-          <div>Paid directly to Treasury Wallet</div>
-          <div className="mt-1 break-all font-mono text-[10px] text-yellow-50/75">{registrationFee.treasuryWallet}</div>
         </div>
       ) : message ? <div className="mt-2 text-xs leading-5 text-yellow-100">{message}</div> : null}
       {modalOpen && !walletBrowserDetected ? (

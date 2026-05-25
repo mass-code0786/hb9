@@ -1248,7 +1248,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
   const [tab, setTab] = useState<"transfer" | "credit" | "deduct" | "history" | "bulk">("transfer");
   const [users, setUsers] = useState<Array<Record<string, unknown>>>([]);
   const [coins, setCoins] = useState<Array<Record<string, unknown>>>(Array.isArray(data.coins) ? data.coins as Array<Record<string, unknown>> : []);
-  const [form, setForm] = useState({ senderUserId: "", receiverUserId: "", userId: "", coinSymbol: "USDT", amount: "", note: "", userIds: "", targetMode: "manual", packageAmount: "4" });
+  const [form, setForm] = useState({ senderUserId: "", receiverUserId: "", userId: "", coinSymbol: "USDT", coinNetwork: "bsc", amount: "", note: "", userIds: "", targetMode: "manual", packageAmount: "4" });
   const [bulkPreview, setBulkPreview] = useState<Record<string, unknown> | null>(null);
   const [bulkIdempotencyKey, setBulkIdempotencyKey] = useState("");
   const [message, setMessage] = useState("");
@@ -1262,18 +1262,25 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
   const filteredHistory = history.filter((row) => !query || JSON.stringify(row).toLowerCase().includes(query.toLowerCase()));
 
   useEffect(() => {
-    adminRequest<Record<string, unknown>>("/admin/hb/coins/users", token)
-      .then((result) => {
+    Promise.all([
+      adminRequest<Record<string, unknown>>("/admin/hb/coins/users", token),
+      adminRequest<Record<string, unknown>>("/admin/hb/coins", token).catch(() => null)
+    ])
+      .then(([result, assetResult]) => {
         const nextUsers = Array.isArray(result.users) ? result.users as Array<Record<string, unknown>> : [];
-        const nextCoins = Array.isArray(result.coins) ? result.coins as Array<Record<string, unknown>> : [];
+        const assetCoins = assetResult && Array.isArray(assetResult.items) ? assetResult.items as Array<Record<string, unknown>> : [];
+        const nextCoins = assetCoins.length ? assetCoins : Array.isArray(result.coins) ? result.coins as Array<Record<string, unknown>> : [];
         setUsers(nextUsers);
         if (nextCoins.length) setCoins(nextCoins);
         const first = String(nextUsers[0]?.id || "");
+        const firstCoin = nextCoins.find((coin) => compact(coin.coin_symbol || coin.symbol) === "USDT") || nextCoins[0];
         setForm((current) => ({
           ...current,
           senderUserId: current.senderUserId || first,
           receiverUserId: current.receiverUserId || String(nextUsers[1]?.id || first),
-          userId: current.userId || first
+          userId: current.userId || first,
+          coinSymbol: current.coinSymbol || compact(firstCoin?.coin_symbol || firstCoin?.symbol || "USDT"),
+          coinNetwork: current.coinNetwork || compact(firstCoin?.network || "bsc")
         }));
       })
       .catch(() => undefined);
@@ -1299,7 +1306,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
     try {
       await adminRequest(path, token, {
         method: "POST",
-        body: JSON.stringify({ ...body, coinSymbol: form.coinSymbol, amount: form.amount, note: form.note.trim(), idempotencyKey: `hb-ui-${path}-${Date.now()}-${crypto.randomUUID()}` })
+        body: JSON.stringify({ ...body, coinSymbol: form.coinSymbol, network: form.coinNetwork, amount: form.amount, note: form.note.trim(), idempotencyKey: `hb-ui-${path}-${Date.now()}-${crypto.randomUUID()}` })
       });
       setMessage("Internal accounting action recorded with proof.");
       window.location.reload();
@@ -1320,10 +1327,15 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
     <div className="grid gap-3 md:grid-cols-3">
       <label className="space-y-2 text-sm text-slate-400">
         <span>Coin</span>
-        <select className="field" value={form.coinSymbol} onChange={(event) => setField("coinSymbol", event.target.value)}>
+        <select className="field" value={form.coinSymbol} onChange={(event) => {
+          const selected = coinOptions.find((coin) => compact(coin.coin_symbol || coin.symbol) === event.target.value);
+          setForm((current) => ({ ...current, coinSymbol: event.target.value, coinNetwork: compact(selected?.network || "") }));
+          setBulkPreview(null);
+        }}>
           {coinOptions.map((coin) => {
             const symbol = compact(coin.coin_symbol || coin.symbol);
-            return <option key={symbol} value={symbol}>{compact(coin.name || displayAdminCoinSymbol(symbol))}</option>;
+            const network = compact(coin.network);
+            return <option key={`${symbol}-${network}`} value={symbol}>{compact(coin.name || displayAdminCoinSymbol(symbol))}{network ? ` (${network})` : ""}</option>;
           })}
         </select>
       </label>
@@ -1414,6 +1426,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
                       userIds,
                       packageAmount: Number(form.packageAmount),
                       coinSymbol: form.coinSymbol,
+                      network: form.coinNetwork,
                       amount: form.amount,
                       note: form.note.trim(),
                       preview: true,
@@ -1453,6 +1466,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
                       userIds,
                       packageAmount: Number(form.packageAmount),
                       coinSymbol: form.coinSymbol,
+                      network: form.coinNetwork,
                       amount: form.amount,
                       note: form.note.trim(),
                       idempotencyKey: bulkIdempotencyKey || `hb-ui-bulk-${Date.now()}-${crypto.randomUUID()}`

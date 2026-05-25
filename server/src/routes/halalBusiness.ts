@@ -345,6 +345,7 @@ const adminFundTransferSchema = z.object({
   senderUserId: z.string().uuid(),
   receiverUserId: z.string().uuid(),
   coinSymbol: hbCoinSymbolSchema,
+  network: z.string().trim().max(40).optional(),
   amount: decimalAmountSchema,
   note: z.string().trim().min(3).max(500),
   idempotencyKey: z.string().trim().min(12).max(160).optional()
@@ -353,6 +354,7 @@ const adminFundTransferSchema = z.object({
 const adminFundActionSchema = z.object({
   userId: z.string().uuid(),
   coinSymbol: hbCoinSymbolSchema,
+  network: z.string().trim().max(40).optional(),
   amount: decimalAmountSchema,
   note: z.string().trim().min(3).max(500),
   incomeType: z.literal("admin_income").optional(),
@@ -364,6 +366,7 @@ const adminBulkDistributionSchema = z.object({
   userIds: z.array(z.string().uuid()).max(500).optional(),
   packageAmount: z.union([z.literal(4), z.literal(20), z.literal(100)]).optional(),
   coinSymbol: hbCoinSymbolSchema,
+  network: z.string().trim().max(40).optional(),
   amount: decimalAmountSchema,
   note: z.string().trim().min(3).max(500),
   preview: z.boolean().optional(),
@@ -1037,8 +1040,11 @@ function mergeEnvOnchainContracts(rows: Array<Record<string, any>>) {
 
 const supportedCoins = hbCoinSymbols.map((symbol) => ({
   coin_symbol: symbol,
-  name: hbCoinName(symbol),
   symbol,
+  name: hbCoinName(symbol),
+  network: symbol === "BTC" ? "bitcoin" : symbol === "USDT" || symbol === "BNB" || symbol === "HB9" ? "bsc" : "wallet",
+  decimals: symbol === "BTC" ? 8 : symbol === "USDT" || symbol === "BNB" || symbol === "HB9" ? 18 : 8,
+  enabled: true,
   usd_price: symbol === "USDT" ? "1" : null
 }));
 
@@ -6171,6 +6177,10 @@ hbRouter.get("/admin/hb/coins/users", requireAdmin, asyncHandler(async (req, res
      limit 25`
   );
   ok(res, { users, ledger, totals, latestAdminActions, coins: supportedCoins, selectedUserId }, "HB coin admin data loaded");
+}));
+
+hbRouter.get("/admin/hb/coins", requireAdmin, asyncHandler(async (_req, res) => {
+  ok(res, { items: supportedCoins }, "HB coin assets loaded");
 }));
 
 hbRouter.get("/admin/hb/coins/history", requireAdmin, asyncHandler(async (req, res) => {
