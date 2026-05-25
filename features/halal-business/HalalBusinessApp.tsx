@@ -174,6 +174,11 @@ function money(value: unknown) {
   return Number.isFinite(amount) ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "$0.00";
 }
 
+function signedMoney(value: unknown, direction?: string) {
+  const prefix = direction === "debit" ? "-" : "+";
+  return `${prefix}${money(value)}`;
+}
+
 function short(value: string) {
   return value.length > 18 ? `${value.slice(0, 9)}...${value.slice(-6)}` : value;
 }
@@ -1361,10 +1366,10 @@ function WalletActivityTimeline({ items }: { items: HbWalletActivity[] }) {
               <div className="rounded-2xl border border-sky-200/10 bg-sky-200/[0.04] p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="font-semibold capitalize">{activityLabel(item.type, item.direction)}</div>
+                    <div className="font-semibold capitalize">{item.title || activityLabel(item.type, item.direction)}</div>
                     <div className="mt-1 text-xs text-slate-400">{new Date(item.created_at).toLocaleString()}</div>
                   </div>
-                  <div className="text-right font-semibold text-accent">{money(item.amount_usd)}</div>
+                  <div className={`text-right font-semibold ${item.direction === "debit" ? "text-red-300" : "text-accent"}`}>{signedMoney(item.amount_usd, item.direction)}</div>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
                   {item.public_reference_id ? <ProofBadge referenceId={item.public_reference_id} /> : null}
@@ -1380,8 +1385,8 @@ function WalletActivityTimeline({ items }: { items: HbWalletActivity[] }) {
 }
 
 function activityLabel(type: string, direction: string) {
-  if (type === "deposit") return "Deposit";
-  if (type === "package_purchase") return "Package activation";
+  if (type === "deposit" || type === "deposit_credit") return "Deposit Credit";
+  if (type === "package_purchase" || type === "product_purchase") return "Product Purchase";
   if (type === "withdrawal") return direction === "credit" ? "Withdrawal released" : "Withdrawal reserve";
   if (type === "upline") return "Direct income credit";
   if (type === "level") return "Level income credit";

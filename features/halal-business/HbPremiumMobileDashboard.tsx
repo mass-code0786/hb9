@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDownToLine, Banknote, Bell, Box, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign, Copy, Download, Eye, Home, Layers3, PackageCheck, Plus, ReceiptText, RefreshCw, Send, Settings, Sparkles, TrendingUp, Users, Wallet } from "lucide-react";
+import { ArrowDownToLine, Banknote, Bell, BookOpen, Box, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign, Copy, Download, ExternalLink, Eye, FolderOpen, Home, Layers3, PackageCheck, PlayCircle, Plus, ReceiptText, RefreshCw, Send, Settings, Sparkles, TrendingUp, Users, Wallet } from "lucide-react";
 import { BrowserProvider, Contract, encodeBytes32String, parseUnits, ZeroAddress } from "ethers";
 import { createPublicClient, encodeFunctionData, http, parseUnits as viemParseUnits, type Hash } from "viem";
 import { bsc } from "viem/chains";
@@ -54,6 +54,7 @@ import {
   type HbOrder,
   type HbFollowersPlatform,
   type HbProduct,
+  type HbProductResource,
   type HbPurchase,
   type HbReferralSummary,
   type HbSingleLegProgress,
@@ -151,8 +152,30 @@ function money(value: unknown) {
   return Number.isFinite(amount) ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "$0.00";
 }
 
+function signedMoney(value: unknown, direction?: string) {
+  const prefix = direction === "debit" ? "-" : "+";
+  return `${prefix}${money(value)}`;
+}
+
+function walletActivityTitle(item: HbWalletActivity) {
+  if (item.title) return item.title;
+  if (item.type === "deposit_credit" || item.type === "deposit") return "Deposit Credit";
+  if (item.type === "product_purchase" || item.type === "package_purchase") return "Product Purchase";
+  return item.type.replace(/_/g, " ");
+}
+
 function shortAddress(value?: string | null) {
   return value ? `${value.slice(0, 6)}...${value.slice(-4)}` : "Not bound";
+}
+
+function openDeliveryUrl(url: string) {
+  if (typeof window === "undefined") return;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function copyDeliveryUrl(url: string) {
+  if (typeof navigator === "undefined" || !navigator.clipboard) return;
+  navigator.clipboard.writeText(url).catch(() => undefined);
 }
 
 function chainLabel(chainId: number | string) {
@@ -1157,6 +1180,7 @@ function HomeScreen({ walletBalance, balances, user, boundWallet, currentPackage
 
 function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingProductId, onBuy, onPackageBuy, onBookDownload, onFollowersRequest, onCustomSoftwareRequest }: { purchases: HbPurchase[]; orders: HbOrder[]; delivery: HbMyProductsDelivery | null; packages: HbProduct[]; buyLoadingProductId: string; onBuy: () => void; onPackageBuy: (product: HbProduct) => void; onBookDownload: (bookId: string) => void; onFollowersRequest: (input: { packagePurchaseId: string; platform: HbFollowersPlatform; submittedLink: string }) => void; onCustomSoftwareRequest: (input: { packagePurchaseId?: string; softwareType: string; architecture: "centralized" | "decentralized"; requirementsNote: string }) => void }) {
   const [tab, setTab] = useState<"active" | "books" | "requests">("active");
+  const [expandedProductId, setExpandedProductId] = useState("");
   const [requestProductId, setRequestProductId] = useState("");
   const [platform, setPlatform] = useState<HbFollowersPlatform | "">("");
   const [submittedLink, setSubmittedLink] = useState("");
@@ -1167,32 +1191,44 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
     id: item.package_purchase_id,
     packageId: item.package_id,
     title: item.package_name,
+    productTitle: item.product_title || item.package_name,
+    productImage: item.product_image || "",
     price: item.package_price,
     status: item.status,
-    date: item.activation_date,
+    date: item.purchased_at || item.activation_date,
     imageAmount: item.package_price,
     followersCount: Number(item.followers_count || 0),
-    bookLimit: Number(item.book_limit || 0)
+    bookLimit: Number(item.book_limit || 0),
+    resourcesCount: Number(item.resources_count || item.resources?.length || 0),
+    resources: item.resources || []
   })) : purchases.map((purchase) => ({
     id: purchase.id,
     packageId: "",
     title: purchase.package_name,
+    productTitle: purchase.package_name,
+    productImage: "",
     price: purchase.amount_usd,
     status: purchase.status,
     date: purchase.created_at,
     imageAmount: purchase.amount_usd,
     followersCount: 0,
-    bookLimit: 0
+    bookLimit: 0,
+    resourcesCount: 0,
+    resources: []
   })).concat(orders.map((order) => ({
     id: order.id,
     packageId: "",
     title: order.product_title,
+    productTitle: order.product_title,
+    productImage: order.image_url || "",
     price: order.package_price,
     status: order.payment_status,
     date: order.created_at,
     imageAmount: order.package_price,
     followersCount: 0,
-    bookLimit: 0
+    bookLimit: 0,
+    resourcesCount: 0,
+    resources: []
   })));
   const hasPurchases = productRows.length > 0;
   const books = delivery?.books || [];
@@ -1208,23 +1244,31 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
       {tab === "active" ? productRows.map((item) => (
         <GlassCard key={item.id} className="p-3">
           <div className="flex gap-3">
-            <HbPackageVisual amount={item.imageAmount} size="md" />
+            {item.productImage ? <img src={item.productImage} alt="" className="h-20 w-20 shrink-0 rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 object-cover" /> : <HbPackageVisual amount={item.imageAmount} size="md" />}
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
-                <h3 className="line-clamp-2 font-semibold">{item.title}</h3>
+                <h3 className="line-clamp-2 font-semibold">{item.productTitle}</h3>
                 <span className="rounded-full border border-cyan-200/18 bg-cyan-300/10 px-2 py-1 text-[10px] font-bold capitalize text-cyan-100">{item.status}</span>
               </div>
-              <p className="mt-1 text-xs text-sky-100/55">Activated {new Date(item.date).toLocaleDateString()}</p>
-              <p className="mt-2 text-xl font-black text-cyan-100">{money(item.price)}</p>
+              <p className="mt-1 text-xs text-sky-100/55">{item.title} - Purchased {new Date(item.date).toLocaleDateString()}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <p className="text-xl font-black text-cyan-100">{money(item.price)}</p>
+                <span className="rounded-full border border-emerald-200/15 bg-emerald-300/10 px-2 py-1 text-[10px] font-black text-emerald-100">{item.resourcesCount} resources</span>
+              </div>
             </div>
           </div>
           <div className="mt-4 grid gap-1.5 text-xs text-sky-100/68">
             {featuresForHbPackageAmount(item.imageAmount).slice(0, 3).map((feature) => <FeatureBullet key={feature}>{feature}</FeatureBullet>)}
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <button className="hb-interactive hb-glow-cyan flex items-center justify-center gap-2 rounded-[1rem] bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-500 px-3 py-3 text-sm font-black text-[#03111f] shadow-[0_0_20px_rgba(34,211,238,0.28),inset_0_1px_0_rgba(255,255,255,0.35)] transition duration-200" onClick={() => setTab("books")} type="button"><Download size={16} /> Download Books</button>
+            <button className="hb-interactive hb-glow-cyan flex items-center justify-center gap-2 rounded-[1rem] bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-500 px-3 py-3 text-sm font-black text-[#03111f] shadow-[0_0_20px_rgba(34,211,238,0.28),inset_0_1px_0_rgba(255,255,255,0.35)] transition duration-200" onClick={() => setExpandedProductId(expandedProductId === item.id ? "" : item.id)} type="button"><Download size={16} /> {expandedProductId === item.id ? "Hide Links" : "Open Links"}</button>
             <button className="hb-interactive hb-glow-purple flex items-center justify-center gap-2 rounded-[1rem] border border-cyan-200/18 bg-cyan-300/10 px-3 py-3 text-sm font-bold text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition duration-200 disabled:opacity-45" disabled={item.followersCount <= 0} onClick={() => { setRequestProductId(item.id); setTab("requests"); }} type="button"><Eye size={16} /> Followers Request</button>
           </div>
+          {expandedProductId === item.id ? (
+            <div className="mt-4 grid gap-2">
+              {item.resources.length ? item.resources.map((resource) => <DeliveryResourceRow key={resource.id} resource={resource} />) : <EmptyState title="No delivery resources attached yet." />}
+            </div>
+          ) : null}
         </GlassCard>
       )) : null}
       {tab === "books" ? (
@@ -1284,6 +1328,30 @@ function ProductActions() {
     <div className="mt-4 grid grid-cols-2 gap-2">
       <button className="hb-interactive hb-glow-cyan flex items-center justify-center gap-2 rounded-[1rem] bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-500 px-3 py-3 text-sm font-black text-[#03111f] shadow-[0_0_20px_rgba(34,211,238,0.28),inset_0_1px_0_rgba(255,255,255,0.35)] transition duration-200 active:scale-[0.97]" type="button"><Download size={16} /> Download</button>
       <button className="hb-interactive hb-glow-purple flex items-center justify-center gap-2 rounded-[1rem] border border-cyan-200/18 bg-cyan-300/10 px-3 py-3 text-sm font-bold text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition duration-200 active:scale-[0.97]" type="button"><Eye size={16} /> View Details</button>
+    </div>
+  );
+}
+
+function DeliveryResourceRow({ resource }: { resource: HbProductResource }) {
+  const Icon = resource.type === "video" || resource.type === "course" ? PlayCircle : resource.type === "folder" ? FolderOpen : BookOpen;
+  return (
+    <div className="hb-interactive hb-glow-cyan rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 p-3">
+      <div className="flex items-start gap-3">
+        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-cyan-300/10 text-cyan-100"><Icon size={18} /></div>
+        <div className="min-w-0 flex-1">
+          <div className="line-clamp-2 text-sm font-black">{resource.title}</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            <span className="rounded-full border border-cyan-200/12 bg-cyan-300/10 px-2 py-0.5 text-[10px] font-bold uppercase text-cyan-100">{resource.type}</span>
+            {resource.category ? <span className="rounded-full border border-sky-200/10 bg-sky-300/10 px-2 py-0.5 text-[10px] font-bold text-sky-100">{resource.category}</span> : null}
+            {typeof resource.download_count === "number" && resource.download_count > 0 ? <span className="rounded-full border border-emerald-200/10 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-bold text-emerald-100">{resource.download_count} downloads</span> : null}
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <button className="flex items-center justify-center gap-1.5 rounded-xl bg-cyan-300 px-2 py-2 text-[11px] font-black text-[#031326]" onClick={() => openDeliveryUrl(resource.url)} type="button"><ExternalLink size={14} /> Open</button>
+        <button className="flex items-center justify-center gap-1.5 rounded-xl border border-cyan-200/18 bg-cyan-300/10 px-2 py-2 text-[11px] font-bold text-cyan-100" onClick={() => openDeliveryUrl(resource.url)} type="button"><Download size={14} /> Save</button>
+        <button className="flex items-center justify-center gap-1.5 rounded-xl border border-cyan-200/18 bg-cyan-300/10 px-2 py-2 text-[11px] font-bold text-cyan-100" onClick={() => copyDeliveryUrl(resource.url)} type="button"><Copy size={14} /> Copy</button>
+      </div>
     </div>
   );
 }
@@ -1448,7 +1516,7 @@ function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity
       <div className="grid grid-cols-2 gap-2"><MiniStat label="Main Wallet" value={money(balances.deposit)} /><MiniStat label="Income Wallet" value={money(balances.income)} /></div>
       <MultiCoinWallet coins={coins} withdrawableBalance={balances.deposit} convertingCoin={convertingCoin} onConvert={onConvert} />
       <GlassCard className="p-3"><SectionTitle title="Withdrawal History" /><div className="mt-2 space-y-2">{withdrawals.length ? withdrawals.map((item) => <WithdrawalHistoryRow key={item.id} item={item} />) : <EmptyState title="No withdrawal history yet." />}</div></GlassCard>
-      <GlassCard className="p-3"><SectionTitle title="Ledger" /><div className="mt-2 space-y-2">{activity.length ? activity.map((item) => <HistoryRow key={item.id} title={item.type.replace(/_/g, " ")} meta={`${item.direction} - ${new Date(item.created_at).toLocaleString()}`} value={money(item.amount_usd)} />) : <EmptyState title="No ledger activity yet." />}</div></GlassCard>
+      <GlassCard className="p-3"><SectionTitle title="Ledger" /><div className="mt-2 space-y-2">{activity.length ? activity.map((item) => <HistoryRow key={item.id} title={walletActivityTitle(item)} meta={`${item.direction} - ${item.currency || "USDT"} - ${new Date(item.created_at).toLocaleString()}`} value={signedMoney(item.amount_usd, item.direction)} positive={item.direction === "credit"} negative={item.direction === "debit"} />) : <EmptyState title="No ledger activity yet." />}</div></GlassCard>
       {walletModal === "deposit" ? (
         <WalletActionModal onClose={closeDepositModal} showClose={false}>
           <div className="space-y-3">
@@ -1870,8 +1938,8 @@ function LevelTile({ level, total, active }: { level: string; total: number; act
   return <div className="hb-interactive hb-glow-cyan grid grid-cols-[4.2rem_1fr_2.5rem] items-center gap-2.5 rounded-xl border border-cyan-200/10 bg-[#071b34]/72 p-2.5"><span className="text-sm font-black text-cyan-100">{level}</span><div><div className="h-1.5 overflow-hidden rounded-full bg-sky-950"><div className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-blue-500" style={{ width: `${Math.min(100, Math.max(8, total * 12))}%` }} /></div><div className="mt-0.5 text-[9px] text-sky-100/52">{active} active</div></div><span className="text-right text-base font-black">{total}</span></div>;
 }
 
-function HistoryRow({ title, meta, value, positive = false }: { title: string; meta: string; value: string; positive?: boolean }) {
-  return <div className="hb-interactive hb-glow-teal flex items-center justify-between gap-3 rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 p-3"><div className="flex min-w-0 items-center gap-3"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-cyan-300/10 text-cyan-100"><ReceiptText size={17} /></div><div className="min-w-0"><div className="truncate text-sm font-semibold capitalize">{title}</div><div className="truncate text-xs text-sky-100/52">{meta}</div></div></div><div className={`shrink-0 text-sm font-black ${positive ? "text-emerald-300" : "text-cyan-100"}`}>{value}</div></div>;
+function HistoryRow({ title, meta, value, positive = false, negative = false }: { title: string; meta: string; value: string; positive?: boolean; negative?: boolean }) {
+  return <div className="hb-interactive hb-glow-teal flex items-center justify-between gap-3 rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 p-3"><div className="flex min-w-0 items-center gap-3"><div className={`grid h-10 w-10 shrink-0 place-items-center rounded-2xl ${negative ? "bg-red-400/10 text-red-200" : "bg-cyan-300/10 text-cyan-100"}`}><ReceiptText size={17} /></div><div className="min-w-0"><div className="truncate text-sm font-semibold capitalize">{title}</div><div className="truncate text-xs text-sky-100/52">{meta}</div></div></div><div className={`shrink-0 text-sm font-black ${positive ? "text-emerald-300" : negative ? "text-red-300" : "text-cyan-100"}`}>{value}</div></div>;
 }
 
 function MiniStat({ label, value }: { label: string; value: string }) {

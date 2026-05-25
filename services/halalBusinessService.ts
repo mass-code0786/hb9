@@ -228,8 +228,14 @@ export type HbTreasuryTransparency = {
 export type HbWalletActivity = {
   id: string;
   type: string;
+  title?: string | null;
+  category?: string | null;
   direction: string;
   amount_usd: string | number;
+  currency?: string | null;
+  related_id?: string | null;
+  wallet_address?: string | null;
+  reference?: string | null;
   metadata?: Record<string, unknown> | null;
   public_reference_id?: string | null;
   proof_hash?: string | null;
@@ -399,13 +405,32 @@ export type HbSingleLegProgress = {
 
 export type HbDeliveredProduct = {
   package_purchase_id: string;
+  product_id?: string | null;
   package_id: string;
   package_name: string;
+  product_title?: string | null;
+  product_slug?: string | null;
+  product_image?: string | null;
   package_price: string | number;
   activation_date: string;
+  purchased_at?: string;
   status: string;
   book_limit: number;
   followers_count: number;
+  resources_count?: number;
+  resources?: HbProductResource[];
+};
+
+export type HbProductResource = {
+  id: string;
+  product_id: string;
+  title: string;
+  url: string;
+  type: "ebook" | "video" | "course" | "folder" | "pdf";
+  category?: string | null;
+  thumbnail_url?: string | null;
+  sort_order: number;
+  download_count?: number;
 };
 
 export type HbBook = {
@@ -974,6 +999,10 @@ export function fetchHbOrders(token: string) {
 
 export function fetchHbMyProducts(token: string) {
   return hbRequest<HbMyProductsDelivery>("/hb/my-products", token);
+}
+
+export function fetchHbMyProductResources(token: string, purchaseId: string) {
+  return hbRequest<{ product: HbDeliveredProduct; resources: HbProductResource[] }>(`/hb/my-products/${encodeURIComponent(purchaseId)}/resources`, token);
 }
 
 export function downloadHbBook(token: string, bookId: string) {

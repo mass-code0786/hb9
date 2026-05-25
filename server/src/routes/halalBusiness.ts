@@ -3428,25 +3428,105 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
   ).catch(() => undefined);
   const activeProducts = await query<{
     package_purchase_id: string;
+    product_id: string | null;
     package_id: string;
     package_name: string;
+    product_title: string | null;
+    product_slug: string | null;
+    product_image: string | null;
     package_price: string;
     activation_date: string;
+    purchased_at: string;
     status: string;
     book_limit: number;
     followers_count: number;
+    resources_count: number;
   }>(
-    `select p.id as package_purchase_id, p.package_id, pkg.name as package_name, p.amount_usd::text as package_price,
-            p.created_at as activation_date, p.status,
+    `select p.id as package_purchase_id,
+            product.id as product_id,
+            p.package_id,
+            pkg.name as package_name,
+            coalesce(product.title, pkg.name) as product_title,
+            product.slug as product_slug,
+            coalesce(product.thumbnail_url, product.image_url) as product_image,
+            p.amount_usd::text as package_price,
+            p.created_at as activation_date,
+            p.created_at as purchased_at,
+            p.status,
             case when p.amount_usd >= 100 then 100 when p.amount_usd >= 20 then 20 when p.amount_usd >= 4 then 4 else 0 end as book_limit,
-            case when p.amount_usd >= 100 then 4000 when p.amount_usd >= 20 then 700 else 0 end as followers_count
+            case when p.amount_usd >= 100 then 4000 when p.amount_usd >= 20 then 700 else 0 end as followers_count,
+            coalesce(resources.resource_count, 0)::int as resources_count
      from hb_package_purchases p
      join hb_packages pkg on pkg.id = p.package_id
+     left join hb_product_orders po on po.package_purchase_id = p.id
+     left join hb_product_order_items oi on oi.order_id = po.id
+     left join lateral (
+       select hp.id, hp.title, hp.slug, hp.image_url, hp.thumbnail_url
+       from hb_products hp
+       where hp.id = oi.product_id or (oi.product_id is null and hp.package_id = p.package_id and hp.active = true)
+       order by case when hp.id = oi.product_id then 0 else 1 end, hp.featured desc, hp.created_at desc
+       limit 1
+     ) product on true
+     left join lateral (
+       select count(*)::int as resource_count
+       from product_delivery_links l
+       where l.product_id = product.id and l.is_active = true
+     ) resources on true
      where p.user_id = $1 and p.status = 'completed'
      order by p.created_at desc`,
     [userId]
   );
-  const best = activeProducts.reduce((winner, row) => Number(row.package_price || 0) > Number(winner?.package_price || 0) ? row : winner, null as Record<string, any> | null);
+  const resourceRows = activeProducts.length ? await query<{
+    package_purchase_id: string;
+    id: string;
+    product_id: string;
+    title: string;
+    url: string;
+    type: string;
+    category: string | null;
+    thumbnail_url: string | null;
+    sort_order: number;
+    download_count: number;
+  }>(
+    `select p.id as package_purchase_id,
+            l.id,
+            l.product_id,
+            l.title,
+            l.url,
+            l.type,
+            l.category,
+            l.thumbnail_url,
+            l.sort_order,
+            coalesce(count(log.id) filter (where log.action = 'download'), 0)::int as download_count
+     from hb_package_purchases p
+     left join hb_product_orders po on po.package_purchase_id = p.id
+     left join hb_product_order_items oi on oi.order_id = po.id
+     join lateral (
+       select hp.id
+       from hb_products hp
+       where hp.id = oi.product_id or (oi.product_id is null and hp.package_id = p.package_id and hp.active = true)
+       order by case when hp.id = oi.product_id then 0 else 1 end, hp.featured desc, hp.created_at desc
+       limit 1
+     ) product on true
+     join product_delivery_links l on l.product_id = product.id and l.is_active = true
+     left join product_delivery_access_logs log on log.product_delivery_link_id = l.id and log.package_purchase_id = p.id
+     where p.user_id = $1 and p.status = 'completed'
+     group by p.id, l.id
+     order by p.created_at desc, l.sort_order asc, l.created_at asc`,
+    [userId]
+  ) : [];
+  const resourcesByPurchase = new Map<string, typeof resourceRows>();
+  for (const row of resourceRows) {
+    const existing = resourcesByPurchase.get(row.package_purchase_id) || [];
+    existing.push(row);
+    resourcesByPurchase.set(row.package_purchase_id, existing);
+  }
+  const deliveredProducts = activeProducts.map((product) => ({
+    ...product,
+    resources_count: Number(product.resources_count || 0),
+    resources: resourcesByPurchase.get(product.package_purchase_id) || []
+  }));
+  const best = deliveredProducts.reduce((winner, row) => Number(row.package_price || 0) > Number(winner?.package_price || 0) ? row : winner, null as Record<string, any> | null);
   const bookLimit = hbBookLimitForPackage(Number(best?.package_price || 0));
   const books = await query(
     `with ranked as (
@@ -3482,7 +3562,7 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
     )
   ]);
   ok(res, {
-    activeProducts,
+    activeProducts: deliveredProducts,
     bestPackage: best,
     bookLimit,
     booksUnlocked: bookLimit,
@@ -3492,6 +3572,75 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
     softwareAccess,
     customSoftwareRequests
   }, "HB9 products delivered");
+}));
+
+hbRouter.get("/hb/my-products/:purchaseId/resources", requireHbUser, asyncHandler(async (req, res) => {
+  const purchaseRows = await query<{
+    package_purchase_id: string;
+    product_id: string | null;
+    package_id: string;
+    package_name: string;
+    product_title: string | null;
+    product_slug: string | null;
+    product_image: string | null;
+    package_price: string;
+    activation_date: string;
+    purchased_at: string;
+    status: string;
+    book_limit: number;
+    followers_count: number;
+  }>(
+    `select p.id as package_purchase_id,
+            product.id as product_id,
+            p.package_id,
+            pkg.name as package_name,
+            coalesce(product.title, pkg.name) as product_title,
+            product.slug as product_slug,
+            coalesce(product.thumbnail_url, product.image_url) as product_image,
+            p.amount_usd::text as package_price,
+            p.created_at as activation_date,
+            p.created_at as purchased_at,
+            p.status,
+            case when p.amount_usd >= 100 then 100 when p.amount_usd >= 20 then 20 when p.amount_usd >= 4 then 4 else 0 end as book_limit,
+            case when p.amount_usd >= 100 then 4000 when p.amount_usd >= 20 then 700 else 0 end as followers_count
+     from hb_package_purchases p
+     join hb_packages pkg on pkg.id = p.package_id
+     left join hb_product_orders po on po.package_purchase_id = p.id
+     left join hb_product_order_items oi on oi.order_id = po.id
+     left join lateral (
+       select hp.id, hp.title, hp.slug, hp.image_url, hp.thumbnail_url
+       from hb_products hp
+       where hp.id = oi.product_id or (oi.product_id is null and hp.package_id = p.package_id and hp.active = true)
+       order by case when hp.id = oi.product_id then 0 else 1 end, hp.featured desc, hp.created_at desc
+       limit 1
+     ) product on true
+     where p.id = $1 and p.user_id = $2 and p.status = 'completed'
+     limit 1`,
+    [req.params.purchaseId, req.hbUser!.userId]
+  );
+  const product = purchaseRows[0];
+  if (!product) {
+    fail(res, "Purchased product was not found.", 404, "Product access denied");
+    return;
+  }
+  const resources = product.product_id ? await query(
+    `select l.id,
+            l.product_id,
+            l.title,
+            l.url,
+            l.type,
+            l.category,
+            l.thumbnail_url,
+            l.sort_order,
+            coalesce(count(log.id) filter (where log.action = 'download'), 0)::int as download_count
+     from product_delivery_links l
+     left join product_delivery_access_logs log on log.product_delivery_link_id = l.id and log.package_purchase_id = $2
+     where l.product_id = $1 and l.is_active = true
+     group by l.id
+     order by l.sort_order asc, l.created_at asc`,
+    [product.product_id, product.package_purchase_id]
+  ) : [];
+  ok(res, { product: { ...product, resources_count: resources.length, resources }, resources }, "HB9 product resources loaded");
 }));
 
 hbRouter.get("/hb/books", requireHbUser, asyncHandler(async (req, res) => {
@@ -3838,8 +3987,8 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
     await buyQuery("set local statement_timeout = '15000ms'");
     await buyQuery("select pg_advisory_xact_lock(hashtext($1))", [`hb:buy:${req.hbUser!.userId}`]);
 
-    const userRows = await buyQuery<{ status: string }>(
-      "select status from hb_users where id = $1 for update",
+    const userRows = await buyQuery<{ status: string; wallet_address: string | null; hb9_wallet_address: string | null; usdt_bep20_address: string | null }>(
+      "select status, wallet_address, hb9_wallet_address, usdt_bep20_address from hb_users where id = $1 for update",
       [req.hbUser!.userId]
     );
     const user = userRows.rows[0];
@@ -3925,6 +4074,7 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
       [req.hbUser!.userId, product.package_id, product.package_price, `hb:package-from-product:${idempotencyKey}`]
     );
     const purchase = purchaseRows.rows[0];
+    const buyerWalletAddress = user.usdt_bep20_address || user.hb9_wallet_address || user.wallet_address || null;
     const ledgerRows = await buyQuery<{ id: string }>(
       `insert into hb_internal_ledger (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
        values ($1,'deposit','debit',$2,'package_purchase',$3,$4,$5::jsonb)
@@ -3934,10 +4084,23 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
         product.package_price,
         purchase.id,
         `hb:ledger:${purchase.id}:deposit_debit`,
-        JSON.stringify({ productId: product.id, productTitle: product.title, packageName: product.package_name })
+        JSON.stringify({
+          title: "Product Purchase",
+          category: "product_purchase",
+          reason: "product_purchase",
+          currency: "USDT",
+          walletAddress: buyerWalletAddress,
+          productId: product.id,
+          productTitle: product.title,
+          packageId: product.package_id,
+          packageName: product.package_name,
+          packageAmount: product.package_price,
+          amount: product.package_price
+        })
       ]
     );
     const ledgerEntryId = ledgerRows.rows[0]?.id || null;
+    await createLedgerProof(client, "hb_internal_ledger", ledgerEntryId);
     await buyQuery("update hb_package_purchases set ledger_entry_id = $2 where id = $1", [purchase.id, ledgerEntryId]);
     await buyQuery(
       `update hb_user_products
@@ -4374,14 +4537,63 @@ hbRouter.get("/hb/treasury-transparency", requireHbUser, asyncHandler(async (_re
 
 hbRouter.get("/hb/wallet-activity", requireHbUser, asyncHandler(async (req, res) => {
   const rows = await query(
-    `select l.id::text,
-            l.type,
-            l.direction, l.amount::text as amount_usd, l.metadata,
-            NULL::text AS reference,
-            l.created_at
-     from hb_coin_balance_ledger l
-     where l.user_id = $1
-     order by l.created_at desc
+    `select *
+     from (
+       select l.id::text,
+              case when l.type = 'deposit_credit' then 'deposit_credit' else l.type end as type,
+              case when l.type = 'deposit_credit' then 'Deposit Credit' else coalesce(nullif(l.note, ''), l.type) end as title,
+              case when l.type = 'deposit_credit' then 'deposit_credit' else l.type end as category,
+              l.direction,
+              l.amount::text as amount_usd,
+              l.coin_symbol as currency,
+              coalesce(l.reference_id, l.reference) as related_id,
+              coalesce((l.metadata->>'walletAddress'), (l.metadata->>'fromAddress'), u.usdt_bep20_address, u.hb9_wallet_address, u.wallet_address) as wallet_address,
+              l.metadata,
+              coalesce(l.reference_id, l.reference) as reference,
+              p.public_reference_id,
+              p.proof_hash,
+              p.chain_tx_hash,
+              p.onchain_status,
+              l.created_at
+       from hb_coin_balance_ledger l
+       join hb_users u on u.id = l.user_id
+       left join hb_ledger_proofs p on p.ledger_entry_id = l.id and p.source_table = 'hb_coin_balance_ledger'
+       where l.user_id = $1 and l.type = 'deposit_credit'
+       union all
+       select l.id::text,
+              'product_purchase' as type,
+              'Product Purchase' as title,
+              'product_purchase' as category,
+              l.direction,
+              l.amount_usd::text as amount_usd,
+              coalesce(l.metadata->>'currency', 'USDT') as currency,
+              l.reference_id::text as related_id,
+              coalesce(l.metadata->>'walletAddress', u.usdt_bep20_address, u.hb9_wallet_address, u.wallet_address) as wallet_address,
+              jsonb_strip_nulls(l.metadata || jsonb_build_object(
+                'packageName', pkg.name,
+                'productId', oi.product_id,
+                'packageAmount', l.amount_usd,
+                'relatedId', l.reference_id
+              )) as metadata,
+              l.reference_id::text as reference,
+              p.public_reference_id,
+              p.proof_hash,
+              p.chain_tx_hash,
+              p.onchain_status,
+              l.created_at
+       from hb_internal_ledger l
+       join hb_users u on u.id = l.user_id
+       left join hb_package_purchases pp on pp.id = l.reference_id
+       left join hb_packages pkg on pkg.id = pp.package_id
+       left join hb_product_orders po on po.package_purchase_id = pp.id
+       left join hb_product_order_items oi on oi.order_id = po.id
+       left join hb_ledger_proofs p on p.ledger_entry_id = l.id and p.source_table = 'hb_internal_ledger'
+       where l.user_id = $1
+         and l.wallet_type = 'deposit'
+         and l.direction = 'debit'
+         and l.reference_type = 'package_purchase'
+     ) activity
+     order by created_at desc
      limit 60`,
     [req.hbUser!.userId]
   );
