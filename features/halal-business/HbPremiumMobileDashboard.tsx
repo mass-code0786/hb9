@@ -128,7 +128,7 @@ const PACKAGE_AMOUNT_TO_ONCHAIN_ID: Record<number, number> = {
 
 function adminRedirectTarget(response: { adminToken?: string; role?: string; admin?: { role?: string }; adminRedirect?: string }) {
   const role = response.admin?.role || response.role || "";
-  return response.adminToken && (role === "admin" || role === "super_admin" || role === "support_admin") ? response.adminRedirect || "/admin/hb" : "";
+  return response.adminToken && (role === "super_admin" || role === "support_admin") ? response.adminRedirect || "/admin/hb" : "";
 }
 
 function readCachedProducts() {
@@ -412,6 +412,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       const adminRedirect = adminRedirectTarget(response);
       if (adminRedirect) {
         window.localStorage.setItem(ADMIN_TOKEN_KEY, response.adminToken!);
+        window.localStorage.removeItem("hb9.user.redirect");
         console.info("ADMIN_REDIRECT", { role: response.admin?.role || response.role, redirect: adminRedirect });
         window.location.assign(adminRedirect);
         return;
@@ -512,6 +513,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   }
 
   useEffect(() => {
+    window.localStorage.removeItem("hb9.admin.redirect");
     setSourceReferralCode(captureHbReferralFromUrl());
     const cachedProducts = readCachedProducts();
     if (cachedProducts.length) setProducts(cachedProducts);
@@ -1069,6 +1071,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   if (!authenticated) {
     return (
       <main className="min-h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#020817] text-white [touch-action:pan-y] [overscroll-behavior-y:auto] [-webkit-overflow-scrolling:touch]">
+        <div className="fixed right-2 top-2 z-50 rounded-full border border-cyan-200/15 bg-[#071b34]/90 px-2 py-1 font-mono text-[10px] font-bold text-cyan-100">CURRENT_ROLE: USER</div>
         <div className="mx-auto w-full max-w-[430px] px-3 py-3">
           <HbLandingPage referralCode={sourceReferralCode || getStoredHbReferral()} onAuthenticated={handleAuthenticated} />
           {error ? <ErrorState message={error} /> : null}
@@ -1080,6 +1083,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
 
   return (
     <main className="relative min-h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#020817] text-white [touch-action:pan-y] [overscroll-behavior-y:auto] [-webkit-overflow-scrolling:touch]">
+      <div className="fixed right-2 top-2 z-50 rounded-full border border-cyan-200/15 bg-[#071b34]/90 px-2 py-1 font-mono text-[10px] font-bold text-cyan-100">CURRENT_ROLE: USER</div>
       <div className="hb-dashboard-bg pointer-events-none absolute inset-0 -z-0 bg-[radial-gradient(circle_at_50%_0%,rgba(0,200,255,0.18),transparent_18rem),radial-gradient(circle_at_90%_22%,rgba(0,123,255,0.14),transparent_18rem),linear-gradient(180deg,#020817_0%,#03111f_46%,#020817_100%)]" />
       <div className="hb-dashboard-bg-grid pointer-events-none absolute inset-0 -z-0 opacity-35 [background-image:linear-gradient(rgba(125,211,252,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(125,211,252,0.035)_1px,transparent_1px)] [background-size:42px_42px]" />
       <div className="hb-dashboard-dots pointer-events-none absolute inset-0 -z-0 overflow-x-hidden">

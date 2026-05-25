@@ -121,6 +121,7 @@ type FeesData = {
 };
 
 const ADMIN_TOKEN_KEY = "hb9.admin.token";
+const ADMIN_ROLES = new Set(["super_admin", "support_admin"]);
 
 const nav = [
   { href: "/admin", label: "Overview", page: "dashboard", icon: Gauge },
@@ -216,7 +217,8 @@ export function AdminLoginPage() {
         body: JSON.stringify({ email, password })
       });
       localStorage.setItem(ADMIN_TOKEN_KEY, data.token);
-      router.push("/admin");
+      localStorage.removeItem("hb9.user.redirect");
+      router.push("/admin/hb");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Admin login failed.");
     } finally {
@@ -248,7 +250,7 @@ export function AdminApp({ page }: { page: AdminPage }) {
   const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
   const [token, setToken] = useState("");
-  const [adminRole, setAdminRole] = useState("admin");
+  const [adminRole, setAdminRole] = useState("support_admin");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [summary, setSummary] = useState<AdminSummary | null>(null);
@@ -263,6 +265,7 @@ export function AdminApp({ page }: { page: AdminPage }) {
   const title = nav.find((item) => item.page === page)?.label || "Admin";
 
   useEffect(() => {
+    localStorage.removeItem("hb9.user.redirect");
     const stored = localStorage.getItem(ADMIN_TOKEN_KEY);
     if (!stored) {
       router.replace("/admin/login");
@@ -270,7 +273,15 @@ export function AdminApp({ page }: { page: AdminPage }) {
     }
     setToken(stored);
     adminRequest<{ admin: { role?: string } }>("/admin/me", stored)
-      .then((data) => setAdminRole(data.admin.role || "admin"))
+      .then((data) => {
+        const role = data.admin.role || "";
+        if (!ADMIN_ROLES.has(role)) {
+          localStorage.removeItem(ADMIN_TOKEN_KEY);
+          router.replace("/admin/login");
+          return;
+        }
+        setAdminRole(role);
+      })
       .catch(() => {
         localStorage.removeItem(ADMIN_TOKEN_KEY);
         router.replace("/admin/login");
@@ -425,6 +436,7 @@ export function AdminApp({ page }: { page: AdminPage }) {
 
   return (
     <main className="min-h-dvh w-full max-w-[100vw] overflow-x-hidden text-slate-50">
+      <div className="fixed right-2 top-2 z-[80] rounded-full border border-cyan-200/15 bg-[#071b34]/90 px-2 py-1 font-mono text-[10px] font-bold text-cyan-100">CURRENT_ROLE: ADMIN</div>
       <header className="fixed inset-x-0 top-0 z-50 border-b border-sky-200/10 bg-[#0b1728]/95 px-3 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur-2xl md:hidden">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
           <div className="min-w-0">

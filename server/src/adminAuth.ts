@@ -52,6 +52,7 @@ export function verifyAdminToken(token: string): AdminTokenPayload | null {
   try {
     const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as AdminTokenPayload;
     if (!payload.email || !payload.role || payload.exp < Math.floor(Date.now() / 1000)) return null;
+    if (payload.role !== "super_admin" && payload.role !== "support_admin") return null;
     return payload;
   } catch {
     return null;
@@ -69,4 +70,3 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   req.admin = payload;
   next();
 }
-

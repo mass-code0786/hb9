@@ -361,7 +361,7 @@ export type HbWalletAuthResponse = {
   registrationFeeRequired?: boolean;
   registrationFee?: HbRegistrationFee;
   adminToken?: string;
-  role?: "admin" | "super_admin" | "support_admin";
+  role?: "super_admin" | "support_admin";
   admin?: { email: string; role: "super_admin" | "support_admin"; walletAddress?: string };
   adminRedirect?: string;
 };
@@ -541,10 +541,11 @@ export type HbSponsorPreview = {
   walletAddress?: string | null;
 } | null;
 
-export const HB_TOKEN_KEY = "hb9.token";
+export const HB_TOKEN_KEY = "hb9.user.token";
 export const HB_ACTIVE_WALLET_KEY = "hb9.wallet.activeAddress";
 export const HB_DEV_WALLET_KEY = "hb9.dev.wallet";
 export const HB_DEV_MOCK_WALLET = "0xA1B2000000000000000000000000000000007890";
+const LEGACY_HB_TOKEN_KEYS = ["hb9.token", "token", "authToken", "adminToken"];
 
 export type HbPurchaseBalanceSnapshot = {
   walletBalance: string;
@@ -659,9 +660,6 @@ async function hbRequestWithTimeout<T>(path: string, token: string | undefined, 
 
 export function getHbToken() {
   if (typeof window === "undefined") return "";
-  const activeWallet = normalizeHbWalletAddress(window.localStorage.getItem(HB_ACTIVE_WALLET_KEY));
-  const scopedKey = hbWalletScopedStorageKey(activeWallet);
-  if (scopedKey) return window.localStorage.getItem(scopedKey) || "";
   return window.localStorage.getItem(HB_TOKEN_KEY) || "";
 }
 
@@ -669,15 +667,17 @@ export function saveHbToken(token: string, walletAddress?: string | null) {
   const normalizedWallet = normalizeHbWalletAddress(walletAddress || window.localStorage.getItem(HB_ACTIVE_WALLET_KEY));
   if (normalizedWallet) {
     window.localStorage.setItem(HB_ACTIVE_WALLET_KEY, normalizedWallet);
-    window.localStorage.setItem(hbWalletScopedStorageKey(normalizedWallet), token);
-    window.localStorage.removeItem(HB_TOKEN_KEY);
-    return;
   }
   window.localStorage.setItem(HB_TOKEN_KEY, token);
+  LEGACY_HB_TOKEN_KEYS.forEach((key) => window.localStorage.removeItem(key));
+  Object.keys(window.localStorage)
+    .filter((key) => key.startsWith("hb9_wallet_"))
+    .forEach((key) => window.localStorage.removeItem(key));
 }
 
 export function clearHbToken() {
   window.localStorage.removeItem(HB_TOKEN_KEY);
+  LEGACY_HB_TOKEN_KEYS.forEach((key) => window.localStorage.removeItem(key));
   window.localStorage.removeItem(HB_ACTIVE_WALLET_KEY);
   Object.keys(window.localStorage)
     .filter((key) => key.startsWith("hb9_wallet_"))
@@ -689,7 +689,7 @@ export function clearHbWalletCacheStorage() {
   const shouldRemove = (key: string) => {
     const normalized = key.toLowerCase();
     if (!normalized.startsWith("hb9.")) return false;
-    if (normalized === HB_TOKEN_KEY || normalized === HB_DEV_WALLET_KEY || normalized === "hb9.usdtbep20address") return false;
+    if (normalized === HB_TOKEN_KEY || normalized === "hb9.admin.token" || normalized === HB_DEV_WALLET_KEY || normalized === "hb9.usdtbep20address") return false;
     if (normalized.includes("walletauth")) return false;
     return normalized.includes("balance") || normalized.includes("wallet");
   };
@@ -707,6 +707,7 @@ export function clearHbSessionStorageState() {
     const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(Boolean) as string[];
     keys.forEach((key) => {
       const normalized = key.toLowerCase();
+      if (normalized === "hb9.admin.token") return;
       if (normalized.startsWith("hb9.") || normalized.startsWith("hb9-") || normalized.startsWith("hb9_")) {
         storage.removeItem(key);
       }
