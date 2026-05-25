@@ -1254,6 +1254,29 @@ function hbFollowersForPackage(amount: number) {
   return 0;
 }
 
+async function ensureHbBooksTable() {
+  await query(`
+    create table if not exists hb_books (
+      id uuid primary key default gen_random_uuid(),
+      title text not null,
+      cover_image text,
+      download_url text not null,
+      sort_order integer not null default 1,
+      is_active boolean not null default true,
+      created_at timestamptz not null default now()
+    )`
+  );
+  await query("create index if not exists idx_hb_books_order on hb_books (is_active, sort_order, created_at)");
+  await query(`
+    insert into hb_books (title, cover_image, download_url, sort_order, is_active, created_at)
+    select title, cover_image, file_url, sort_order, status = 'active', created_at
+    from hb_product_library
+    where not exists (select 1 from hb_books)
+    order by sort_order asc, created_at asc
+    limit 100`
+  ).catch(() => undefined);
+}
+
 async function getUserBestPackage(userId: string) {
   const rows = await query<{
     package_purchase_id: string;
@@ -3555,6 +3578,7 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
   });
   const best = deliveredProducts.reduce((winner, row) => Number(row.package_price || 0) > Number(winner?.package_price || 0) ? row : winner, null as Record<string, any> | null);
   const bookLimit = hbBookLimitForPackage(Number(best?.package_price || 0));
+  await ensureHbBooksTable();
   const books = await query(
     `with ranked as (
        select b.id, b.title, b.cover_image, b.sort_order, b.is_active, b.created_at,
@@ -3607,6 +3631,7 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
 hbRouter.get("/hb/books", requireHbUser, asyncHandler(async (req, res) => {
   const best = await getUserBestPackage(req.hbUser!.userId);
   const bookLimit = hbBookLimitForPackage(Number(best?.amount_usd || 0));
+  await ensureHbBooksTable();
   const rows = await query(
     `with ranked as (
        select b.id, b.title, b.cover_image, b.sort_order, b.is_active, b.created_at,
@@ -3634,6 +3659,7 @@ hbRouter.get("/hb/books/:id/download", requireHbUser, asyncHandler(async (req, r
     return;
   }
   const bookLimit = hbBookLimitForPackage(Number(best.amount_usd || 0));
+  await ensureHbBooksTable();
   const rows = await query<{ id: string; rn: number; download_url: string }>(
     `with ranked as (
        select b.id, b.download_url, row_number() over (order by b.sort_order asc, b.created_at asc) as rn
@@ -6906,16 +6932,18 @@ hbRouter.get("/admin/hb/followers-requests", requireAdmin, asyncHandler(async (_
 }));
 
 hbRouter.get("/admin/hb/books", requireAdmin, asyncHandler(async (_req, res) => {
+  await ensureHbBooksTable();
   const rows = await query(
     `select id, title, cover_image, download_url, sort_order, is_active, created_at
      from hb_books
      order by sort_order asc, created_at asc
      limit 100`
   );
-  ok(res, { items: rows, total: rows.length }, "HB9 books loaded");
+  ok(res, rows, "HB9 books loaded");
 }));
 
 hbRouter.post("/admin/hb/books", requireAdmin, asyncHandler(async (req, res) => {
+  await ensureHbBooksTable();
   const parsed = hbBookAdminSchema.safeParse(req.body);
   if (!parsed.success) {
     fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid book");
@@ -6937,6 +6965,7 @@ hbRouter.post("/admin/hb/books", requireAdmin, asyncHandler(async (req, res) => 
 }));
 
 hbRouter.patch("/admin/hb/books/:id", requireAdmin, asyncHandler(async (req, res) => {
+  await ensureHbBooksTable();
   const parsed = hbBookAdminPatchSchema.safeParse(req.body);
   if (!parsed.success) {
     fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid book update");
@@ -6969,6 +6998,7 @@ hbRouter.patch("/admin/hb/books/:id", requireAdmin, asyncHandler(async (req, res
 }));
 
 hbRouter.delete("/admin/hb/books/:id", requireAdmin, asyncHandler(async (req, res) => {
+  await ensureHbBooksTable();
   const rows = await query("delete from hb_books where id = $1 returning id", [req.params.id]);
   if (!rows[0]) {
     fail(res, "Book was not found.", 404, "Book not found");

@@ -363,8 +363,14 @@ export function AdminApp({ page }: { page: AdminPage }) {
           "hb-onchain": "/admin/hb/onchain-purchases",
           "hb-contracts": "/admin/hb/onchain-contracts"
         };
-        const data = await adminRequest<Record<string, unknown>>(pathByPage[page], token);
-        if (active) setHbData(data || {});
+        const data = await adminRequest<Record<string, unknown> | Array<Record<string, unknown>>>(pathByPage[page], token);
+        if (active) {
+          if (page === "hb-books" && Array.isArray(data)) {
+            setHbData({ items: data, total: data.length });
+          } else {
+            setHbData((data || {}) as Record<string, unknown>);
+          }
+        }
       }
     }
 
@@ -1956,7 +1962,7 @@ function HbBooksManager({ rows, total, token }: { rows: Array<Record<string, unk
       <div className="grid gap-3 sm:grid-cols-3">
         <Metric title="Total books" value={compact(total)} tone="accent" />
         <Metric title="Active books" value={compact(rows.filter((row) => row.is_active).length)} tone="mint" />
-        <Metric title="Book limit" value="100" />
+        <button className="rounded-2xl border border-accent/30 bg-accent px-4 py-3 text-left text-sm font-black text-black shadow-[0_0_20px_rgba(34,211,238,0.14)]" onClick={() => { setEditingId(""); setDraft(emptyDraft); }} type="button">Add Book</button>
       </div>
       <Panel title={editing ? "Edit book" : "Add book"}>
         <div className="grid gap-3 md:grid-cols-2">
