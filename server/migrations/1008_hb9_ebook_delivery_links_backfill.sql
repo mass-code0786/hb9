@@ -28,21 +28,7 @@ cross join (
     ('Premium Mix EBooks Mega Bundle Pack 4', 'https://drive.google.com/drive/folders/1MJzie4ZXsMVosm6ejaAdcuMVMMLJ8XHf?usp=drive_link', 'folder', 'Premium Mix', 160),
     ('Fitness EBooks Bundle', 'https://drive.google.com/drive/folders/1H2DEtHcA5MX6W57xLOs-pNIJOHEAJy99?usp=sharing', 'folder', 'Fitness', 170)
 ) as resource(title, url, type, category, sort_order)
-where p.active = true
-   or exists (
-     select 1
-     from hb_product_order_items oi
-     join hb_product_orders po on po.id = oi.order_id
-     join hb_package_purchases pp on pp.id = po.package_purchase_id
-     where oi.product_id = p.id
-       and pp.status = 'completed'
-   )
-   or exists (
-     select 1
-     from hb_package_purchases pp
-     where pp.package_id = p.package_id
-       and pp.status = 'completed'
-   )
+where false
 on conflict (product_id, title, url) do update
 set type = excluded.type,
     category = excluded.category,

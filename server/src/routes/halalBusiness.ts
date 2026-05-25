@@ -3444,7 +3444,6 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
     status: string;
     book_limit: number;
     followers_count: number;
-    resources_count: number;
   }>(
     `select p.id as package_purchase_id,
             p.id as purchase_id,
@@ -3462,32 +3461,20 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
             p.created_at as purchased_at,
             p.status,
             case when p.amount_usd >= 100 then 100 when p.amount_usd >= 20 then 20 when p.amount_usd >= 4 then 4 else 0 end as book_limit,
-            case when p.amount_usd >= 100 then 4000 when p.amount_usd >= 20 then 700 else 0 end as followers_count,
-            coalesce(resources.resource_count, 0)::int as resources_count
+            case when p.amount_usd >= 100 then 4000 when p.amount_usd >= 20 then 700 else 0 end as followers_count
      from hb_package_purchases p
      join hb_packages pkg on pkg.id = p.package_id
      left join lateral (
-       select hp.id, hp.title, hp.slug, hp.image_url, hp.thumbnail_url, coalesce(link_counts.resource_count, 0)::int as resource_count
+       select hp.id, hp.title, hp.slug, hp.image_url, hp.thumbnail_url
        from hb_products hp
        left join hb_product_order_items oi on oi.product_id = hp.id
        left join hb_product_orders po on po.id = oi.order_id and po.package_purchase_id = p.id
-       left join lateral (
-         select count(*)::int as resource_count
-         from product_delivery_links l
-         where l.product_id = hp.id and l.is_active = true
-       ) link_counts on true
        where po.id is not null or (hp.package_id = p.package_id and hp.active = true)
-       order by case when coalesce(link_counts.resource_count, 0) > 0 then 0 else 1 end,
-                case when po.id is not null then 0 else 1 end,
+       order by case when po.id is not null then 0 else 1 end,
                 hp.featured desc,
                 hp.created_at desc
        limit 1
      ) product on true
-     left join lateral (
-       select count(*)::int as resource_count
-       from product_delivery_links l
-       where l.product_id = product.id and l.is_active = true
-     ) resources on true
      where p.user_id = $1 and p.status = 'completed'
      order by p.created_at desc`,
     [userId]
@@ -3499,89 +3486,19 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
     }
   }
   const uniqueActiveProducts = Array.from(activeProductsByPurchase.values());
-  const resourceRows = uniqueActiveProducts.length ? await query<{
-    package_purchase_id: string;
-    id: string;
-    product_id: string;
-    title: string;
-    url: string;
-    type: string;
-    category: string | null;
-    thumbnail_url: string | null;
-    sort_order: number;
-    download_count: number;
-  }>(
-    `select p.id as package_purchase_id,
-            l.id,
-            l.product_id,
-            l.title,
-            l.url,
-            l.type,
-            l.category,
-            l.thumbnail_url,
-            l.sort_order,
-            coalesce(count(log.id) filter (where log.action = 'download'), 0)::int as download_count
-     from hb_package_purchases p
-     join hb_packages pkg on pkg.id = p.package_id
-     join lateral (
-       select hp.id, hp.title, coalesce(link_counts.resource_count, 0)::int as resource_count
-       from hb_products hp
-       left join hb_product_order_items oi on oi.product_id = hp.id
-       left join hb_product_orders po on po.id = oi.order_id and po.package_purchase_id = p.id
-       left join lateral (
-         select count(*)::int as resource_count
-         from product_delivery_links l
-         where l.product_id = hp.id and l.is_active = true
-       ) link_counts on true
-       where po.id is not null or (hp.package_id = p.package_id and hp.active = true)
-       order by case when coalesce(link_counts.resource_count, 0) > 0 then 0 else 1 end,
-                case when po.id is not null then 0 else 1 end,
-                hp.featured desc,
-                hp.created_at desc
-       limit 1
-     ) product on true
-     join product_delivery_links l on l.is_active = true
-     join hb_products delivery_product on delivery_product.id = l.product_id
-     left join product_delivery_access_logs log on log.product_delivery_link_id = l.id and log.package_purchase_id = p.id
-     where p.user_id = $1 and p.status = 'completed'
-       and (
-         delivery_product.id = product.id
-         or delivery_product.package_id = p.package_id
-         or delivery_product.package_price = p.amount_usd
-         or regexp_replace(lower(delivery_product.title), '[^a-z0-9]+', '', 'g') = regexp_replace(lower(product.title), '[^a-z0-9]+', '', 'g')
-         or regexp_replace(lower(delivery_product.title), '[^a-z0-9]+', '', 'g') = regexp_replace(lower(pkg.name), '[^a-z0-9]+', '', 'g')
-       )
-     group by p.id, l.id
-     order by p.created_at desc, l.sort_order asc, l.created_at asc`,
-    [userId]
-  ) : [];
-  const resourcesByPurchase = new Map<string, typeof resourceRows>();
-  for (const row of resourceRows) {
-    const existing = resourcesByPurchase.get(row.package_purchase_id) || [];
-    if (!existing.some((item) => item.id === row.id || (item.title === row.title && item.url === row.url))) {
-      existing.push(row);
-    }
-    resourcesByPurchase.set(row.package_purchase_id, existing);
-  }
-  const deliveredProducts = uniqueActiveProducts.map((product) => {
-    const resources = resourcesByPurchase.get(product.package_purchase_id) || [];
-    return {
-      ...product,
-      purchaseId: product.purchase_id,
-      productId: product.product_id,
-      productName: product.product_name,
-      purchaseDate: product.purchase_date,
-      resources_count: resources.length,
-      resources
-    };
-  });
-  logger.info("hb.my_products.delivery_links", {
+  const deliveredProducts = uniqueActiveProducts.map((product) => ({
+    ...product,
+    purchaseId: product.purchase_id,
+    productId: product.product_id,
+    productName: product.product_name,
+    purchaseDate: product.purchase_date
+  }));
+  logger.info("hb.my_products.purchases", {
     userId,
     purchases: deliveredProducts.map((product) => ({
       purchaseId: product.purchase_id,
       productId: product.product_id,
-      productName: product.product_name,
-      matchedDeliveryLinksCount: product.resources.length
+      productName: product.product_name
     }))
   });
   const best = deliveredProducts.reduce((winner, row) => Number(row.package_price || 0) > Number(winner?.package_price || 0) ? row : winner, null as Record<string, any> | null);
@@ -3631,115 +3548,6 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
     softwareAccess,
     customSoftwareRequests
   }, "HB9 products delivered");
-}));
-
-hbRouter.get("/hb/my-products/:purchaseId/resources", requireHbUser, asyncHandler(async (req, res) => {
-  const purchaseRows = await query<{
-    package_purchase_id: string;
-    purchase_id: string;
-    product_id: string | null;
-    package_id: string;
-    package_name: string;
-    product_name: string | null;
-    product_title: string | null;
-    product_slug: string | null;
-    product_image: string | null;
-    price: string;
-    package_price: string;
-    purchase_date: string;
-    activation_date: string;
-    purchased_at: string;
-    status: string;
-    book_limit: number;
-    followers_count: number;
-  }>(
-    `select p.id as package_purchase_id,
-            p.id as purchase_id,
-            product.id as product_id,
-            p.package_id,
-            pkg.name as package_name,
-            coalesce(product.title, pkg.name) as product_name,
-            coalesce(product.title, pkg.name) as product_title,
-            product.slug as product_slug,
-            coalesce(product.thumbnail_url, product.image_url) as product_image,
-            p.amount_usd::text as price,
-            p.amount_usd::text as package_price,
-            p.created_at as purchase_date,
-            p.created_at as activation_date,
-            p.created_at as purchased_at,
-            p.status,
-            case when p.amount_usd >= 100 then 100 when p.amount_usd >= 20 then 20 when p.amount_usd >= 4 then 4 else 0 end as book_limit,
-            case when p.amount_usd >= 100 then 4000 when p.amount_usd >= 20 then 700 else 0 end as followers_count
-     from hb_package_purchases p
-     join hb_packages pkg on pkg.id = p.package_id
-     left join lateral (
-       select hp.id, hp.title, hp.slug, hp.image_url, hp.thumbnail_url, coalesce(link_counts.resource_count, 0)::int as resource_count
-       from hb_products hp
-       left join hb_product_order_items oi on oi.product_id = hp.id
-       left join hb_product_orders po on po.id = oi.order_id and po.package_purchase_id = p.id
-       left join lateral (
-         select count(*)::int as resource_count
-         from product_delivery_links l
-         where l.product_id = hp.id and l.is_active = true
-       ) link_counts on true
-       where po.id is not null or (hp.package_id = p.package_id and hp.active = true)
-       order by case when coalesce(link_counts.resource_count, 0) > 0 then 0 else 1 end,
-                case when po.id is not null then 0 else 1 end,
-                hp.featured desc,
-                hp.created_at desc
-       limit 1
-     ) product on true
-     where p.id = $1 and p.user_id = $2 and p.status = 'completed'
-     limit 1`,
-    [req.params.purchaseId, req.hbUser!.userId]
-  );
-  const product = purchaseRows[0];
-  if (!product) {
-    fail(res, "Purchased product was not found.", 404, "Product access denied");
-    return;
-  }
-  const resources = product.product_id ? await query(
-    `select distinct on (l.title, l.url)
-            l.id,
-            l.product_id,
-            l.title,
-            l.url,
-            l.type,
-            l.category,
-            l.thumbnail_url,
-            l.sort_order,
-            coalesce(downloads.download_count, 0)::int as download_count
-     from product_delivery_links l
-     left join lateral (
-       select count(*)::int as download_count
-       from product_delivery_access_logs log
-       where log.product_delivery_link_id = l.id
-         and log.package_purchase_id = $2
-         and log.action = 'download'
-     ) downloads on true
-     where l.product_id = $1 and l.is_active = true
-     order by l.title, l.url, l.sort_order asc, l.created_at asc`,
-    [product.product_id, product.package_purchase_id]
-  ) : [];
-  logger.info("hb.my_product.resources", {
-    userId: req.hbUser!.userId,
-    purchaseId: product.purchase_id,
-    productId: product.product_id,
-    productName: product.product_name,
-    matchedDeliveryLinksCount: resources.length
-  });
-  ok(res, {
-    product: {
-      ...product,
-      purchaseId: product.purchase_id,
-      productId: product.product_id,
-      productName: product.product_name,
-      purchaseDate: product.purchase_date,
-      resources_count: resources.length,
-      resources
-    },
-    resources
-  }, "HB9 product resources loaded");
 }));
 
 hbRouter.get("/hb/books", requireHbUser, asyncHandler(async (req, res) => {

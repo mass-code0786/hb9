@@ -425,20 +425,6 @@ export type HbDeliveredProduct = {
   status: string;
   book_limit: number;
   followers_count: number;
-  resources_count?: number;
-  resources?: HbProductResource[];
-};
-
-export type HbProductResource = {
-  id: string;
-  product_id: string;
-  title: string;
-  url: string;
-  type: "ebook" | "video" | "course" | "folder" | "pdf";
-  category?: string | null;
-  thumbnail_url?: string | null;
-  sort_order: number;
-  download_count?: number;
 };
 
 export type HbBook = {
@@ -1008,10 +994,6 @@ export function fetchHbOrders(token: string) {
 
 export function fetchHbMyProducts(token: string) {
   return hbRequest<HbMyProductsDelivery>("/hb/my-products", token);
-}
-
-export function fetchHbMyProductResources(token: string, purchaseId: string) {
-  return hbRequest<{ product: HbDeliveredProduct; resources: HbProductResource[] }>(`/hb/my-products/${encodeURIComponent(purchaseId)}/resources`, token);
 }
 
 export function downloadHbBook(token: string, bookId: string) {

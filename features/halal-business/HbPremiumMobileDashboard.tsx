@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDownToLine, Banknote, Bell, BookOpen, Box, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign, Copy, Download, ExternalLink, Eye, FolderOpen, Home, Layers3, PackageCheck, PlayCircle, Plus, ReceiptText, RefreshCw, Send, Settings, Sparkles, TrendingUp, Users, Wallet } from "lucide-react";
+import { ArrowDownToLine, Banknote, Bell, Box, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign, Copy, Download, Eye, Home, Layers3, PackageCheck, Plus, ReceiptText, RefreshCw, Send, Settings, Sparkles, TrendingUp, Users, Wallet } from "lucide-react";
 import { BrowserProvider, Contract, encodeBytes32String, parseUnits, ZeroAddress } from "ethers";
 import { createPublicClient, encodeFunctionData, http, parseUnits as viemParseUnits, type Hash } from "viem";
 import { bsc } from "viem/chains";
@@ -54,7 +54,6 @@ import {
   type HbOrder,
   type HbFollowersPlatform,
   type HbProduct,
-  type HbProductResource,
   type HbPurchase,
   type HbReferralSummary,
   type HbSingleLegProgress,
@@ -166,16 +165,6 @@ function walletActivityTitle(item: HbWalletActivity) {
 
 function shortAddress(value?: string | null) {
   return value ? `${value.slice(0, 6)}...${value.slice(-4)}` : "Not bound";
-}
-
-function openDeliveryUrl(url: string) {
-  if (typeof window === "undefined") return;
-  window.open(url, "_blank", "noopener,noreferrer");
-}
-
-function copyDeliveryUrl(url: string) {
-  if (typeof navigator === "undefined" || !navigator.clipboard) return;
-  navigator.clipboard.writeText(url).catch(() => undefined);
 }
 
 function chainLabel(chainId: number | string) {
@@ -1180,7 +1169,6 @@ function HomeScreen({ walletBalance, balances, user, boundWallet, currentPackage
 
 function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingProductId, onBuy, onPackageBuy, onBookDownload, onFollowersRequest, onCustomSoftwareRequest }: { purchases: HbPurchase[]; orders: HbOrder[]; delivery: HbMyProductsDelivery | null; packages: HbProduct[]; buyLoadingProductId: string; onBuy: () => void; onPackageBuy: (product: HbProduct) => void; onBookDownload: (bookId: string) => void; onFollowersRequest: (input: { packagePurchaseId: string; platform: HbFollowersPlatform; submittedLink: string }) => void; onCustomSoftwareRequest: (input: { packagePurchaseId?: string; softwareType: string; architecture: "centralized" | "decentralized"; requirementsNote: string }) => void }) {
   const [tab, setTab] = useState<"active" | "books" | "requests">("active");
-  const [expandedProductId, setExpandedProductId] = useState("");
   const [requestProductId, setRequestProductId] = useState("");
   const [platform, setPlatform] = useState<HbFollowersPlatform | "">("");
   const [submittedLink, setSubmittedLink] = useState("");
@@ -1193,15 +1181,6 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
     if (purchaseId && !deliveredProductsByPurchase.has(purchaseId)) deliveredProductsByPurchase.set(purchaseId, item);
   });
   const uniqueDeliveredProducts = Array.from(deliveredProductsByPurchase.values());
-  const dedupeResources = (resources: typeof uniqueDeliveredProducts[number]["resources"] = []) => {
-    const seen = new Set<string>();
-    return resources.filter((resource) => {
-      const key = resource.id || `${resource.title}:${resource.url}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  };
   const productRows = uniqueDeliveredProducts.length ? uniqueDeliveredProducts.map((item) => ({
     id: item.purchaseId || item.purchase_id || item.package_purchase_id,
     purchaseId: item.purchaseId || item.purchase_id || item.package_purchase_id,
@@ -1214,8 +1193,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
     date: item.purchaseDate || item.purchase_date || item.purchased_at || item.activation_date,
     imageAmount: item.price || item.package_price,
     followersCount: Number(item.followers_count || 0),
-    bookLimit: Number(item.book_limit || 0),
-    resources: dedupeResources(item.resources)
+    bookLimit: Number(item.book_limit || 0)
   })) : purchases.map((purchase) => ({
     id: purchase.id,
     purchaseId: purchase.id,
@@ -1228,9 +1206,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
     date: purchase.created_at,
     imageAmount: purchase.amount_usd,
     followersCount: 0,
-    bookLimit: 0,
-    resourcesCount: 0,
-    resources: []
+    bookLimit: 0
   })).concat(orders.map((order) => ({
     id: order.id,
     purchaseId: order.id,
@@ -1243,23 +1219,20 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
     date: order.created_at,
     imageAmount: order.package_price,
     followersCount: 0,
-    bookLimit: 0,
-    resourcesCount: 0,
-    resources: []
+    bookLimit: 0
   })));
-  const productRowsWithCounts = productRows.map((item) => ({ ...item, resourcesCount: item.resources.length }));
-  const hasPurchases = productRowsWithCounts.length > 0;
+  const hasPurchases = productRows.length > 0;
   const books = delivery?.books || [];
   const unlockedBooks = books.filter((book) => book.unlocked);
-  const selectedFollowerProduct = productRowsWithCounts.find((item) => item.id === requestProductId) || productRowsWithCounts[0] || null;
+  const selectedFollowerProduct = productRows.find((item) => item.id === requestProductId) || productRows[0] || null;
   const validSubmittedLink = /^https?:\/\/\S+\.\S+/i.test(submittedLink.trim());
   const canSendFollowersRequest = Boolean(selectedFollowerProduct && platform && validSubmittedLink);
   return (
     <div className="space-y-3">
-      <HeroPanel title="My Product" subtitle={`${productRowsWithCounts.length} active products`} icon={PackageCheck} art="package" />
+      <HeroPanel title="My Product" subtitle={`${productRows.length} active products`} icon={PackageCheck} art="package" />
       <SegmentedTabs tabs={[["active", "Active"], ["books", "Books"], ["requests", "Requests"]]} active={tab} onChange={(next) => setTab(next as typeof tab)} />
       {!hasPurchases ? <EmptyState title="No purchased product yet." action={<PrimaryAction onClick={onBuy}>Buy Package</PrimaryAction>} /> : null}
-      {tab === "active" ? productRowsWithCounts.map((item) => (
+      {tab === "active" ? productRows.map((item) => (
         <GlassCard key={item.id} className="p-3">
           <div className="flex gap-3">
             {item.productImage ? <img src={item.productImage} alt="" className="h-20 w-20 shrink-0 rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 object-cover" /> : <HbPackageVisual amount={item.imageAmount} size="md" />}
@@ -1271,22 +1244,15 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
               <p className="mt-1 text-xs text-sky-100/55">{item.title} - Purchased {new Date(item.date).toLocaleDateString()}</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <p className="text-xl font-black text-cyan-100">{money(item.price)}</p>
-                <span className="rounded-full border border-emerald-200/15 bg-emerald-300/10 px-2 py-1 text-[10px] font-black text-emerald-100">{item.resourcesCount} resources</span>
               </div>
             </div>
           </div>
           <div className="mt-4 grid gap-1.5 text-xs text-sky-100/68">
             {featuresForHbPackageAmount(item.imageAmount).slice(0, 3).map((feature) => <FeatureBullet key={feature}>{feature}</FeatureBullet>)}
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <button className="hb-interactive hb-glow-cyan flex items-center justify-center gap-2 rounded-[1rem] bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-500 px-3 py-3 text-sm font-black text-[#03111f] shadow-[0_0_20px_rgba(34,211,238,0.28),inset_0_1px_0_rgba(255,255,255,0.35)] transition duration-200" onClick={() => setExpandedProductId(expandedProductId === item.id ? "" : item.id)} type="button"><Download size={16} /> {expandedProductId === item.id ? "Hide Links" : "Open Links"}</button>
+          <div className="mt-4 grid gap-2">
             <button className="hb-interactive hb-glow-purple flex items-center justify-center gap-2 rounded-[1rem] border border-cyan-200/18 bg-cyan-300/10 px-3 py-3 text-sm font-bold text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition duration-200 disabled:opacity-45" disabled={item.followersCount <= 0} onClick={() => { setRequestProductId(item.id); setTab("requests"); }} type="button"><Eye size={16} /> Followers Request</button>
           </div>
-          {expandedProductId === item.id ? (
-            <div className="mt-4 grid gap-2">
-              {item.resources.length ? item.resources.map((resource) => <DeliveryResourceRow key={resource.id} resource={resource} />) : <EmptyState title="No delivery resources attached yet." />}
-            </div>
-          ) : null}
         </GlassCard>
       )) : null}
       {tab === "books" ? (
@@ -1310,7 +1276,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
             <div className="relative z-30 mt-3 grid gap-2 pb-28">
               <select className="field relative z-40" value={requestProductId || selectedFollowerProduct?.id || ""} onChange={(event) => setRequestProductId(event.target.value)} disabled={!hasPurchases}>
                 {!hasPurchases ? <option value="">Buy a package first</option> : null}
-                {productRowsWithCounts.map((item) => <option key={item.id} value={item.id}>{item.title} - {money(item.price)}</option>)}
+                {productRows.map((item) => <option key={item.id} value={item.id}>{item.title} - {money(item.price)}</option>)}
               </select>
               <select className="field relative z-40" value={platform} onChange={(event) => setPlatform(event.target.value as HbFollowersPlatform | "")}>
                 <option value="">Select platform</option>
@@ -1346,30 +1312,6 @@ function ProductActions() {
     <div className="mt-4 grid grid-cols-2 gap-2">
       <button className="hb-interactive hb-glow-cyan flex items-center justify-center gap-2 rounded-[1rem] bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-500 px-3 py-3 text-sm font-black text-[#03111f] shadow-[0_0_20px_rgba(34,211,238,0.28),inset_0_1px_0_rgba(255,255,255,0.35)] transition duration-200 active:scale-[0.97]" type="button"><Download size={16} /> Download</button>
       <button className="hb-interactive hb-glow-purple flex items-center justify-center gap-2 rounded-[1rem] border border-cyan-200/18 bg-cyan-300/10 px-3 py-3 text-sm font-bold text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition duration-200 active:scale-[0.97]" type="button"><Eye size={16} /> View Details</button>
-    </div>
-  );
-}
-
-function DeliveryResourceRow({ resource }: { resource: HbProductResource }) {
-  const Icon = resource.type === "video" || resource.type === "course" ? PlayCircle : resource.type === "folder" ? FolderOpen : BookOpen;
-  return (
-    <div className="hb-interactive hb-glow-cyan rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 p-3">
-      <div className="flex items-start gap-3">
-        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-cyan-300/10 text-cyan-100"><Icon size={18} /></div>
-        <div className="min-w-0 flex-1">
-          <div className="line-clamp-2 text-sm font-black">{resource.title}</div>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            <span className="rounded-full border border-cyan-200/12 bg-cyan-300/10 px-2 py-0.5 text-[10px] font-bold uppercase text-cyan-100">{resource.type}</span>
-            {resource.category ? <span className="rounded-full border border-sky-200/10 bg-sky-300/10 px-2 py-0.5 text-[10px] font-bold text-sky-100">{resource.category}</span> : null}
-            {typeof resource.download_count === "number" && resource.download_count > 0 ? <span className="rounded-full border border-emerald-200/10 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-bold text-emerald-100">{resource.download_count} downloads</span> : null}
-          </div>
-        </div>
-      </div>
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <button className="flex items-center justify-center gap-1.5 rounded-xl bg-cyan-300 px-2 py-2 text-[11px] font-black text-[#031326]" onClick={() => openDeliveryUrl(resource.url)} type="button"><ExternalLink size={14} /> Open</button>
-        <button className="flex items-center justify-center gap-1.5 rounded-xl border border-cyan-200/18 bg-cyan-300/10 px-2 py-2 text-[11px] font-bold text-cyan-100" onClick={() => openDeliveryUrl(resource.url)} type="button"><Download size={14} /> Save</button>
-        <button className="flex items-center justify-center gap-1.5 rounded-xl border border-cyan-200/18 bg-cyan-300/10 px-2 py-2 text-[11px] font-bold text-cyan-100" onClick={() => copyDeliveryUrl(resource.url)} type="button"><Copy size={14} /> Copy</button>
-      </div>
     </div>
   );
 }

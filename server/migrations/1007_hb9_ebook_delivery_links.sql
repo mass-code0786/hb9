@@ -60,7 +60,7 @@ cross join (
     ('Premium Mix EBooks Mega Bundle Pack 4', 'https://drive.google.com/drive/folders/1MJzie4ZXsMVosm6ejaAdcuMVMMLJ8XHf?usp=drive_link', 'folder', 'Premium Mix', 160),
     ('Fitness EBooks Bundle', 'https://drive.google.com/drive/folders/1H2DEtHcA5MX6W57xLOs-pNIJOHEAJy99?usp=sharing', 'folder', 'Fitness', 170)
 ) as resource(title, url, type, category, sort_order)
-where p.active = true
+where false
 on conflict (product_id, title, url) do update
 set type = excluded.type,
     category = excluded.category,
