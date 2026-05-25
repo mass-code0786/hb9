@@ -19,6 +19,7 @@ loadEnv({ path: resolve(process.cwd(), ".env"), quiet: true });
 
 const defaultAdminSessionSecret = "hb9-admin-dev-secret";
 const rawAdminSessionSecret = process.env.HB_SESSION_SECRET || process.env.JWT_SECRET || process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD_HASH || defaultAdminSessionSecret;
+const defaultHb9AdminWallets = ["0x263e3C8d975662EBF2B44d0F65250105cD535d7d"];
 const usdtBep20MainnetAddress = "0x55d398326f99059fF775485246999027B3197955";
 const hbTreasuryDepositAddress = process.env.BSC_TREASURY_WALLET || process.env.HB9_COMPANY_RECEIVING_WALLET_BSC || process.env.NEXT_PUBLIC_BSC_TREASURY_WALLET || process.env.HB_TREASURY_DEPOSIT_ADDRESS || process.env.COMPANY_EVM_RECEIVE_ADDRESS || "";
 const hbRegistrationTreasuryWallet = process.env.HB9_TREASURY_WALLET || hbTreasuryDepositAddress;
@@ -30,6 +31,20 @@ const bscRpcUrls = [
   "https://bsc-mainnet.public.blastapi.io",
   "https://bsc-dataseed1.binance.org"
 ].map((item) => (item || "").trim()).filter((item, index, list) => item && list.indexOf(item) === index);
+
+function normalizedAddressList(value: string, defaults: string[] = []) {
+  return [...defaults, ...value.split(",")]
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      try {
+        return isAddress(item) ? getAddress(item).toLowerCase() : "";
+      } catch {
+        return "";
+      }
+    })
+    .filter((item, index, list) => item && list.indexOf(item) === index);
+}
 
 if (process.env.NODE_ENV === "production") {
   if (!process.env.ADMIN_SESSION_SECRET || rawAdminSessionSecret === defaultAdminSessionSecret) {
@@ -111,7 +126,8 @@ export const config = {
   hbLimitedLiveDailyActivationLimit: Number(process.env.HB_LIMITED_LIVE_DAILY_ACTIVATION_LIMIT || process.env.HB_DAILY_ACTIVATION_LIMIT || 25),
   hbWhitelistWallets: (process.env.HB_WHITELIST_WALLETS || "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean),
   hbWhitelistReferrals: (process.env.HB_WHITELIST_REFERRALS || "").split(",").map((item) => item.trim().toUpperCase()).filter(Boolean),
-  hbAdminBypassWallets: (process.env.HB_ADMIN_BYPASS_WALLETS || "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean),
+  hbAdminBypassWallets: normalizedAddressList(process.env.HB_ADMIN_BYPASS_WALLETS || ""),
+  hb9AdminWallets: normalizedAddressList(process.env.HB9_ADMIN_WALLETS || process.env.HB_ADMIN_WALLETS || "", defaultHb9AdminWallets),
   hbRollbackMode: process.env.HB_ROLLBACK_MODE === "true",
   hbEmergencyPause: process.env.HB_EMERGENCY_PAUSE === "true",
   hbEmergencyIndexerStop: process.env.HB_EMERGENCY_INDEXER_STOP === "true",

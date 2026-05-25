@@ -46,6 +46,7 @@ const BSC_CHAIN_ID = Number(process.env.NEXT_PUBLIC_HB_CHAIN_ID || process.env.N
 const BSC_HEX_CHAIN_ID = `0x${BSC_CHAIN_ID.toString(16)}`;
 const BSC_LABEL = BSC_CHAIN_ID === 56 ? "BSC Mainnet" : "BSC";
 const HB_DEV_DASHBOARD_BYPASS = isHbDevDashboardBypassEnabled();
+const ADMIN_TOKEN_KEY = "hb9.admin.token";
 const USDT_BEP20_ADDRESS = process.env.NEXT_PUBLIC_USDT_TOKEN_ADDRESS || process.env.NEXT_PUBLIC_USDT_BEP20_ADDRESS || process.env.NEXT_PUBLIC_USDT_CONTRACT || "0x55d398326f99059fF775485246999027B3197955";
 const bscPublicClient = createPublicClient({ chain: bsc, transport: http(BSC_RPC_URL) });
 const ERC20_TRANSFER_ABI = [{
@@ -260,7 +261,6 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
     const previous = previousWalletRef.current || normalizeHbWalletAddress(window.localStorage.getItem(HB_ACTIVE_WALLET_KEY));
     if (previous && previous !== normalizedNext) {
       clearHbWalletSessionState(normalizedNext);
-      setMessage("Wallet changed. Previous HB9 session cleared.");
     }
     previousWalletRef.current = normalizedNext;
   }
@@ -296,6 +296,16 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
       return;
     }
     const response = await verifyHbWalletSignature({ walletAddress: nextAddress, chainId: challenge.chainId, nonce: challenge.nonce, signature, authMode });
+    if (response.adminToken) {
+      window.localStorage.setItem(ADMIN_TOKEN_KEY, response.adminToken);
+      clearAuthUiState();
+      window.location.assign(response.adminRedirect || "/admin");
+      return;
+    }
+    if (!response.token || !response.user) {
+      setMessage("Wallet authentication failed.");
+      return;
+    }
     saveHbToken(response.token, nextAddress);
     await Promise.all([
       fetchHbMe(response.token),

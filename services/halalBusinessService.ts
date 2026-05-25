@@ -356,10 +356,13 @@ export type HbRegistrationFee = {
 };
 
 export type HbWalletAuthResponse = {
-  token: string;
-  user: HbUser;
+  token?: string;
+  user?: HbUser;
   registrationFeeRequired?: boolean;
   registrationFee?: HbRegistrationFee;
+  adminToken?: string;
+  admin?: { email: string; role: "super_admin" | "support_admin"; walletAddress?: string };
+  adminRedirect?: string;
 };
 
 export type HbProductAllocation = {

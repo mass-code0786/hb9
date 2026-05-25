@@ -6,7 +6,7 @@ import bcrypt from "bcryptjs";
 import { Contract, JsonRpcProvider, NonceManager, Wallet, formatEther, formatUnits, getAddress, isAddress, parseUnits, verifyMessage } from "ethers";
 import type { PoolClient } from "pg";
 import { z } from "zod";
-import { requireAdmin } from "../adminAuth.js";
+import { createAdminToken, requireAdmin } from "../adminAuth.js";
 import { config } from "../config.js";
 import { pool, query } from "../db/pool.js";
 import { asyncHandler, fail, ok } from "../http.js";
@@ -805,6 +805,14 @@ function hbBscScanBaseUrl() {
 
 function hbNetworkLabel() {
   return hbOnchainChainId() === 56 ? "BSC Mainnet" : "BSC";
+}
+
+function isHb9AdminWallet(address: string) {
+  try {
+    return config.hb9AdminWallets.includes(getAddress(address).toLowerCase());
+  } catch {
+    return false;
+  }
 }
 
 function walletChallengeRateLimit(req: Request, walletAddress: string) {
@@ -4595,7 +4603,7 @@ hbRouter.post("/hb/auth/wallet/challenge", asyncHandler(async (req, res) => {
     });
     return;
   }
-  if (!(await enforceRolloutAccess(res, { walletAddress: parsed.data.walletAddress, referralCode: parsed.data.referralCode, action: "wallet.challenge" }))) return;
+  if (!isHb9AdminWallet(walletAddress) && !(await enforceRolloutAccess(res, { walletAddress: parsed.data.walletAddress, referralCode: parsed.data.referralCode, action: "wallet.challenge" }))) return;
   if (!pool) {
     fail(res, "HB9 database is not configured.", 503, "Wallet auth unavailable");
     return;
@@ -4678,6 +4686,24 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
       await client.query("commit");
       logger.warn("hb.wallet_auth.failed", { category: "bad_signature", walletAddress });
       fail(res, "Wallet signature could not be verified.", 401, "Wallet verification failed");
+      return;
+    }
+
+    if (parsed.data.authMode === "login" && isHb9AdminWallet(walletAddress)) {
+      const adminEmail = config.adminEmail || `wallet:${walletAddress.toLowerCase()}`;
+      const adminToken = createAdminToken(adminEmail, "super_admin");
+      await client.query(
+        `update hb_wallet_auth_challenges
+         set signature = $2, status = 'verified', verified_at = now()
+         where id = $1`,
+        [challenge.id, parsed.data.signature]
+      );
+      await client.query("commit");
+      ok(res, {
+        adminToken,
+        admin: { email: adminEmail, role: "super_admin", walletAddress },
+        adminRedirect: "/admin"
+      }, "HB9 admin wallet login successful");
       return;
     }
 

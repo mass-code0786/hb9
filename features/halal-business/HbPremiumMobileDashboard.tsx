@@ -87,8 +87,15 @@ type PurchaseReview = {
   txHash?: string;
 };
 
-const followerPlatforms: HbFollowersPlatform[] = ["Instagram", "Telegram", "Twitter", "Facebook", "YouTube"];
+const followerPlatforms: Array<{ value: HbFollowersPlatform; label: string }> = [
+  { value: "Instagram", label: "Instagram" },
+  { value: "Telegram", label: "Telegram" },
+  { value: "Twitter", label: "Twitter / X" },
+  { value: "Facebook", label: "Facebook" },
+  { value: "YouTube", label: "YouTube" }
+];
 const HB_PRODUCTS_CACHE_KEY = "hb9.dashboard.products.v1";
+const ADMIN_TOKEN_KEY = "hb9.admin.token";
 const HB_PACKAGE_API_FAILURE = "Package configuration missing";
 const HB_TREASURY_MISSING = "Treasury wallet not configured";
 const HB_MAPPING_MISSING = "Blockchain package mapping missing";
@@ -397,6 +404,12 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       const signature = await provider.request({ method: "personal_sign", params: [challenge.message, walletAddress] });
       if (typeof signature !== "string") return;
       const response = await verifyHbWalletSignature({ walletAddress, chainId: challenge.chainId, nonce: challenge.nonce, signature, authMode: "login" });
+      if (response.adminToken) {
+        window.localStorage.setItem(ADMIN_TOKEN_KEY, response.adminToken);
+        window.location.assign(response.adminRedirect || "/admin");
+        return;
+      }
+      if (!response.token) throw new Error("Wallet authentication failed.");
       saveHbToken(response.token, walletAddress);
       setToken(response.token);
       await Promise.all([
@@ -1171,6 +1184,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
   const [tab, setTab] = useState<"active" | "books" | "requests">("active");
   const [requestProductId, setRequestProductId] = useState("");
   const [platform, setPlatform] = useState<HbFollowersPlatform | "">("");
+  const [platformPickerOpen, setPlatformPickerOpen] = useState(false);
   const [submittedLink, setSubmittedLink] = useState("");
   const [softwareType, setSoftwareType] = useState("");
   const [architecture, setArchitecture] = useState<"centralized" | "decentralized">("centralized");
@@ -1235,6 +1249,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
   const selectedFollowerProduct = productRows.find((item) => item.id === requestProductId) || productRows[0] || null;
   const validSubmittedLink = /^https?:\/\/\S+\.\S+/i.test(submittedLink.trim());
   const canSendFollowersRequest = Boolean(selectedFollowerProduct && platform && validSubmittedLink);
+  const selectedPlatformLabel = followerPlatforms.find((item) => item.value === platform)?.label || "";
   return (
     <div className="space-y-3">
       <HeroPanel title="My Product" subtitle={`${productRows.length} active products`} icon={PackageCheck} art="package" />
@@ -1286,10 +1301,22 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
                 {!hasPurchases ? <option value="">Buy a package first</option> : null}
                 {productRows.map((item) => <option key={item.id} value={item.id}>{item.title} - {money(item.price)}</option>)}
               </select>
-              <select className="field relative z-50" value={platform} onChange={(event) => setPlatform(event.target.value as HbFollowersPlatform | "")}>
-                <option value="">Select platform</option>
-                {followerPlatforms.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
+              <button className={`field relative z-40 flex min-h-[3rem] items-center justify-between text-left ${platform ? "text-slate-50" : "text-slate-400"}`} onClick={() => setPlatformPickerOpen(true)} type="button" aria-haspopup="dialog" aria-expanded={platformPickerOpen}>
+                <span>{selectedPlatformLabel || "Select platform"}</span>
+                <ChevronUp size={16} className="text-cyan-100/70" />
+              </button>
+              {platformPickerOpen ? (
+                <div className="fixed inset-0 z-[100] bg-black/45 px-3 pb-[calc(env(safe-area-inset-bottom)+6rem)] pt-8" role="dialog" aria-modal="true" aria-label="Select platform" onClick={() => setPlatformPickerOpen(false)}>
+                  <div className="absolute inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] overflow-hidden rounded-2xl border border-cyan-200/18 bg-[#061a31] shadow-[0_24px_70px_rgba(0,0,0,0.55)]" onClick={(event) => event.stopPropagation()}>
+                    {followerPlatforms.map((item) => (
+                      <button key={item.value} className={`flex w-full items-center justify-between border-b border-cyan-200/10 px-4 py-4 text-left text-sm font-black last:border-b-0 ${platform === item.value ? "bg-cyan-300/15 text-cyan-100" : "text-sky-50"}`} onClick={() => { setPlatform(item.value); setPlatformPickerOpen(false); }} type="button">
+                        <span>{item.label}</span>
+                        {platform === item.value ? <span className="rounded-full bg-cyan-300 px-2 py-0.5 text-[10px] text-[#031326]">Selected</span> : null}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <input className="field" placeholder="Profile/page/channel/group link" value={submittedLink} onChange={(event) => setSubmittedLink(event.target.value)} />
               <button className="hb-interactive hb-glow-cyan rounded-2xl bg-cyan-300 px-4 py-3 font-black text-[#031326] disabled:opacity-45" disabled={!canSendFollowersRequest} onClick={() => canSendFollowersRequest && selectedFollowerProduct && platform ? onFollowersRequest({ packagePurchaseId: selectedFollowerProduct.id, platform, submittedLink: submittedLink.trim() }) : undefined} type="button">Send Request</button>
             </div>
