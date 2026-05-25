@@ -3447,13 +3447,13 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
   }>(
     `select p.id as package_purchase_id,
             p.id as purchase_id,
-            product.id as product_id,
+            null::uuid as product_id,
             p.package_id,
-            pkg.name as package_name,
-            coalesce(product.title, pkg.name) as product_name,
-            coalesce(product.title, pkg.name) as product_title,
-            product.slug as product_slug,
-            coalesce(product.thumbnail_url, product.image_url) as product_image,
+            package_display.name as package_name,
+            package_display.name as product_name,
+            package_display.name as product_title,
+            null::text as product_slug,
+            null::text as product_image,
             p.amount_usd::text as price,
             p.amount_usd::text as package_price,
             p.created_at as purchase_date,
@@ -3464,17 +3464,14 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
             case when p.amount_usd >= 100 then 4000 when p.amount_usd >= 20 then 700 else 0 end as followers_count
      from hb_package_purchases p
      join hb_packages pkg on pkg.id = p.package_id
-     left join lateral (
-       select hp.id, hp.title, hp.slug, hp.image_url, hp.thumbnail_url
-       from hb_products hp
-       left join hb_product_order_items oi on oi.product_id = hp.id
-       left join hb_product_orders po on po.id = oi.order_id and po.package_purchase_id = p.id
-       where po.id is not null or (hp.package_id = p.package_id and hp.active = true)
-       order by case when po.id is not null then 0 else 1 end,
-                hp.featured desc,
-                hp.created_at desc
-       limit 1
-     ) product on true
+     cross join lateral (
+       select case
+         when p.amount_usd = 4 then 'Starter Package'
+         when p.amount_usd = 20 then 'Builder Package'
+         when p.amount_usd = 100 then 'Growth Package'
+         else pkg.name
+       end as name
+     ) package_display
      where p.user_id = $1 and p.status = 'completed'
      order by p.created_at desc`,
     [userId]

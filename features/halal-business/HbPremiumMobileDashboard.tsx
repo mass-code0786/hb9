@@ -1181,13 +1181,20 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
     if (purchaseId && !deliveredProductsByPurchase.has(purchaseId)) deliveredProductsByPurchase.set(purchaseId, item);
   });
   const uniqueDeliveredProducts = Array.from(deliveredProductsByPurchase.values());
+  const myProductPackageName = (amount: unknown, fallback: string) => {
+    const packageAmount = Number(amount || 0);
+    if (packageAmount === 4) return "Starter Package";
+    if (packageAmount === 20) return "Builder Package";
+    if (packageAmount === 100) return "Growth Package";
+    return fallback;
+  };
   const productRows = uniqueDeliveredProducts.length ? uniqueDeliveredProducts.map((item) => ({
     id: item.purchaseId || item.purchase_id || item.package_purchase_id,
     purchaseId: item.purchaseId || item.purchase_id || item.package_purchase_id,
     packageId: item.package_id,
-    title: item.package_name,
-    productTitle: item.productName || item.product_name || item.product_title || item.package_name,
-    productImage: item.product_image || "",
+    title: myProductPackageName(item.price || item.package_price, item.package_name),
+    productTitle: myProductPackageName(item.price || item.package_price, item.package_name),
+    productImage: "",
     price: item.price || item.package_price,
     status: item.status,
     date: item.purchaseDate || item.purchase_date || item.purchased_at || item.activation_date,
@@ -1198,8 +1205,8 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
     id: purchase.id,
     purchaseId: purchase.id,
     packageId: "",
-    title: purchase.package_name,
-    productTitle: purchase.package_name,
+    title: myProductPackageName(purchase.amount_usd, purchase.package_name),
+    productTitle: myProductPackageName(purchase.amount_usd, purchase.package_name),
     productImage: "",
     price: purchase.amount_usd,
     status: purchase.status,
@@ -1235,7 +1242,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
       {tab === "active" ? productRows.map((item) => (
         <GlassCard key={item.id} className="p-3">
           <div className="flex gap-3">
-            {item.productImage ? <img src={item.productImage} alt="" className="h-20 w-20 shrink-0 rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 object-cover" /> : <HbPackageVisual amount={item.imageAmount} size="md" />}
+            <HbPackageVisual amount={item.imageAmount} size="md" />
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
                 <h3 className="line-clamp-2 font-semibold">{item.productTitle}</h3>
