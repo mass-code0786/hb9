@@ -322,6 +322,14 @@ const hbFollowersRequestSchema = z.object({
   platform: z.enum(["Instagram", "Telegram", "Twitter", "Facebook", "YouTube"]),
   submittedLink: z.string().trim().url().max(600)
 });
+const hbBookAdminSchema = z.object({
+  title: z.string().trim().min(2).max(180),
+  coverImage: z.string().trim().url().max(800).optional().or(z.literal("")),
+  downloadUrl: z.string().trim().url().max(1000),
+  sortOrder: z.coerce.number().int().min(1).max(100),
+  isActive: z.boolean().optional()
+});
+const hbBookAdminPatchSchema = hbBookAdminSchema.partial();
 const hbCustomSoftwareRequestSchema = z.object({
   packagePurchaseId: z.string().uuid().optional(),
   softwareType: z.string().trim().min(3).max(120),
@@ -3549,11 +3557,13 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
   const bookLimit = hbBookLimitForPackage(Number(best?.package_price || 0));
   const books = await query(
     `with ranked as (
-       select b.*, row_number() over (order by b.sort_order asc, b.created_at asc) as rn
-       from hb_product_library b
-       where b.status = 'active'
+       select b.id, b.title, b.cover_image, b.sort_order, b.is_active, b.created_at,
+              row_number() over (order by b.sort_order asc, b.created_at asc) as rn
+       from hb_books b
+       where b.is_active = true
      )
-     select r.id, r.title, r.category, r.description, r.file_url, r.cover_image, r.status, r.rn::int as sort_order,
+     select r.id, r.title, 'Digital Book'::text as category, null::text as description, null::text as file_url,
+            r.cover_image, case when r.is_active then 'active' else 'disabled' end as status, r.rn::int as sort_order,
             (r.rn <= $2::int) as unlocked,
             d.downloaded_at
      from ranked r
@@ -3599,11 +3609,13 @@ hbRouter.get("/hb/books", requireHbUser, asyncHandler(async (req, res) => {
   const bookLimit = hbBookLimitForPackage(Number(best?.amount_usd || 0));
   const rows = await query(
     `with ranked as (
-       select b.*, row_number() over (order by b.sort_order asc, b.created_at asc) as rn
-       from hb_product_library b
-       where b.status = 'active'
+       select b.id, b.title, b.cover_image, b.sort_order, b.is_active, b.created_at,
+              row_number() over (order by b.sort_order asc, b.created_at asc) as rn
+       from hb_books b
+       where b.is_active = true
      )
-     select r.id, r.title, r.category, r.description, r.file_url, r.cover_image, r.status, r.rn::int as sort_order,
+     select r.id, r.title, 'Digital Book'::text as category, null::text as description, null::text as file_url,
+            r.cover_image, case when r.is_active then 'active' else 'disabled' end as status, r.rn::int as sort_order,
             (r.rn <= $2::int) as unlocked,
             d.downloaded_at
      from ranked r
@@ -3614,7 +3626,7 @@ hbRouter.get("/hb/books", requireHbUser, asyncHandler(async (req, res) => {
   ok(res, { items: rows, bookLimit, bestPackage: best }, "HB9 books loaded");
 }));
 
-hbRouter.post("/hb/books/:id/download", requireHbUser, asyncHandler(async (req, res) => {
+hbRouter.get("/hb/books/:id/download", requireHbUser, asyncHandler(async (req, res) => {
   const userId = req.hbUser!.userId;
   const best = await getUserBestPackage(userId);
   if (!best) {
@@ -3622,13 +3634,13 @@ hbRouter.post("/hb/books/:id/download", requireHbUser, asyncHandler(async (req, 
     return;
   }
   const bookLimit = hbBookLimitForPackage(Number(best.amount_usd || 0));
-  const rows = await query<{ id: string; rn: number; file_url: string }>(
+  const rows = await query<{ id: string; rn: number; download_url: string }>(
     `with ranked as (
-       select b.*, row_number() over (order by b.sort_order asc, b.created_at asc) as rn
-       from hb_product_library b
-       where b.status = 'active'
+       select b.id, b.download_url, row_number() over (order by b.sort_order asc, b.created_at asc) as rn
+       from hb_books b
+       where b.is_active = true
      )
-     select id, rn::int, file_url from ranked where id = $1 limit 1`,
+     select id, rn::int, download_url from ranked where id = $1 limit 1`,
     [req.params.id]
   );
   const book = rows[0];
@@ -3640,15 +3652,8 @@ hbRouter.post("/hb/books/:id/download", requireHbUser, asyncHandler(async (req, 
     fail(res, "This book is locked for your package.", 403, "Book locked");
     return;
   }
-  const logRows = await query(
-    `insert into hb_book_downloads (user_id, book_id, package_purchase_id)
-     values ($1,$2,$3)
-     on conflict (user_id, book_id) do update set downloaded_at = now()
-     returning *`,
-    [userId, book.id, best.package_purchase_id]
-  );
-  await audit(userId, "hb.book.download", "hb_product_library", book.id, { packagePurchaseId: best.package_purchase_id });
-  ok(res, { download: logRows[0], fileUrl: book.file_url }, "Book download ready");
+  await audit(userId, "hb.book.download", "hb_books", book.id, { packagePurchaseId: best.package_purchase_id });
+  ok(res, { download: { bookId: book.id, downloadedAt: new Date().toISOString() }, fileUrl: book.download_url }, "Book download ready");
 }));
 
 hbRouter.get("/hb/followers-request", requireHbUser, asyncHandler(async (req, res) => {
@@ -6898,6 +6903,79 @@ hbRouter.get("/admin/hb/followers-requests", requireAdmin, asyncHandler(async (_
   );
   const summary = await query("select status, count(*)::int as count from hb_followers_requests group by status");
   ok(res, { items: rows, summary }, "HB9 followers requests loaded");
+}));
+
+hbRouter.get("/admin/hb/books", requireAdmin, asyncHandler(async (_req, res) => {
+  const rows = await query(
+    `select id, title, cover_image, download_url, sort_order, is_active, created_at
+     from hb_books
+     order by sort_order asc, created_at asc
+     limit 100`
+  );
+  ok(res, { items: rows, total: rows.length }, "HB9 books loaded");
+}));
+
+hbRouter.post("/admin/hb/books", requireAdmin, asyncHandler(async (req, res) => {
+  const parsed = hbBookAdminSchema.safeParse(req.body);
+  if (!parsed.success) {
+    fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid book");
+    return;
+  }
+  const countRows = await query<{ count: number }>("select count(*)::int as count from hb_books");
+  if (Number(countRows[0]?.count || 0) >= 100) {
+    fail(res, "Maximum 100 books are allowed.", 400, "Book limit reached");
+    return;
+  }
+  const rows = await query(
+    `insert into hb_books (title, cover_image, download_url, sort_order, is_active)
+     values ($1, nullif($2,''), $3, $4, $5)
+     returning *`,
+    [parsed.data.title, parsed.data.coverImage || "", parsed.data.downloadUrl, parsed.data.sortOrder, parsed.data.isActive ?? true]
+  );
+  await adminHbAudit(req.admin?.email || "admin", "admin.hb.books.create", "hb_books", String((rows[0] as any)?.id || ""), parsed.data);
+  ok(res, rows[0], "Book added", 201);
+}));
+
+hbRouter.patch("/admin/hb/books/:id", requireAdmin, asyncHandler(async (req, res) => {
+  const parsed = hbBookAdminPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid book update");
+    return;
+  }
+  const rows = await query(
+    `update hb_books
+     set title = coalesce($2::text, title),
+         cover_image = case when $3::text is null then cover_image else nullif($3,'') end,
+         download_url = coalesce($4::text, download_url),
+         sort_order = coalesce($5::integer, sort_order),
+         is_active = coalesce($6::boolean, is_active)
+     where id = $1
+     returning *`,
+    [
+      req.params.id,
+      parsed.data.title ?? null,
+      Object.prototype.hasOwnProperty.call(parsed.data, "coverImage") ? parsed.data.coverImage || "" : null,
+      parsed.data.downloadUrl ?? null,
+      parsed.data.sortOrder ?? null,
+      parsed.data.isActive ?? null
+    ]
+  );
+  if (!rows[0]) {
+    fail(res, "Book was not found.", 404, "Book not found");
+    return;
+  }
+  await adminHbAudit(req.admin?.email || "admin", "admin.hb.books.update", "hb_books", String(req.params.id), parsed.data);
+  ok(res, rows[0], "Book updated");
+}));
+
+hbRouter.delete("/admin/hb/books/:id", requireAdmin, asyncHandler(async (req, res) => {
+  const rows = await query("delete from hb_books where id = $1 returning id", [req.params.id]);
+  if (!rows[0]) {
+    fail(res, "Book was not found.", 404, "Book not found");
+    return;
+  }
+  await adminHbAudit(req.admin?.email || "admin", "admin.hb.books.delete", "hb_books", String(req.params.id), {});
+  ok(res, { id: req.params.id }, "Book deleted");
 }));
 
 hbRouter.patch("/admin/hb/followers-requests/:id", requireAdmin, asyncHandler(async (req, res) => {

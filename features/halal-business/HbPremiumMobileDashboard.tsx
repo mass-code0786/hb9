@@ -1333,12 +1333,15 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
       {tab === "books" ? (
         <GlassCard className="p-3">
           <SectionTitle title="Books" action={`${delivery?.booksUnlocked || unlockedBooks.length} / 100 unlocked`} />
-          <div className="mt-3 grid gap-2">
+          <div className="mt-3 grid grid-cols-2 gap-2.5">
             {books.map((book) => (
-              <div key={book.id} className="hb-interactive hb-glow-cyan flex items-center gap-3 rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 p-2.5">
-                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-cyan-300/10 text-cyan-100"><Download size={17} /></div>
-                <div className="min-w-0 flex-1"><div className="truncate text-sm font-black">{book.title}</div><div className="truncate text-xs text-sky-100/52">{book.category}{book.downloaded_at ? " - downloaded" : ""}</div></div>
-                <button className="rounded-xl bg-cyan-300 px-3 py-2 text-[10px] font-black text-[#031326] disabled:bg-slate-500 disabled:text-slate-200" disabled={!book.unlocked} onClick={() => onBookDownload(book.id)} type="button">{book.unlocked ? "Download" : "Locked"}</button>
+              <div key={book.id} className={`hb-interactive hb-glow-cyan rounded-2xl border border-cyan-200/10 bg-[#071b34]/72 p-2.5 ${book.unlocked ? "" : "opacity-72"}`}>
+                <div className="relative aspect-[3/4] overflow-hidden rounded-xl border border-cyan-200/10 bg-cyan-300/10">
+                  {book.cover_image ? <img className={`h-full w-full object-cover ${book.unlocked ? "" : "blur-[2px] grayscale"}`} src={book.cover_image} alt="" /> : <div className={`grid h-full w-full place-items-center text-cyan-100 ${book.unlocked ? "" : "blur-[2px]"}`}><Download size={22} /></div>}
+                  <div className="absolute left-2 top-2 rounded-full border border-white/10 bg-[#031326]/80 px-2 py-0.5 text-[9px] font-black text-cyan-50">{book.unlocked ? "Unlocked" : "Locked"}</div>
+                </div>
+                <div className="mt-2 min-h-[2.5rem] text-sm font-black leading-5 text-cyan-50 line-clamp-2">{book.title}</div>
+                <button className="mt-2 w-full rounded-xl bg-cyan-300 px-3 py-2 text-[10px] font-black text-[#031326] disabled:bg-slate-600 disabled:text-slate-300" disabled={!book.unlocked} onClick={() => onBookDownload(book.id)} type="button">{book.unlocked ? "Download" : "Locked"}</button>
               </div>
             ))}
           </div>

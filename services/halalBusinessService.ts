@@ -432,9 +432,10 @@ export type HbDeliveredProduct = {
 export type HbBook = {
   id: string;
   title: string;
-  category: string;
+  category?: string | null;
   description?: string | null;
-  file_url: string;
+  file_url?: string | null;
+  download_url?: string | null;
   cover_image?: string | null;
   status: string;
   sort_order: number;
@@ -1000,10 +1001,7 @@ export function fetchHbMyProducts(token: string) {
 }
 
 export function downloadHbBook(token: string, bookId: string) {
-  return hbRequest<{ fileUrl: string; download: Record<string, unknown> }>(`/hb/books/${encodeURIComponent(bookId)}/download`, token, {
-    method: "POST",
-    body: JSON.stringify({})
-  });
+  return hbRequest<{ fileUrl: string; download: Record<string, unknown> }>(`/hb/books/${encodeURIComponent(bookId)}/download`, token);
 }
 
 export function createHbFollowersRequest(token: string, input: { packagePurchaseId: string; platform: HbFollowersPlatform; submittedLink: string }) {

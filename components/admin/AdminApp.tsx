@@ -6,6 +6,7 @@ import { Children, isValidElement, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   Banknote,
+  BookOpen,
   ClipboardList,
   CreditCard,
   FileSearch,
@@ -30,7 +31,7 @@ import { HalalBusinessLogo } from "@/components/brand/HalalBusinessLogo";
 import { ExplorerButton } from "@/components/ExplorerButton";
 import { CoinLogo } from "@/components/crypto/CoinLogo";
 
-type AdminPage = "dashboard" | "recharge" | "payments" | "users" | "providers" | "fees" | "audit" | "settings" | "hb-dashboard" | "hb-production" | "hb-funds" | "hb-users" | "hb-deposits" | "hb-withdrawals" | "hb-purchases" | "hb-income" | "hb-referrals" | "hb-packages" | "hb-products" | "hb-product" | "hb-coins" | "hb-single-leg" | "hb-followers" | "hb-custom-software" | "hb-reports" | "hb-transparency" | "hb-treasury" | "hb-governance" | "hb-risk" | "hb-onchain" | "hb-contracts";
+type AdminPage = "dashboard" | "recharge" | "payments" | "users" | "providers" | "fees" | "audit" | "settings" | "hb-dashboard" | "hb-production" | "hb-funds" | "hb-users" | "hb-deposits" | "hb-withdrawals" | "hb-purchases" | "hb-income" | "hb-referrals" | "hb-packages" | "hb-products" | "hb-product" | "hb-books" | "hb-coins" | "hb-single-leg" | "hb-followers" | "hb-custom-software" | "hb-reports" | "hb-transparency" | "hb-treasury" | "hb-governance" | "hb-risk" | "hb-onchain" | "hb-contracts";
 
 type ApiEnvelope<T> = {
   success: boolean;
@@ -137,6 +138,7 @@ const nav = [
   { href: "/admin/hb/packages", label: "HB9 Packages", page: "hb-packages", icon: ShoppingBag },
   { href: "/admin/hb/products", label: "HB9 Products", page: "hb-products", icon: ShoppingBag },
   { href: "/admin/hb/product-allocations", label: "HB9 Product", page: "hb-product", icon: ClipboardList },
+  { href: "/admin/hb/books", label: "Books Manager", page: "hb-books", icon: BookOpen },
   { href: "/admin/hb/coins", label: "HB9 Coins", page: "hb-coins", icon: WalletCards },
   { href: "/admin/hb/single-leg-reserve", label: "HB9 Single Leg", page: "hb-single-leg", icon: Activity },
   { href: "/admin/hb/followers-requests", label: "Followers Requests", page: "hb-followers", icon: ClipboardList },
@@ -348,6 +350,7 @@ export function AdminApp({ page }: { page: AdminPage }) {
           "hb-packages": "/admin/hb/packages",
           "hb-products": "/admin/hb/products",
           "hb-product": "/admin/hb/product-allocations",
+          "hb-books": "/admin/hb/books",
           "hb-coins": `/admin/hb/coins/users${searchParams.get("q") || query ? `?search=${encodeURIComponent(searchParams.get("q") || query)}` : ""}`,
           "hb-single-leg": "/admin/hb/single-leg-reserve",
           "hb-followers": "/admin/hb/followers-requests",
@@ -755,6 +758,10 @@ function HbAdminPage({ page, data, token, query }: { page: AdminPage; data: Reco
     return <HbTable title="HB9 product allocations" rows={filtered} headers={["ID", "User", "Package", "Amount", "Status", "Created"]} fields={["id", "email", "package_name", "amount_usd", "status", "created_at"]} moneyFields={["amount_usd"]} dateFields={["created_at"]} />;
   }
 
+  if (page === "hb-books") {
+    return <HbBooksManager rows={filtered} total={Number(data.total || items.length)} token={token} />;
+  }
+
   if (page === "hb-coins") {
     return <HbCoins data={data} token={token} query={query} />;
   }
@@ -923,7 +930,8 @@ function HbOnchainPurchases({ data, token }: { data: Record<string, unknown>; to
 }
 
 function TreasuryHealthPanel({ health }: { health: Record<string, unknown> }) {
-  const warnings = Array.isArray(health.warnings) ? health.warnings as Array<Record<string, unknown>> : [];
+  const warnings = (Array.isArray(health.warnings) ? health.warnings as Array<Record<string, unknown>> : [])
+    .filter((warning) => !(warning.type === "indexer_sync" && warning.severity !== "critical"));
   const queue = (health.queue && typeof health.queue === "object" ? health.queue : {}) as Record<string, unknown>;
   return (
     <Panel title="Treasury health monitoring">
@@ -1887,6 +1895,108 @@ function HbTable({ title, rows, headers, fields, moneyFields = [], dateFields = 
         ))}
       </AdminTable>
     </Panel>
+  );
+}
+
+function HbBooksManager({ rows, total, token }: { rows: Array<Record<string, unknown>>; total: number; token: string }) {
+  const emptyDraft = { title: "", coverImage: "", downloadUrl: "", sortOrder: String(Math.min(total + 1, 100)), isActive: true };
+  const [draft, setDraft] = useState(emptyDraft);
+  const [editingId, setEditingId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const editing = rows.find((row) => row.id === editingId);
+
+  function edit(row: Record<string, unknown>) {
+    setEditingId(compact(row.id));
+    setDraft({
+      title: compact(row.title),
+      coverImage: compact(row.cover_image),
+      downloadUrl: compact(row.download_url),
+      sortOrder: compact(row.sort_order || 1),
+      isActive: Boolean(row.is_active)
+    });
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      const body = { ...draft, sortOrder: Number(draft.sortOrder || 1), isActive: draft.isActive };
+      await adminRequest(editingId ? `/admin/hb/books/${editingId}` : "/admin/hb/books", token, {
+        method: editingId ? "PATCH" : "POST",
+        body: JSON.stringify(body)
+      });
+      window.location.reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: unknown) {
+    if (!window.confirm("Delete this book?")) return;
+    setBusy(true);
+    try {
+      await adminRequest(`/admin/hb/books/${id}`, token, { method: "DELETE" });
+      window.location.reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function quickPatch(row: Record<string, unknown>, body: Record<string, unknown>) {
+    setBusy(true);
+    try {
+      await adminRequest(`/admin/hb/books/${row.id}`, token, { method: "PATCH", body: JSON.stringify(body) });
+      window.location.reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Metric title="Total books" value={compact(total)} tone="accent" />
+        <Metric title="Active books" value={compact(rows.filter((row) => row.is_active).length)} tone="mint" />
+        <Metric title="Book limit" value="100" />
+      </div>
+      <Panel title={editing ? "Edit book" : "Add book"}>
+        <div className="grid gap-3 md:grid-cols-2">
+          <input className="rounded-xl border border-white/10 bg-[#0b1728]/75 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accent/70" placeholder="Title" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
+          <input className="rounded-xl border border-white/10 bg-[#0b1728]/75 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accent/70" placeholder="Sort order" type="number" min={1} max={100} value={draft.sortOrder} onChange={(event) => setDraft({ ...draft, sortOrder: event.target.value })} />
+          <input className="rounded-xl border border-white/10 bg-[#0b1728]/75 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accent/70 md:col-span-2" placeholder="Cover image URL" value={draft.coverImage} onChange={(event) => setDraft({ ...draft, coverImage: event.target.value })} />
+          <input className="rounded-xl border border-white/10 bg-[#0b1728]/75 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accent/70 md:col-span-2" placeholder="Secure download URL" value={draft.downloadUrl} onChange={(event) => setDraft({ ...draft, downloadUrl: event.target.value })} />
+          <label className="flex items-center gap-2 text-sm text-slate-200">
+            <input type="checkbox" checked={draft.isActive} onChange={(event) => setDraft({ ...draft, isActive: event.target.checked })} /> Active
+          </label>
+          <div className="flex flex-wrap justify-end gap-2">
+            {editingId ? <button className="rounded-xl bg-[#0b1728]/75 px-3 py-2 text-xs" onClick={() => { setEditingId(""); setDraft(emptyDraft); }} type="button">Cancel</button> : null}
+            <button className="rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-black disabled:opacity-60" onClick={save} disabled={busy || !draft.title.trim() || !draft.downloadUrl.trim()} type="button">{editingId ? "Save book" : "Add book"}</button>
+          </div>
+        </div>
+      </Panel>
+      <Panel title="Books Manager">
+        <AdminTable headers={["Order", "Cover", "Title", "Download URL", "Status", "Created", "Actions"]}>
+          {rows.map((row) => (
+            <tr key={compact(row.id)}>
+              <Td>{compact(row.sort_order)}</Td>
+              <Td>{row.cover_image ? <img className="h-14 w-10 rounded-lg object-cover" src={compact(row.cover_image)} alt="" /> : <span className="text-xs text-slate-500">No cover</span>}</Td>
+              <Td>{compact(row.title)}</Td>
+              <Td><a className="max-w-[220px] truncate text-accent underline" href={compact(row.download_url)} target="_blank" rel="noreferrer">Open</a></Td>
+              <Td><Badge value={row.is_active ? "active" : "disabled"} /></Td>
+              <Td>{formatDate(row.created_at)}</Td>
+              <Td>
+                <div className="flex flex-wrap gap-1">
+                  <button className="rounded-lg bg-[#0b1728]/75 px-2 py-1 text-xs" onClick={() => edit(row)} disabled={busy} type="button">Edit</button>
+                  <button className="rounded-lg bg-[#0b1728]/75 px-2 py-1 text-xs" onClick={() => quickPatch(row, { isActive: !row.is_active })} disabled={busy} type="button">{row.is_active ? "Disable" : "Enable"}</button>
+                  <button className="rounded-lg bg-[#0b1728]/75 px-2 py-1 text-xs" onClick={() => quickPatch(row, { sortOrder: Math.max(1, Number(row.sort_order || 1) - 1) })} disabled={busy} type="button">Up</button>
+                  <button className="rounded-lg bg-[#0b1728]/75 px-2 py-1 text-xs" onClick={() => quickPatch(row, { sortOrder: Math.min(100, Number(row.sort_order || 1) + 1) })} disabled={busy} type="button">Down</button>
+                  <button className="rounded-lg bg-danger/20 px-2 py-1 text-xs text-red-100" onClick={() => remove(row.id)} disabled={busy} type="button">Delete</button>
+                </div>
+              </Td>
+            </tr>
+          ))}
+        </AdminTable>
+      </Panel>
+    </div>
   );
 }
 
