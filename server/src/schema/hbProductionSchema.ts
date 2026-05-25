@@ -183,9 +183,7 @@ export const hbRequiredSchema: RequiredTable[] = [
   { table: "hb_audit_logs", columns: ["id", "user_id", "action", "entity_type", "entity_id", "metadata", "created_at"] },
   { table: "hb_followers_requests", columns: ["id", "user_id", "package_purchase_id", "package_id", "status", "admin_remark", "created_at", "updated_at"] },
   { table: "hb_custom_software_requests", columns: ["id", "user_id", "package_purchase_id", "status", "admin_remark", "created_at", "updated_at"] },
-  { table: "hb_product_library", columns: ["id", "title", "category", "description", "file_url", "cover_image", "status", "sort_order", "created_at"] },
-  { table: "product_delivery_links", columns: ["id", "product_id", "title", "url", "type", "category", "thumbnail_url", "sort_order", "is_active", "created_at"] },
-  { table: "product_delivery_access_logs", columns: ["id", "user_id", "package_purchase_id", "product_delivery_link_id", "action", "created_at"] }
+  { table: "hb_product_library", columns: ["id", "title", "category", "description", "file_url", "cover_image", "status", "sort_order", "created_at"] }
 ];
 
 export type SchemaVerificationResult = {
