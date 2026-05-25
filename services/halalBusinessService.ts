@@ -455,7 +455,7 @@ export type HbFollowersRequest = {
   completed_at?: string | null;
 };
 
-export type HbFollowersPlatform = "Instagram" | "Facebook" | "YouTube" | "Telegram" | "X/Twitter" | "TikTok";
+export type HbFollowersPlatform = "Instagram" | "Telegram" | "Twitter" | "Facebook" | "YouTube";
 
 export type HbSoftwareAccess = {
   software_key: string;

@@ -87,7 +87,7 @@ type PurchaseReview = {
   txHash?: string;
 };
 
-const followerPlatforms: HbFollowersPlatform[] = ["Instagram", "Facebook", "YouTube", "Telegram", "X/Twitter", "TikTok"];
+const followerPlatforms: HbFollowersPlatform[] = ["Instagram", "Telegram", "Twitter", "Facebook", "YouTube"];
 const HB_PRODUCTS_CACHE_KEY = "hb9.dashboard.products.v1";
 const HB_PACKAGE_API_FAILURE = "Package configuration missing";
 const HB_TREASURY_MISSING = "Treasury wallet not configured";
@@ -1285,7 +1285,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
                 {!hasPurchases ? <option value="">Buy a package first</option> : null}
                 {productRows.map((item) => <option key={item.id} value={item.id}>{item.title} - {money(item.price)}</option>)}
               </select>
-              <select className="field relative z-40" value={platform} onChange={(event) => setPlatform(event.target.value as HbFollowersPlatform | "")}>
+              <select className="field relative z-50" value={platform} onChange={(event) => setPlatform(event.target.value as HbFollowersPlatform | "")}>
                 <option value="">Select platform</option>
                 {followerPlatforms.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>

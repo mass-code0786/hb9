@@ -319,7 +319,7 @@ const hbCoinConvertSchema = z.object({
 });
 const hbFollowersRequestSchema = z.object({
   packagePurchaseId: z.string().uuid(),
-  platform: z.enum(["Instagram", "Facebook", "YouTube", "Telegram", "X/Twitter", "TikTok"]),
+  platform: z.enum(["Instagram", "Telegram", "Twitter", "Facebook", "YouTube"]),
   submittedLink: z.string().trim().url().max(600)
 });
 const hbCustomSoftwareRequestSchema = z.object({
