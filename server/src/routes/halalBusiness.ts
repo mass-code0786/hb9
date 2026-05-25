@@ -4770,12 +4770,12 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
         [challenge.id, parsed.data.signature]
       );
       await client.query("commit");
-      logger.info("ADMIN_LOGIN_SUCCESS", { walletAddress: adminWalletAddress, role: "super_admin", redirect: "/admin" });
+      logger.info("ADMIN_LOGIN_SUCCESS", { walletAddress: adminWalletAddress, role: "super_admin", redirect: "/admin/hb" });
       ok(res, {
         adminToken,
         role: "super_admin",
         admin: { email: adminEmail, role: "super_admin", walletAddress: adminWalletAddress },
-        adminRedirect: "/admin"
+        adminRedirect: "/admin/hb"
       }, "HB9 admin wallet login successful");
       return;
     }

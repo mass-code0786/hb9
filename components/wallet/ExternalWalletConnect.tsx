@@ -70,7 +70,7 @@ let globalLastAuthClickAt = 0;
 
 function adminRedirectTarget(response: { adminToken?: string; role?: string; admin?: { role?: string }; adminRedirect?: string }) {
   const role = response.admin?.role || response.role || "";
-  return response.adminToken && (role === "admin" || role === "super_admin" || role === "support_admin") ? response.adminRedirect || "/admin" : "";
+  return response.adminToken && (role === "admin" || role === "super_admin" || role === "support_admin") ? response.adminRedirect || "/admin/hb" : "";
 }
 
 function providerMatches(provider: EthereumProvider, id: string) {
