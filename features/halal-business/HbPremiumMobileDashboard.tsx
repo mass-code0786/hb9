@@ -89,9 +89,9 @@ type PurchaseReview = {
 
 const followerPlatforms: Array<{ value: HbFollowersPlatform; label: string }> = [
   { value: "Instagram", label: "Instagram" },
-  { value: "Telegram", label: "Telegram" },
-  { value: "Twitter", label: "Twitter / X" },
   { value: "Facebook", label: "Facebook" },
+  { value: "Telegram", label: "Telegram" },
+  { value: "Twitter", label: "Twitter" },
   { value: "YouTube", label: "YouTube" }
 ];
 const HB_PRODUCTS_CACHE_KEY = "hb9.dashboard.products.v1";
@@ -1306,14 +1306,22 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
                 {!hasPurchases ? <option value="">Buy a package first</option> : null}
                 {productRows.map((item) => <option key={item.id} value={item.id}>{item.title} - {money(item.price)}</option>)}
               </select>
-              <select
-                className={`field relative z-40 min-h-[3rem] appearance-auto ${platform ? "text-slate-50" : "text-slate-400"}`}
-                value={platform}
-                onChange={(event) => setPlatform(event.target.value as HbFollowersPlatform | "")}
-              >
-                <option value="">Select platform</option>
-                {followerPlatforms.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
+              <div className="relative z-40 grid grid-cols-2 gap-2 sm:grid-cols-5" role="group" aria-label="Choose followers platform">
+                {followerPlatforms.map((item) => {
+                  const selected = platform === item.value;
+                  return (
+                    <button
+                      key={item.value}
+                      className={`hb-interactive hb-glow-cyan min-h-[3rem] rounded-2xl border px-2 py-3 text-xs font-black transition active:scale-[0.98] ${selected ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_20px_rgba(34,211,238,0.28)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`}
+                      onClick={() => setPlatform(item.value)}
+                      type="button"
+                      aria-pressed={selected}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
               <input className="field" placeholder="Profile/page/channel/group link" value={submittedLink} onChange={(event) => setSubmittedLink(event.target.value)} />
               <button className="hb-interactive hb-glow-cyan rounded-2xl bg-cyan-300 px-4 py-3 font-black text-[#031326] disabled:opacity-45" disabled={!canSendFollowersRequest} onClick={() => canSendFollowersRequest && selectedFollowerProduct && platform ? onFollowersRequest({ packagePurchaseId: selectedFollowerProduct.id, platform, submittedLink: submittedLink.trim() }) : undefined} type="button">Send Request</button>
             </div>
