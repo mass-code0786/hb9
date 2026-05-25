@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDownToLine, Banknote, Bell, Box, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign, Copy, Download, Eye, Home, Layers3, PackageCheck, Plus, ReceiptText, RefreshCw, Send, Settings, Sparkles, TrendingUp, Users, Wallet } from "lucide-react";
+import { ArrowDownToLine, Banknote, Bell, Box, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign, Copy, Download, Eye, Home, Layers3, PackageCheck, Plus, ReceiptText, RefreshCw, Send, Settings, Sparkles, TrendingUp, Users, Wallet, X } from "lucide-react";
 import { BrowserProvider, Contract, encodeBytes32String, parseUnits, ZeroAddress } from "ethers";
 import { createPublicClient, encodeFunctionData, http, parseUnits as viemParseUnits, type Hash } from "viem";
 import { bsc } from "viem/chains";
@@ -1071,7 +1071,6 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   if (!authenticated) {
     return (
       <main className="min-h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#020817] text-white [touch-action:pan-y] [overscroll-behavior-y:auto] [-webkit-overflow-scrolling:touch]">
-        <div className="fixed right-2 top-2 z-50 rounded-full border border-cyan-200/15 bg-[#071b34]/90 px-2 py-1 font-mono text-[10px] font-bold text-cyan-100">CURRENT_ROLE: USER</div>
         <div className="mx-auto w-full max-w-[430px] px-3 py-3">
           <HbLandingPage referralCode={sourceReferralCode || getStoredHbReferral()} onAuthenticated={handleAuthenticated} />
           {error ? <ErrorState message={error} /> : null}
@@ -1083,7 +1082,6 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
 
   return (
     <main className="relative min-h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#020817] text-white [touch-action:pan-y] [overscroll-behavior-y:auto] [-webkit-overflow-scrolling:touch]">
-      <div className="fixed right-2 top-2 z-50 rounded-full border border-cyan-200/15 bg-[#071b34]/90 px-2 py-1 font-mono text-[10px] font-bold text-cyan-100">CURRENT_ROLE: USER</div>
       <div className="hb-dashboard-bg pointer-events-none absolute inset-0 -z-0 bg-[radial-gradient(circle_at_50%_0%,rgba(0,200,255,0.18),transparent_18rem),radial-gradient(circle_at_90%_22%,rgba(0,123,255,0.14),transparent_18rem),linear-gradient(180deg,#020817_0%,#03111f_46%,#020817_100%)]" />
       <div className="hb-dashboard-bg-grid pointer-events-none absolute inset-0 -z-0 opacity-35 [background-image:linear-gradient(rgba(125,211,252,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(125,211,252,0.035)_1px,transparent_1px)] [background-size:42px_42px]" />
       <div className="hb-dashboard-dots pointer-events-none absolute inset-0 -z-0 overflow-x-hidden">
@@ -1195,6 +1193,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
   const [tab, setTab] = useState<"active" | "books" | "requests">("active");
   const [selectedFollowerPackageId, setSelectedFollowerPackageId] = useState("");
   const [selectedPlatform, setSelectedPlatform] = useState<HbFollowersPlatform | "">("");
+  const [platformSheetOpen, setPlatformSheetOpen] = useState(false);
   const [submittedLink, setSubmittedLink] = useState("");
   const [softwareType, setSoftwareType] = useState("");
   const [architecture, setArchitecture] = useState<"centralized" | "decentralized">("centralized");
@@ -1322,7 +1321,6 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
           <GlassCard className="p-3">
             <SectionTitle title="Followers Request" action={selectedFollowerProduct?.followersCount ? `${selectedFollowerProduct.followersCount} followers` : "Locked"} />
             <div className="mt-3 grid gap-3 pb-[calc(env(safe-area-inset-bottom)+7rem)]">
-              <div className="rounded-xl border border-cyan-200/12 bg-[#071b34]/70 px-3 py-2 font-mono text-[10px] font-bold text-cyan-100/70">UI_VERSION: followers-buttons-v3</div>
               <div className="grid gap-2">
                 {hasPurchases ? productRows.map((item) => {
                   const selected = selectedFollowerProduct?.id === item.id;
@@ -1339,18 +1337,60 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
                   );
                 }) : <button className="rounded-2xl border border-cyan-200/16 bg-[#071b34]/78 px-3 py-3 text-sm font-black text-sky-100/72" onClick={onBuy} type="button">Buy a package first</button>}
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <button className={`hb-interactive hb-glow-cyan min-h-[3rem] rounded-2xl border px-2 py-3 text-xs font-black transition active:scale-[0.98] ${selectedPlatform === "Instagram" ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_20px_rgba(34,211,238,0.28)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`} onClick={() => setSelectedPlatform("Instagram")} type="button" aria-pressed={selectedPlatform === "Instagram"}>Instagram</button>
-                <button className={`hb-interactive hb-glow-cyan min-h-[3rem] rounded-2xl border px-2 py-3 text-xs font-black transition active:scale-[0.98] ${selectedPlatform === "Facebook" ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_20px_rgba(34,211,238,0.28)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`} onClick={() => setSelectedPlatform("Facebook")} type="button" aria-pressed={selectedPlatform === "Facebook"}>Facebook</button>
-                <button className={`hb-interactive hb-glow-cyan min-h-[3rem] rounded-2xl border px-2 py-3 text-xs font-black transition active:scale-[0.98] ${selectedPlatform === "Telegram" ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_20px_rgba(34,211,238,0.28)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`} onClick={() => setSelectedPlatform("Telegram")} type="button" aria-pressed={selectedPlatform === "Telegram"}>Telegram</button>
-                <button className={`hb-interactive hb-glow-cyan min-h-[3rem] rounded-2xl border px-2 py-3 text-xs font-black transition active:scale-[0.98] ${selectedPlatform === "Twitter" ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_20px_rgba(34,211,238,0.28)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`} onClick={() => setSelectedPlatform("Twitter")} type="button" aria-pressed={selectedPlatform === "Twitter"}>Twitter</button>
-                <button className={`hb-interactive hb-glow-cyan min-h-[3rem] rounded-2xl border px-2 py-3 text-xs font-black transition active:scale-[0.98] ${selectedPlatform === "YouTube" ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_20px_rgba(34,211,238,0.28)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`} onClick={() => setSelectedPlatform("YouTube")} type="button" aria-pressed={selectedPlatform === "YouTube"}>YouTube</button>
+              <div className="grid gap-1.5">
+                <label className="text-[11px] font-black uppercase tracking-[0.14em] text-cyan-100/60">Platform</label>
+                <button
+                  className={`hb-interactive hb-glow-cyan flex min-h-[3.35rem] items-center justify-between gap-3 rounded-2xl border px-3.5 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition active:scale-[0.98] ${selectedPlatform ? "border-cyan-200/40 bg-cyan-300/12 text-cyan-50" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/48"}`}
+                  onClick={() => setPlatformSheetOpen(true)}
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-expanded={platformSheetOpen}
+                >
+                  <span className="text-sm font-black">{selectedPlatform || "Select platform"}</span>
+                  <ChevronDown size={18} className="shrink-0 text-cyan-100/70" />
+                </button>
               </div>
-              <div className="text-xs font-bold text-cyan-100/70">Selected platform: {selectedPlatform || "None"}</div>
               <input className="field" placeholder="Profile/page/channel/group link" value={submittedLink} onChange={(event) => setSubmittedLink(event.target.value)} />
               <button className="hb-interactive hb-glow-cyan rounded-2xl bg-cyan-300 px-4 py-3 font-black text-[#031326] disabled:opacity-45" disabled={!canSendFollowersRequest} onClick={() => canSendFollowersRequest && selectedFollowerProduct && selectedPlatform ? onFollowersRequest({ packagePurchaseId: selectedFollowerProduct.id, platform: selectedPlatform, submittedLink: submittedLink.trim() }) : undefined} type="button">Send Request</button>
             </div>
           </GlassCard>
+          {platformSheetOpen ? (
+            <div className="fixed inset-0 z-[120] flex items-end bg-black/70 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Select platform">
+              <button className="absolute inset-0 h-full w-full cursor-default" onClick={() => setPlatformSheetOpen(false)} type="button" aria-label="Close platform selector" />
+              <div className="relative w-full rounded-t-[26px] border border-cyan-200/16 bg-[#041225] px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-4 shadow-[0_-22px_60px_rgba(0,0,0,0.58),inset_0_1px_0_rgba(255,255,255,0.07)]">
+                <div className="mx-auto mb-3 h-1 w-12 rounded-full bg-cyan-100/25" />
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-base font-black text-cyan-50">Platform</div>
+                    <div className="text-xs font-bold text-sky-100/48">Select platform</div>
+                  </div>
+                  <button className="grid h-10 w-10 place-items-center rounded-2xl border border-cyan-200/14 bg-[#071b34]/90 text-cyan-100" onClick={() => setPlatformSheetOpen(false)} type="button" aria-label="Close platform selector">
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="grid gap-2">
+                  {followerPlatforms.map((platform) => {
+                    const selected = selectedPlatform === platform.value;
+                    return (
+                      <button
+                        key={platform.value}
+                        className={`hb-interactive hb-glow-cyan flex min-h-[3.35rem] items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm font-black transition active:scale-[0.98] ${selected ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_22px_rgba(34,211,238,0.28)]" : "border-cyan-200/14 bg-[#071b34]/86 text-sky-100/80"}`}
+                        onClick={() => {
+                          setSelectedPlatform(platform.value);
+                          setPlatformSheetOpen(false);
+                        }}
+                        type="button"
+                        aria-pressed={selected}
+                      >
+                        <span>{platform.label}</span>
+                        {selected ? <span className="text-xs font-black">Selected</span> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : null}
           <GlassCard className="p-3"><SectionTitle title="Request Status" /><div className="mt-2 space-y-2">{delivery?.followersRequests?.length ? delivery.followersRequests.map((item) => <HistoryRow key={item.id} title={`${item.platform} - ${item.status}`} meta={`${item.followers_count} followers - ${new Date(item.created_at).toLocaleString()}${item.admin_note ? ` - ${item.admin_note}` : ""}`} value={item.package_name || "Package"} />) : <EmptyState title="No followers requests yet." />}</div></GlassCard>
           {Number(delivery?.bestPackage?.package_price || 0) >= 12500 ? (
             <GlassCard className="p-3">
