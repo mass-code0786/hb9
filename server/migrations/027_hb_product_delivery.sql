@@ -55,7 +55,7 @@ create table if not exists hb_followers_requests (
   user_id uuid not null references hb_users(id) on delete cascade,
   package_id uuid references hb_packages(id),
   package_purchase_id uuid references hb_package_purchases(id),
-  platform text not null check (platform in ('Instagram', 'Facebook', 'Telegram')),
+  platform text not null check (platform in ('Instagram', 'Facebook', 'Telegram', 'Twitter', 'YouTube')),
   submitted_link text not null,
   followers_count integer not null,
   status text not null default 'pending' check (status in ('pending', 'processing', 'completed', 'rejected')),

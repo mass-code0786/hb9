@@ -736,6 +736,34 @@ async function enforceActivationSafety(res: Response, action: string) {
   return true;
 }
 
+async function runCompletedPackagePurchasePipeline({
+  client,
+  purchaseId,
+  buyerUserId,
+  packageId,
+  amountUsd
+}: {
+  client: PoolClient;
+  purchaseId: string;
+  buyerUserId: string;
+  packageId: string;
+  amountUsd: string;
+}) {
+  await distributePackagePurchase({
+    client,
+    purchaseId,
+    buyerUserId,
+    packageId,
+    amountUsd
+  });
+  await placeAndEvaluateSingleLegForPurchase({
+    client,
+    userId: buyerUserId,
+    packageAmount: amountUsd
+  });
+  await evaluateSalaryIncomeForPurchase(client, buyerUserId);
+}
+
 async function enforceDepositSafety(res: Response, action: string) {
   const controls = await getProductionControls();
   if (controls.emergencyPause || controls.emergencyDepositFreeze || controls.rollbackMode) {
@@ -3807,19 +3835,13 @@ hbRouter.post("/hb/packages/:id/purchase", requireHbUser, asyncHandler(async (re
       );
     }
 
-    await distributePackagePurchase({
+    await runCompletedPackagePurchasePipeline({
       client,
       purchaseId: purchase.id,
       buyerUserId: req.hbUser!.userId,
       packageId: selectedPackage.id,
       amountUsd: purchase.amount_usd
     });
-    await placeAndEvaluateSingleLegForPurchase({
-      client,
-      userId: req.hbUser!.userId,
-      packageAmount: selectedPackage.amount_usd
-    });
-    await evaluateSalaryIncomeForPurchase(client, req.hbUser!.userId);
     await client.query(
       `insert into hb_audit_logs (user_id, action, entity_type, entity_id, metadata)
        values ($1,'hb.package.purchase','hb_package_purchase',$2,$3::jsonb)`,
@@ -3935,6 +3957,43 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
       fail(res, "Product is not available or has no active mapped package.", 404, "Product purchase failed");
       return;
     }
+
+    const existingPurchaseRows = await buyQuery<{ id: string; package_id: string; amount_usd: string; status: string }>(
+      `select id, package_id, amount_usd::text, status
+       from hb_package_purchases
+       where user_id = $1 and package_id = $2 and status = 'completed'
+       order by created_at desc
+       limit 1`,
+      [req.hbUser!.userId, product.package_id]
+    );
+    if (existingPurchaseRows.rows[0]) {
+      const existingPurchase = existingPurchaseRows.rows[0];
+      await runCompletedPackagePurchasePipeline({
+        client,
+        purchaseId: existingPurchase.id,
+        buyerUserId: req.hbUser!.userId,
+        packageId: existingPurchase.package_id,
+        amountUsd: existingPurchase.amount_usd
+      });
+      await buyQuery(
+        "update hb_product_orders set distribution_status = 'completed', updated_at = now() where buyer_user_id = $1 and package_purchase_id = $2",
+        [req.hbUser!.userId, existingPurchase.id]
+      );
+      await buyQuery("commit");
+      inTransaction = false;
+      const wallet = await getWalletSummary(req.hbUser!.userId);
+      ok(res, {
+        order: { id: existingPurchase.id, order_number: "EXISTING-PACKAGE", distribution_status: "completed" },
+        packagePurchaseId: existingPurchase.id,
+        activated: user.status === "active",
+        idempotent: true,
+        walletBalance: wallet.balances.deposit,
+        mainWalletBalance: wallet.balances.deposit,
+        availableBalance: wallet.availableBalance
+      }, "Package already purchased");
+      return;
+    }
+
     if (product.stock <= 0) {
       await buyQuery("rollback");
       inTransaction = false;
@@ -3954,30 +4013,6 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
       await buyQuery("rollback");
       inTransaction = false;
       fail(res, `Insufficient verified wallet balance. Required $${amount.toFixed(2)}, available $${balance.toFixed(2)}.`, 400, "Insufficient balance");
-      return;
-    }
-
-    const existingPurchaseRows = await buyQuery<{ id: string; amount_usd: string; status: string }>(
-      `select id, amount_usd::text, status
-       from hb_package_purchases
-       where user_id = $1 and package_id = $2 and status = 'completed'
-       order by created_at desc
-       limit 1`,
-      [req.hbUser!.userId, product.package_id]
-    );
-    if (existingPurchaseRows.rows[0]) {
-      await buyQuery("commit");
-      inTransaction = false;
-      const wallet = await getWalletSummary(req.hbUser!.userId);
-      ok(res, {
-        order: { id: existingPurchaseRows.rows[0].id, order_number: "EXISTING-PACKAGE" },
-        packagePurchaseId: existingPurchaseRows.rows[0].id,
-        activated: user.status === "active",
-        idempotent: true,
-        walletBalance: wallet.balances.deposit,
-        mainWalletBalance: wallet.balances.deposit,
-        availableBalance: wallet.availableBalance
-      }, "Package already purchased");
       return;
     }
 
@@ -4016,6 +4051,19 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
     const ledgerEntryId = ledgerRows.rows[0]?.id || null;
     await createLedgerProof(client, "hb_internal_ledger", ledgerEntryId);
     await buyQuery("update hb_package_purchases set ledger_entry_id = $2 where id = $1", [purchase.id, ledgerEntryId]);
+    if (config.hbProductPurchaseDebitsCoinUsdt) {
+      await applyHbCoinAdjustment({
+        client,
+        userId: req.hbUser!.userId,
+        coinSymbol: "USDT",
+        amount: product.package_price,
+        direction: "debit",
+        type: "debit",
+        reference: purchase.id,
+        note: "Configured USDT coin debit for product package purchase",
+        idempotencyKey: `hb:coin:package_purchase:${purchase.id}:debit`
+      });
+    }
     await buyQuery(
       `update hb_user_products
        set status = 'inactive'
@@ -4029,11 +4077,11 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
     );
 
     const orderNumber = `HB${Date.now()}${crypto.randomInt(1000, 9999)}`;
-    const orderRows = await buyQuery<{ id: string; order_number: string }>(
+    const orderRows = await buyQuery<{ id: string; order_number: string; distribution_status: string }>(
       `insert into hb_product_orders
         (order_number, buyer_user_id, package_purchase_id, amount_usd, payment_status, activation_status, distribution_status, idempotency_key)
        values ($1,$2,$3,$4,'paid','completed','pending',$5)
-       returning id, order_number`,
+       returning id, order_number, distribution_status`,
       [orderNumber, req.hbUser!.userId, purchase.id, product.package_price, idempotencyKey]
     );
     const order = orderRows.rows[0];
@@ -4052,6 +4100,16 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
         [req.hbUser!.userId, purchase.id]
       );
     }
+
+    await runCompletedPackagePurchasePipeline({
+      client,
+      purchaseId: purchase.id,
+      buyerUserId: req.hbUser!.userId,
+      packageId: product.package_id,
+      amountUsd: purchase.amount_usd
+    });
+    await buyQuery("update hb_product_orders set distribution_status = 'completed', updated_at = now() where id = $1", [order.id]);
+    order.distribution_status = "completed";
 
     await buyQuery(
       `insert into hb_audit_logs (user_id, action, entity_type, entity_id, metadata)

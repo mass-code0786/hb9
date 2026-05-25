@@ -16,8 +16,8 @@ where amount_usd in (4, 20, 100, 500, 2500, 12500);
 insert into hb_packages (name, slug, amount_usd, status, sort_order, active, visible, network)
 values
   ('Starter Package', 'starter-package', 4, 'available', 1, true, true, 'BSC'),
-  ('Growth Package', 'growth-package', 20, 'available', 2, true, true, 'BSC'),
-  ('Popular Package', 'popular-package', 100, 'available', 3, true, true, 'BSC'),
+  ('Builder Package', 'builder-package', 20, 'available', 2, true, true, 'BSC'),
+  ('Growth Package', 'growth-package', 100, 'available', 3, true, true, 'BSC'),
   ('Automation Package', 'automation-package', 500, 'available', 4, true, true, 'BSC'),
   ('AI Business Package', 'ai-business-package', 2500, 'available', 5, true, true, 'BSC'),
   ('Enterprise Package', 'enterprise-package', 12500, 'available', 6, true, true, 'BSC')
@@ -89,8 +89,8 @@ select product.title,
 from (
   values
     ('Starter Activation Product', 'starter-activation-product', 'Entry activation product mapped to the $4 package.', 'Entry activation product.', 4::numeric, '/tokens/bnb.svg', true),
-    ('Growth Activation Product', 'growth-activation-product', 'Growth activation product mapped to the $20 package.', 'Growth activation product.', 20::numeric, '/tokens/usdt.svg', true),
-    ('Popular Activation Product', 'popular-activation-product', 'Popular activation product mapped to the $100 package.', 'Popular activation product.', 100::numeric, '/tokens/usdc.svg', true),
+    ('Builder Activation Product', 'builder-activation-product', 'Builder activation product mapped to the $20 package.', 'Builder activation product.', 20::numeric, '/tokens/usdt.svg', true),
+    ('Growth Activation Product', 'growth-activation-product', 'Growth activation product mapped to the $100 package.', 'Growth activation product.', 100::numeric, '/tokens/usdc.svg', true),
     ('Automation Activation Product', 'automation-activation-product', 'Automation activation product mapped to the $500 package.', 'Automation activation product.', 500::numeric, '/tokens/eth.svg', false),
     ('AI Business Activation Product', 'ai-business-activation-product', 'AI Business activation product mapped to the $2500 package.', 'AI Business activation product.', 2500::numeric, '/tokens/matic.svg', false),
     ('Enterprise Activation Product', 'enterprise-activation-product', 'Enterprise activation product mapped to the $12500 package.', 'Enterprise activation product.', 12500::numeric, '/tokens/btc.svg', false)

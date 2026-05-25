@@ -9,8 +9,8 @@ type PackageVisualConfig = { from: string; mid: string; to: string; accent: stri
 
 export const hbPackageNames: Record<number, string> = {
   4: "Starter Package",
-  20: "Growth Package",
-  100: "Popular Package",
+  20: "Builder Package",
+  100: "Growth Package",
   500: "Automation Package",
   2500: "AI Business Package",
   12500: "Enterprise Package"
