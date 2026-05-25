@@ -1189,12 +1189,28 @@ function HomeScreen({ walletBalance, balances, user, boundWallet, currentPackage
 
 function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingProductId, onBuy, onPackageBuy, onBookDownload, onFollowersRequest, onCustomSoftwareRequest }: { purchases: HbPurchase[]; orders: HbOrder[]; delivery: HbMyProductsDelivery | null; packages: HbProduct[]; buyLoadingProductId: string; onBuy: () => void; onPackageBuy: (product: HbProduct) => void; onBookDownload: (bookId: string) => void; onFollowersRequest: (input: { packagePurchaseId: string; platform: HbFollowersPlatform; submittedLink: string }) => void; onCustomSoftwareRequest: (input: { packagePurchaseId?: string; softwareType: string; architecture: "centralized" | "decentralized"; requirementsNote: string }) => void }) {
   const [tab, setTab] = useState<"active" | "books" | "requests">("active");
-  const [requestProductId, setRequestProductId] = useState("");
-  const [platform, setPlatform] = useState<HbFollowersPlatform | "">("");
+  const [selectedFollowerPackageId, setSelectedFollowerPackageId] = useState("");
+  const [selectedPlatform, setSelectedPlatform] = useState<HbFollowersPlatform | "">("");
   const [submittedLink, setSubmittedLink] = useState("");
   const [softwareType, setSoftwareType] = useState("");
   const [architecture, setArchitecture] = useState<"centralized" | "decentralized">("centralized");
   const [requirementsNote, setRequirementsNote] = useState("");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const clearFollowersRequestKeys = (storage: Storage) => {
+      const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter((key): key is string => Boolean(key));
+      keys.forEach((key) => {
+        const normalized = key.toLowerCase();
+        if (normalized.includes("followersrequest") || normalized.includes("followers-request") || normalized.includes("followers_request") || normalized.includes("followerplatform") || normalized.includes("followers.platform")) {
+          storage.removeItem(key);
+        }
+      });
+    };
+    clearFollowersRequestKeys(window.localStorage);
+    clearFollowersRequestKeys(window.sessionStorage);
+    setSelectedPlatform("");
+    setSubmittedLink("");
+  }, []);
   const deliveredProductsByPurchase = new Map<string, NonNullable<HbMyProductsDelivery["activeProducts"]>[number]>();
   (delivery?.activeProducts || []).forEach((item) => {
     const purchaseId = item.purchaseId || item.purchase_id || item.package_purchase_id;
@@ -1252,9 +1268,9 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
   const hasPurchases = productRows.length > 0;
   const books = delivery?.books || [];
   const unlockedBooks = books.filter((book) => book.unlocked);
-  const selectedFollowerProduct = productRows.find((item) => item.id === requestProductId) || productRows[0] || null;
+  const selectedFollowerProduct = productRows.find((item) => item.id === selectedFollowerPackageId) || null;
   const hasSubmittedLink = submittedLink.trim().length > 0;
-  const canSendFollowersRequest = Boolean(selectedFollowerProduct && platform && hasSubmittedLink);
+  const canSendFollowersRequest = Boolean(selectedFollowerProduct && selectedPlatform && hasSubmittedLink);
   return (
     <div className="space-y-3">
       <HeroPanel title="My Product" subtitle={`${productRows.length} active products`} icon={PackageCheck} art="package" />
@@ -1279,7 +1295,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
             {featuresForHbPackageAmount(item.imageAmount).slice(0, 3).map((feature) => <FeatureBullet key={feature}>{feature}</FeatureBullet>)}
           </div>
           <div className="mt-4 grid gap-2">
-            <button className="hb-interactive hb-glow-purple flex items-center justify-center gap-2 rounded-[1rem] border border-cyan-200/18 bg-cyan-300/10 px-3 py-3 text-sm font-bold text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition duration-200 disabled:opacity-45" disabled={item.followersCount <= 0} onClick={() => { setRequestProductId(item.id); setTab("requests"); }} type="button"><Eye size={16} /> Followers Request</button>
+            <button className="hb-interactive hb-glow-purple flex items-center justify-center gap-2 rounded-[1rem] border border-cyan-200/18 bg-cyan-300/10 px-3 py-3 text-sm font-bold text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition duration-200 disabled:opacity-45" disabled={item.followersCount <= 0} onClick={() => { setSelectedFollowerPackageId(item.id); setTab("requests"); }} type="button"><Eye size={16} /> Followers Request</button>
           </div>
         </GlassCard>
       )) : null}
@@ -1301,19 +1317,34 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
         <div className="space-y-3">
           <GlassCard className="p-3">
             <SectionTitle title="Followers Request" action={selectedFollowerProduct?.followersCount ? `${selectedFollowerProduct.followersCount} followers` : "Locked"} />
-            <div className="relative z-30 mt-3 grid gap-2 pb-[calc(env(safe-area-inset-bottom)+7rem)]">
-              <select className="field relative z-40" value={requestProductId || selectedFollowerProduct?.id || ""} onChange={(event) => setRequestProductId(event.target.value)} disabled={!hasPurchases}>
-                {!hasPurchases ? <option value="">Buy a package first</option> : null}
-                {productRows.map((item) => <option key={item.id} value={item.id}>{item.title} - {money(item.price)}</option>)}
-              </select>
-              <div className="relative z-40 grid grid-cols-2 gap-2 sm:grid-cols-5" role="group" aria-label="Choose followers platform">
+            <div className="mt-3 grid gap-3 pb-[calc(env(safe-area-inset-bottom)+7rem)]">
+              <div className="grid gap-2">
+                {hasPurchases ? productRows.map((item) => {
+                  const selected = selectedFollowerPackageId === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      className={`hb-interactive hb-glow-cyan flex min-h-[3rem] items-center justify-between gap-3 rounded-2xl border px-3 py-3 text-left transition active:scale-[0.98] ${selected ? "border-cyan-200/70 bg-cyan-300/16 text-cyan-50 shadow-[0_0_20px_rgba(34,211,238,0.24)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`}
+                      onClick={() => setSelectedFollowerPackageId(item.id)}
+                      type="button"
+                    >
+                      <span className="min-w-0 truncate text-sm font-black">{item.title}</span>
+                      <span className="shrink-0 text-xs font-bold">{money(item.price)}</span>
+                    </button>
+                  );
+                }) : <button className="rounded-2xl border border-cyan-200/16 bg-[#071b34]/78 px-3 py-3 text-sm font-black text-sky-100/72" onClick={onBuy} type="button">Buy a package first</button>}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
                 {followerPlatforms.map((item) => {
-                  const selected = platform === item.value;
+                  const selected = selectedPlatform === item.value;
                   return (
                     <button
                       key={item.value}
                       className={`hb-interactive hb-glow-cyan min-h-[3rem] rounded-2xl border px-2 py-3 text-xs font-black transition active:scale-[0.98] ${selected ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_20px_rgba(34,211,238,0.28)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`}
-                      onClick={() => setPlatform(item.value)}
+                      onClick={() => {
+                        setSelectedPlatform(item.value);
+                        console.info("PLATFORM_SELECTED", { platform: item.value });
+                      }}
                       type="button"
                       aria-pressed={selected}
                     >
@@ -1322,8 +1353,9 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
                   );
                 })}
               </div>
+              <div className="text-xs font-bold text-cyan-100/70">Selected: {selectedPlatform || "none"}</div>
               <input className="field" placeholder="Profile/page/channel/group link" value={submittedLink} onChange={(event) => setSubmittedLink(event.target.value)} />
-              <button className="hb-interactive hb-glow-cyan rounded-2xl bg-cyan-300 px-4 py-3 font-black text-[#031326] disabled:opacity-45" disabled={!canSendFollowersRequest} onClick={() => canSendFollowersRequest && selectedFollowerProduct && platform ? onFollowersRequest({ packagePurchaseId: selectedFollowerProduct.id, platform, submittedLink: submittedLink.trim() }) : undefined} type="button">Send Request</button>
+              <button className="hb-interactive hb-glow-cyan rounded-2xl bg-cyan-300 px-4 py-3 font-black text-[#031326] disabled:opacity-45" disabled={!canSendFollowersRequest} onClick={() => canSendFollowersRequest && selectedFollowerProduct && selectedPlatform ? onFollowersRequest({ packagePurchaseId: selectedFollowerProduct.id, platform: selectedPlatform, submittedLink: submittedLink.trim() }) : undefined} type="button">Send Request</button>
             </div>
           </GlassCard>
           <GlassCard className="p-3"><SectionTitle title="Request Status" /><div className="mt-2 space-y-2">{delivery?.followersRequests?.length ? delivery.followersRequests.map((item) => <HistoryRow key={item.id} title={`${item.platform} - ${item.status}`} meta={`${item.followers_count} followers - ${new Date(item.created_at).toLocaleString()}${item.admin_note ? ` - ${item.admin_note}` : ""}`} value={item.package_name || "Package"} />) : <EmptyState title="No followers requests yet." />}</div></GlassCard>
