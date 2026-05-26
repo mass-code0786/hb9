@@ -420,51 +420,15 @@ function normalizeManualBulkTarget(value: string) {
   return target;
 }
 
-async function resolveBulkAdminIdentity(client: PoolClient, req: Request) {
+function resolveBulkAdminId(req: Request) {
   const requestAny = req as Request & { user?: { walletAddress?: string } };
-  const adminAny = req.admin as (typeof req.admin & { id?: string; walletAddress?: string }) | undefined;
-  const adminEmail = req.admin?.email || "admin";
-  const adminWallet = adminAny?.walletAddress
+  const adminAny = req.admin as (typeof req.admin & { walletAddress?: string }) | undefined;
+  const bodyAny = req.body as { adminWalletAddress?: unknown } | undefined;
+  const bodyWallet = typeof bodyAny?.adminWalletAddress === "string" ? bodyAny.adminWalletAddress.trim() : "";
+  return adminAny?.walletAddress
     || requestAny.user?.walletAddress
-    || (isAddress(adminEmail) ? adminEmail : null)
-    || "0x263e3C8d975662EBF2B44d0F65250105cD535d7d";
-  let adminUuid = adminAny?.id || null;
-
-  if (adminUuid && !isUuid(adminUuid)) adminUuid = null;
-
-  if (!isAddress(adminWallet)) {
-    throw new Error("Unable to resolve a valid admin wallet for bulk distribution.");
-  }
-
-  if (!adminUuid) {
-    const rows = await client.query<{ id: string }>(
-      "select id from hb_admin_users where lower(wallet_address) = lower($1) limit 1",
-      [adminWallet]
-    ).catch(() => ({ rows: [] as Array<{ id: string }> }));
-    adminUuid = rows.rows[0]?.id || null;
-  }
-
-  if (!adminUuid) {
-    const rows = await client.query<{ id: string }>(
-      `insert into hb_admin_users (wallet_address, role, name)
-       values ($1, 'super_admin', 'HB9 Admin')
-       returning id`
-    , [adminWallet]).catch(async () => client.query<{ id: string }>(
-      "select id from hb_admin_users where lower(wallet_address) = lower($1) limit 1",
-      [adminWallet]
-    ).catch(() => ({ rows: [] as Array<{ id: string }> })));
-    adminUuid = rows.rows[0]?.id || null;
-  }
-
-  if (!adminUuid || !isUuid(adminUuid)) {
-    throw new Error("Unable to resolve a valid admin UUID for bulk distribution.");
-  }
-
-  return {
-    adminEmail,
-    adminUuid,
-    adminWallet
-  };
+    || bodyWallet
+    || "system_admin";
 }
 
 const purchaseSchema = z.object({
@@ -6669,7 +6633,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
   const rootKey = `hb:funds:bulk:${crypto.randomUUID()}`;
   const client = await pool.connect();
   try {
-    const { adminEmail, adminUuid, adminWallet } = await resolveBulkAdminIdentity(client, req);
+    const adminId = resolveBulkAdminId(req);
     const packageName = parsed.data.packageAmount ? bulkDistributionPackages[Number(parsed.data.packageAmount)] || "Package" : "Manual selection";
     let targets: Array<{ userId: string; email?: string | null; displayName?: string | null; packageName: string }>;
     if (parsed.data.targetMode === "package") {
@@ -6793,8 +6757,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       await ensureHbUserExists(client, userId);
       const before = await readCoinBalance(client, userId, coinSymbol);
       console.log("BULK_INSERT_USER_ID", userId);
-      console.log("BULK_INSERT_ADMIN_ID", adminUuid);
-      console.log("BULK_INSERT_ADMIN_WALLET", adminWallet);
+      console.log("BULK_INSERT_ADMIN_ID", adminId);
       const ledgerId = await applyHbCoinAdjustment({
         client,
         userId,
@@ -6803,7 +6766,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
         direction: "credit",
         type: "credit",
         reference: null,
-        adminId: adminUuid,
+        adminId,
         note,
         idempotencyKey: `${rootKey}:${userId}`,
         metadata: {
@@ -6813,9 +6776,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
           coin: coinSymbol,
           amount: parsed.data.amount,
           reason: note,
-          adminId: adminUuid,
-          adminEmail,
-          adminWallet,
+          adminId,
           batchKey: rootKey,
           reference: `admin_bulk_distribution:${rootKey}`,
           targetMode: parsed.data.targetMode,
@@ -6827,14 +6788,13 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       const proof = await createLedgerProof(client, "hb_coin_balance_ledger", ledgerId);
       const after = await readCoinBalance(client, userId, coinSymbol);
       console.log("BULK_INSERT_USER_ID", userId);
-      console.log("BULK_INSERT_ADMIN_ID", adminUuid);
-      console.log("BULK_INSERT_ADMIN_WALLET", adminWallet);
+      console.log("BULK_INSERT_ADMIN_ID", adminId);
       const actionRows = await client.query(
         `insert into hb_admin_balance_actions
           (user_id, coin_symbol, amount, type, note, admin_id, ledger_entry_id, proof_reference, before_balance, after_balance, idempotency_key)
          values ($1,$2,$3,'bulk_distribution',$4,$5,$6,$7,$8,$9,$10)
          returning id, user_id, coin_symbol, amount::text, proof_reference`,
-        [userId, coinSymbol, parsed.data.amount, note, adminUuid, ledgerId, (proof as any)?.public_reference_id || null, before, after, `${rootKey}:${userId}`]
+        [userId, coinSymbol, parsed.data.amount, note, adminId, ledgerId, (proof as any)?.public_reference_id || null, before, after, `${rootKey}:${userId}`]
       );
       results.push(actionRows.rows[0]);
     }
@@ -6853,8 +6813,8 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       estimatedTotal: Number(parsed.data.amount) * results.length
     };
     const bulkEntityId = String(results[0]?.id || crypto.randomUUID());
-    await adminActionLog({ adminEmail, action: "admin.hb.funds.bulk_distribution", entityType: "hb_admin_balance_action", entityId: bulkEntityId, metadata, req });
-    await adminHbAudit(adminEmail, "admin.hb.funds.bulk_distribution", "hb_admin_balance_action", bulkEntityId, metadata);
+    await adminActionLog({ adminEmail: adminId, action: "admin.hb.funds.bulk_distribution", entityType: "hb_admin_balance_action", entityId: bulkEntityId, metadata, req });
+    await adminHbAudit(adminId, "admin.hb.funds.bulk_distribution", "hb_admin_balance_action", bulkEntityId, metadata);
     ok(res, {
       success: true,
       matchedUsers: targets.length,
