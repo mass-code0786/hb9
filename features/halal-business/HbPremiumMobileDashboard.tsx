@@ -1287,21 +1287,30 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
     });
     return Array.from(requests.values());
   }, [delivery?.followersRequests]);
-  const followersRequestLabel = (status?: string) => {
+  const completedFollowerPackageAmounts = useMemo(() => {
+    const amounts = new Set<number>();
+    (delivery?.followersRequests || []).forEach((request) => {
+      if (String(request.status || "").toLowerCase() === "completed") amounts.add(Number(request.package_price || 0));
+    });
+    return amounts;
+  }, [delivery?.followersRequests]);
+  const followersRequestLabel = (status?: string, item?: { price?: unknown; followersCount?: number }) => {
     const normalized = String(status || "").toLowerCase();
     if (normalized === "pending") return "Request already pending";
     if (normalized === "completed") return "Followers completed";
     if (normalized === "rejected") return "Rejected - resubmit allowed";
     if (normalized === "approved" || normalized === "processing") return "Request in progress";
+    if (item && Number(item.followersCount || 0) <= 0) return "Followers not included";
+    if (item && completedFollowerPackageAmounts.has(Number(item.price || 0))) return "Eligible again after rebuy";
     return "No request";
   };
   const isFollowersRequestBlocked = (status?: string) => ["pending", "approved", "processing", "completed"].includes(String(status || "").toLowerCase());
-  const selectedFollowerProduct = productRows.find((item) => item.id === selectedFollowerPackageId) || productRows[0] || null;
+  const selectedFollowerProduct = productRows.find((item) => item.id === selectedFollowerPackageId) || null;
   const selectedFollowerRequest = selectedFollowerProduct ? latestFollowersRequestsByPurchase.get(selectedFollowerProduct.id) : undefined;
   const selectedFollowerRequestStatus = selectedFollowerRequest?.status;
   const selectedFollowerBlocked = isFollowersRequestBlocked(selectedFollowerRequestStatus);
   const hasSubmittedLink = submittedLink.trim().length > 0;
-  const canSendFollowersRequest = Boolean(selectedFollowerProduct && selectedPlatform && hasSubmittedLink && !selectedFollowerBlocked);
+  const canSendFollowersRequest = Boolean(selectedFollowerProduct && selectedFollowerProduct.followersCount > 0 && selectedPlatform && hasSubmittedLink && !selectedFollowerBlocked);
   return (
     <div className="space-y-3">
       <HeroPanel title="My Product" subtitle={`${productRows.length} active products`} icon={PackageCheck} art="package" />
@@ -1326,7 +1335,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
             {featuresForHbPackageAmount(item.imageAmount).slice(0, 3).map((feature) => <FeatureBullet key={feature}>{feature}</FeatureBullet>)}
           </div>
           <div className="mt-4 grid gap-2">
-            <button className="hb-interactive hb-glow-purple flex items-center justify-center gap-2 rounded-[1rem] border border-cyan-200/18 bg-cyan-300/10 px-3 py-3 text-sm font-bold text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition duration-200 disabled:opacity-45" disabled={item.followersCount <= 0} onClick={() => { setSelectedFollowerPackageId(item.id); setTab("requests"); }} type="button"><Eye size={16} /> {followersRequestLabel(latestFollowersRequestsByPurchase.get(item.id)?.status)}</button>
+            <button className="hb-interactive hb-glow-purple flex items-center justify-center gap-2 rounded-[1rem] border border-cyan-200/18 bg-cyan-300/10 px-3 py-3 text-sm font-bold text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition duration-200 disabled:opacity-45" disabled={item.followersCount <= 0 || isFollowersRequestBlocked(latestFollowersRequestsByPurchase.get(item.id)?.status)} onClick={() => { setSelectedFollowerPackageId(item.id); setTab("requests"); }} type="button"><Eye size={16} /> {followersRequestLabel(latestFollowersRequestsByPurchase.get(item.id)?.status, item)}</button>
           </div>
         </GlassCard>
       )) : null}
@@ -1350,37 +1359,59 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
       {tab === "requests" ? (
         <div className="space-y-3">
           <GlassCard className="p-3">
-            <SectionTitle title="Followers Request" action={selectedFollowerProduct?.followersCount ? `${selectedFollowerProduct.followersCount} followers` : "Locked"} />
-            <div className="mt-3 grid gap-3 pb-[calc(env(safe-area-inset-bottom)+7rem)]">
-              <div className="grid gap-2">
+            <SectionTitle title="Followers Request" action={selectedFollowerProduct?.followersCount ? `${selectedFollowerProduct.followersCount} followers` : "Select package"} />
+            <div className="mt-3 grid gap-4 pb-[calc(env(safe-area-inset-bottom)+7rem)]">
+              <div className="grid gap-2.5">
                 {hasPurchases ? productRows.map((item) => {
                   const selected = selectedFollowerProduct?.id === item.id;
+                  const requestStatus = latestFollowersRequestsByPurchase.get(item.id)?.status;
+                  const disabled = item.followersCount <= 0 || isFollowersRequestBlocked(requestStatus);
                   return (
                     <button
                       key={item.id}
-                      className={`hb-interactive hb-glow-cyan flex min-h-[3rem] items-center justify-between gap-3 rounded-2xl border px-3 py-3 text-left transition active:scale-[0.98] ${selected ? "border-cyan-200/70 bg-cyan-300/16 text-cyan-50 shadow-[0_0_20px_rgba(34,211,238,0.24)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`}
-                      onClick={() => setSelectedFollowerPackageId(item.id)}
+                      className={`hb-interactive hb-glow-cyan flex min-h-[4.25rem] items-center justify-between gap-3 rounded-2xl border px-3.5 py-3 text-left transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55 ${selected ? "border-cyan-200/80 bg-cyan-300/18 text-cyan-50 shadow-[0_0_24px_rgba(34,211,238,0.34),inset_0_1px_0_rgba(255,255,255,0.10)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`}
+                      disabled={disabled}
+                      onClick={() => {
+                        setSelectedFollowerPackageId(item.id);
+                        setSelectedPlatform("");
+                        setSubmittedLink("");
+                      }}
                       type="button"
                     >
-                      <span className="min-w-0 truncate text-sm font-black">{item.title}</span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-black">{item.title}</span>
+                        <span className="mt-1 block text-[11px] font-bold text-sky-100/55">Purchase {String(item.purchaseId || item.id).slice(0, 8)}</span>
+                      </span>
                       <span className="shrink-0 text-right text-xs font-bold">
                         <span className="block">{money(item.price)}</span>
-                        <span className={`${latestFollowersRequestsByPurchase.get(item.id)?.status === "rejected" ? "text-red-100/80" : "text-cyan-100/62"}`}>{followersRequestLabel(latestFollowersRequestsByPurchase.get(item.id)?.status)}</span>
+                        <span className={`${requestStatus === "rejected" ? "text-red-100/80" : selected ? "text-cyan-100/82" : "text-cyan-100/62"}`}>{followersRequestLabel(requestStatus, item)}</span>
                       </span>
                     </button>
                   );
                 }) : <button className="rounded-2xl border border-cyan-200/16 bg-[#071b34]/78 px-3 py-3 text-sm font-black text-sky-100/72" onClick={onBuy} type="button">Buy a package first</button>}
               </div>
-              {selectedFollowerRequestStatus ? (
-                <div className={`rounded-2xl border px-3 py-2 text-xs font-bold ${selectedFollowerRequestStatus === "rejected" ? "border-red-200/18 bg-red-500/10 text-red-100" : "border-cyan-200/14 bg-cyan-300/8 text-cyan-100/78"}`}>
-                  {followersRequestLabel(selectedFollowerRequestStatus)}
+              <div className={`rounded-2xl border px-3.5 py-3 text-xs font-bold ${selectedFollowerRequestStatus === "rejected" ? "border-red-200/18 bg-red-500/10 text-red-100" : selectedFollowerProduct ? "border-cyan-200/18 bg-cyan-300/10 text-cyan-100/82" : "border-cyan-200/12 bg-[#071b34]/72 text-sky-100/56"}`}>
+                <div className="text-[10px] uppercase tracking-[0.14em] text-cyan-100/52">Status</div>
+                <div className="mt-1">{selectedFollowerProduct ? followersRequestLabel(selectedFollowerRequestStatus, selectedFollowerProduct) : "Select a purchased package"}</div>
+              </div>
+              {selectedFollowerProduct ? (
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-2xl border border-cyan-200/12 bg-[#071b34]/72 p-3">
+                    <div className="text-sky-100/48">Followers</div>
+                    <div className="mt-1 font-black text-cyan-50">{selectedFollowerProduct.followersCount}</div>
+                  </div>
+                  <div className="rounded-2xl border border-cyan-200/12 bg-[#071b34]/72 p-3">
+                    <div className="text-sky-100/48">Package</div>
+                    <div className="mt-1 truncate font-black text-cyan-50">{money(selectedFollowerProduct.price)}</div>
+                  </div>
                 </div>
               ) : null}
               <div className="grid gap-1.5">
                 <label className="text-[11px] font-black uppercase tracking-[0.14em] text-cyan-100/60">Platform</label>
                 <button
-                  className={`hb-interactive hb-glow-cyan flex min-h-[3.35rem] items-center justify-between gap-3 rounded-2xl border px-3.5 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition active:scale-[0.98] ${selectedPlatform ? "border-cyan-200/40 bg-cyan-300/12 text-cyan-50" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/48"}`}
+                  className={`hb-interactive hb-glow-cyan flex min-h-[3.35rem] items-center justify-between gap-3 rounded-2xl border px-3.5 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45 ${selectedPlatform ? "border-cyan-200/40 bg-cyan-300/12 text-cyan-50" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/48"}`}
                   onClick={() => setPlatformSheetOpen(true)}
+                  disabled={!selectedFollowerProduct || selectedFollowerBlocked || selectedFollowerProduct.followersCount <= 0}
                   type="button"
                   aria-haspopup="dialog"
                   aria-expanded={platformSheetOpen}
@@ -1389,7 +1420,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
                   <ChevronDown size={18} className="shrink-0 text-cyan-100/70" />
                 </button>
               </div>
-              <input className="field" placeholder="Profile/page/channel/group link" value={submittedLink} onChange={(event) => setSubmittedLink(event.target.value)} />
+              <input className="field disabled:cursor-not-allowed disabled:opacity-45" disabled={!selectedFollowerProduct || selectedFollowerBlocked || selectedFollowerProduct.followersCount <= 0} placeholder="Profile/page/channel/group link" value={submittedLink} onChange={(event) => setSubmittedLink(event.target.value)} />
               <button className="hb-interactive hb-glow-cyan rounded-2xl bg-cyan-300 px-4 py-3 font-black text-[#031326] disabled:opacity-45" disabled={!canSendFollowersRequest} onClick={() => canSendFollowersRequest && selectedFollowerProduct && selectedPlatform ? onFollowersRequest({ packagePurchaseId: selectedFollowerProduct.id, platform: selectedPlatform, submittedLink: submittedLink.trim() }) : undefined} type="button">Send Request</button>
             </div>
           </GlassCard>
@@ -1739,7 +1770,10 @@ function WalletAddressPill({ address, className = "" }: { address?: string | nul
 const walletCoinList = [
   { key: "USDT", label: "USDT BEP20", network: "" },
   { key: "BTC", label: "BTC", network: "BITCOIN" },
+  { key: "ETH", label: "ETH", network: "Ethereum" },
   { key: "BNB", label: "BNB", network: "BINANCE COIN" },
+  { key: "TRX", label: "TRX", network: "TRON" },
+  { key: "MATIC", label: "MATIC", network: "Polygon" },
   { key: "HB9", label: "HB9", network: "HB9 COIN" },
   { key: "PEPE", label: "PEPE", network: "Pepe coin" },
   { key: "DOGE", label: "DOGE", network: "Dogecoin" },

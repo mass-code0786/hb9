@@ -1253,7 +1253,8 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
   const [bulkIdempotencyKey, setBulkIdempotencyKey] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const coinOptions: Array<Record<string, unknown>> = coins.length ? coins : ["USDT", "BTC", "BNB", "HB9"].map((coin) => ({ coin_symbol: coin, name: displayAdminCoinSymbol(coin) }));
+  const coinOptions: Array<Record<string, unknown>> = (coins.length ? coins : ["USDT", "BTC", "ETH", "BNB", "TRX", "MATIC", "DOGE", "SHIB", "ADA", "HB9"].map((coin) => ({ coin_symbol: coin, name: displayAdminCoinSymbol(coin) })))
+    .filter((coin) => coin.enabled === undefined || coin.enabled === true);
   const bulkPackages = [
     { amount: "4", label: "Starter Package ($4)" },
     { amount: "20", label: "Builder Package ($20)" },
@@ -1327,7 +1328,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
     <div className="grid gap-3 md:grid-cols-3">
       <label className="space-y-2 text-sm text-slate-400">
         <span>Coin</span>
-        <select className="field" value={form.coinSymbol} onChange={(event) => {
+        <select className="field min-h-12" value={form.coinSymbol} onChange={(event) => {
           const selected = coinOptions.find((coin) => compact(coin.coin_symbol || coin.symbol) === event.target.value);
           setForm((current) => ({ ...current, coinSymbol: event.target.value, coinNetwork: compact(selected?.network || "") }));
           setBulkPreview(null);
@@ -1341,11 +1342,11 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
       </label>
       <label className="space-y-2 text-sm text-slate-400">
         <span>Amount</span>
-        <input className="field" inputMode="decimal" value={form.amount} onChange={(event) => setField("amount", event.target.value)} placeholder="0.00000000" />
+        <input className="field min-h-12" inputMode="decimal" value={form.amount} onChange={(event) => setField("amount", event.target.value)} placeholder="0.00000000" />
       </label>
       <label className="space-y-2 text-sm text-slate-400">
         <span>Note / reason</span>
-        <input className="field" value={form.note} onChange={(event) => setField("note", event.target.value)} placeholder="Required accounting reason" />
+        <input className="field min-h-12" value={form.note} onChange={(event) => setField("note", event.target.value)} placeholder="Required accounting reason" />
       </label>
     </div>
   );
@@ -1402,10 +1403,12 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
             )}
             {controls}
             {bulkPreview ? (
-              <div className="grid gap-3 rounded-2xl border border-accent/25 bg-accent/10 p-3 text-sm text-slate-100 sm:grid-cols-3">
+              <div className="grid gap-3 rounded-2xl border border-accent/25 bg-accent/10 p-3 text-sm text-slate-100 sm:grid-cols-2 xl:grid-cols-5">
                 <Metric title="Matched users" value={compact(bulkPreview.matchedUsers || 0)} tone="accent" />
                 <Metric title="Estimated total" value={`${compact(bulkPreview.estimatedTotal || 0)} ${form.coinSymbol}`} tone="mint" />
                 <Metric title="Package" value={compact(bulkPreview.packageName || "Manual selection")} />
+                <Metric title="Selected coin" value={form.coinSymbol} />
+                <Metric title="Treasury check" value={bulkPreview.treasuryBalanceTracked ? `${compact(bulkPreview.treasuryBalance || 0)} ${form.coinSymbol}` : "Not tracked"} tone={bulkPreview.treasurySufficient === false ? "danger" : "mint"} />
               </div>
             ) : null}
             <div className="grid gap-2 sm:flex sm:flex-wrap">
@@ -1441,7 +1444,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
                   setBusy(false);
                 }
               }} type="button">Preview Distribution</button>
-              <button className="w-full rounded-2xl bg-accent px-4 py-3 font-semibold text-black disabled:opacity-60 sm:w-fit" disabled={busy || !bulkPreview} onClick={() => setBulkPreview((current) => current ? { ...current, confirmOpen: true } : current)} type="button">Execute Bulk Distribution</button>
+              <button className="w-full rounded-2xl bg-accent px-4 py-3 font-semibold text-black disabled:opacity-60 sm:w-fit" disabled={busy || !bulkPreview || bulkPreview.treasurySufficient === false} onClick={() => setBulkPreview((current) => current ? { ...current, confirmOpen: true } : current)} type="button">Execute Bulk Distribution</button>
             </div>
           </div>
         ) : null}
@@ -1451,7 +1454,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
         <div className="fixed inset-0 z-[90] grid place-items-end bg-black/70 p-3 sm:place-items-center">
           <div className="w-full max-w-md rounded-2xl border border-accent/20 bg-[#07111f] p-4 shadow-2xl">
             <h3 className="text-lg font-black text-white">Confirm bulk distribution</h3>
-            <p className="mt-2 text-sm text-slate-300">Send {compact(form.amount)} {form.coinSymbol} to {compact(bulkPreview.matchedUsers)} matched users. Estimated total: {compact(bulkPreview.estimatedTotal)} {form.coinSymbol}. This creates ledger entries and proof records.</p>
+            <p className="mt-2 text-sm text-slate-300">Send {compact(form.amount)} {form.coinSymbol} to {compact(bulkPreview.matchedUsers)} matched users. Estimated total: {compact(bulkPreview.estimatedTotal)} {form.coinSymbol}. Treasury check: {bulkPreview.treasuryBalanceTracked ? `${compact(bulkPreview.treasuryBalance || 0)} ${form.coinSymbol}` : "not tracked"}. This creates ledger entries and proof records.</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               <button className="rounded-xl border border-sky-200/10 bg-[#0b1728]/75 px-4 py-3 text-sm font-semibold text-slate-200" onClick={() => setBulkPreview((current) => current ? { ...current, confirmOpen: false } : current)} type="button">Cancel</button>
               <button className="rounded-xl bg-accent px-4 py-3 text-sm font-black text-black disabled:opacity-60" disabled={busy} onClick={async () => {
@@ -1647,14 +1650,17 @@ function HbCoins({ data, token, query }: { data: Record<string, unknown>; token:
       </Panel>
 
       <Panel title="Users holding coin balances">
-        <AdminTable headers={["User", "Status", "USDT", "BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIBA", "BTTC", "ADA", "Action"]}>
+        <AdminTable headers={["User", "Status", ...coins.map((coin) => displayAdminCoinSymbol(compact(coin.symbol || coin.coin_symbol))), "Action"]}>
           {users.map((user) => {
             const balances = new Map((Array.isArray(user.balances) ? user.balances as Array<Record<string, unknown>> : []).map((row) => [String(row.coin_symbol), row]));
             return (
               <tr key={compact(user.id)}>
                 <Td>{compact(user.display_name || user.email || user.mobile_number)}</Td>
                 <Td><Badge value={compact(user.status)} /></Td>
-                {["USDT", "BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"].map((symbol) => <Td key={symbol}><span className="inline-flex items-center gap-1.5"><CoinLogo symbol={symbol} size={18} />{compact(balances.get(symbol)?.balance || 0)}</span></Td>)}
+                {coins.map((coin) => {
+                  const symbol = compact(coin.symbol || coin.coin_symbol);
+                  return <Td key={symbol}><span className="inline-flex items-center gap-1.5"><CoinLogo symbol={symbol} size={18} />{compact(balances.get(symbol)?.balance || 0)}</span></Td>;
+                })}
                 <Td><button className="rounded-lg bg-[#0b1728]/75 px-2 py-1 text-xs" onClick={() => selectUser(String(user.id))} type="button">View detail</button></Td>
               </tr>
             );
