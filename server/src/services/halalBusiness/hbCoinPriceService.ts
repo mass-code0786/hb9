@@ -1,6 +1,6 @@
-export type HbCoinSymbol = "USDT" | "BTC" | "BNB" | "HB9" | "PEPE" | "DOGE" | "SHIB" | "BTTC" | "ADA";
+export type HbCoinSymbol = "USDT" | "BTC" | "BNB" | "HB9" | "PEPE" | "DOGE" | "SHIB" | "BTTC" | "ADA" | "TRX";
 
-export const hbNonUsdtCoinSymbols: HbCoinSymbol[] = ["BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"];
+export const hbNonUsdtCoinSymbols: HbCoinSymbol[] = ["BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA", "TRX"];
 export const hbCoinSymbols: HbCoinSymbol[] = ["USDT", ...hbNonUsdtCoinSymbols];
 
 const mockPrices: Record<HbCoinSymbol, number> = {
@@ -12,7 +12,8 @@ const mockPrices: Record<HbCoinSymbol, number> = {
   DOGE: 0.16,
   SHIB: 0.000025,
   BTTC: 0.0000012,
-  ADA: 0.45
+  ADA: 0.45,
+  TRX: 0.12
 };
 
 export function normalizeHbCoinSymbol(value: string): HbCoinSymbol | null {
@@ -32,7 +33,8 @@ export function hbCoinName(symbol: HbCoinSymbol) {
     DOGE: "Dogecoin",
     SHIB: "SHIBA",
     BTTC: "BitTorrent Chain",
-    ADA: "Cardano"
+    ADA: "Cardano",
+    TRX: "TRON"
   };
   return names[symbol];
 }

@@ -292,9 +292,9 @@ const adminOnchainPurchaseEventSchema = z.object({
   rawEvent: z.record(z.string(), z.unknown()).optional()
 });
 
-const hbCoinSymbolSchema = z.preprocess((value) => typeof value === "string" ? normalizeHbCoinSymbol(value) || value : value, z.enum(["USDT", "BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"]));
-const hbAdminCreditCoinSymbolSchema = z.preprocess((value) => typeof value === "string" ? normalizeHbCoinSymbol(value) || value : value, z.enum(["BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"]));
-const hbConvertibleCoinSymbolSchema = z.preprocess((value) => typeof value === "string" ? normalizeHbCoinSymbol(value) || value : value, z.enum(["BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"]));
+const hbCoinSymbolSchema = z.preprocess((value) => typeof value === "string" ? normalizeHbCoinSymbol(value) || value : value, z.enum(["USDT", "BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA", "TRX"]));
+const hbAdminCreditCoinSymbolSchema = z.preprocess((value) => typeof value === "string" ? normalizeHbCoinSymbol(value) || value : value, z.enum(["BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA", "TRX"]));
+const hbConvertibleCoinSymbolSchema = z.preprocess((value) => typeof value === "string" ? normalizeHbCoinSymbol(value) || value : value, z.enum(["BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA", "TRX"]));
 function hasValidCoinPrecision(value: string | number) {
   if (typeof value === "string") return /^\d+(\.\d{1,18})?$/.test(value);
   return Number.isFinite(value) && value > 0;
@@ -6574,12 +6574,13 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
   const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
     ? { ...(req.body as Record<string, unknown>), ...(forcePreview ? { preview: true } : {}) }
     : req.body;
-  console.log("ADMIN_BULK_BODY", req.body);
+  console.log("REQ BODY", req.body);
   const parsed = adminBulkDistributionSchema.safeParse(body);
   if (!parsed.success) {
     fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid bulk distribution");
     return;
   }
+  console.log("PARSED DATA", parsed.data);
   const coinSymbol = normalizeHbCoinSymbol(parsed.data.coinSymbol || parsed.data.coin || "");
   if (!coinSymbol) {
     fail(res, "Coin is required.", 400, "Invalid bulk distribution");
@@ -6597,14 +6598,17 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
     const packageName = parsed.data.packageAmount ? bulkDistributionPackages[Number(parsed.data.packageAmount)] || "Package" : "Manual selection";
     const targets = parsed.data.targetMode === "package"
       ? (await client.query<{ user_id: string; email: string | null; display_name: string | null; package_name: string }>(
-          `select distinct on (p.user_id)
-                  p.user_id, u.email, u.display_name, $2::text as package_name
-           from hb_package_purchases p
-           join hb_users u on u.id = p.user_id
-           where p.status = 'completed'
-             and p.amount_usd = $1::numeric
+          `select distinct on (up.user_id)
+                  up.user_id,
+                  u.email,
+                  u.display_name,
+                  coalesce(nullif(up.package_name, ''), $2::text) as package_name
+           from hb_user_products up
+           join hb_users u on u.id = up.user_id
+           where up.status = 'active'
+             and up.package_amount = $1::numeric
              and u.status = 'active'
-           order by p.user_id, p.created_at desc`,
+           order by up.user_id, up.activated_at desc, up.created_at desc`,
           [parsed.data.packageAmount, packageName]
         )).rows.map((row) => ({
           userId: row.user_id,
@@ -6613,6 +6617,8 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
           packageName: row.package_name
         }))
       : [...new Set(parsed.data.userIds || [])].map((userId) => ({ userId, packageName: "Manual selection" }));
+    const userIds = targets.map((target) => target.userId);
+    console.log("PACKAGE USERS", userIds);
     if (targets.length === 0) {
       const targetLabel = parsed.data.targetMode === "package" ? `${packageName} ($${parsed.data.packageAmount})` : "manual selection";
       fail(res, `No users found for ${targetLabel}`, 400, "Bulk distribution failed");
@@ -6698,6 +6704,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       );
       results.push(actionRows.rows[0]);
     }
+    console.log("DISTRIBUTION SUCCESS");
     await client.query("commit");
     const metadata = {
       ...parsed.data,

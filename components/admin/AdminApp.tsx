@@ -377,7 +377,14 @@ export function AdminApp({ page }: { page: AdminPage }) {
 
     load()
       .catch((err) => {
-        if (active) setError(err instanceof Error ? err.message : "Could not load admin data.");
+        if (!active) return;
+        const message = err instanceof Error ? err.message : "Could not load admin data.";
+        if (page === "hb-funds") {
+          console.error("HB_FUNDS_HISTORY_LOAD_ERROR", err);
+          setHbData({ items: [], coins: [], loadError: message });
+          return;
+        }
+        setError(message);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -1254,14 +1261,16 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
     { symbol: "DOGE", label: "DOGE", network: "Dogecoin" },
     { symbol: "SHIBA", label: "SHIBA", network: "BEP20" },
     { symbol: "BTTC", label: "BTTC", network: "BTTC" },
-    { symbol: "ADA", label: "ADA", network: "Cardano" }
+    { symbol: "ADA", label: "ADA", network: "Cardano" },
+    { symbol: "TRX", label: "TRX", network: "TRON" }
   ];
   const initialHistory = Array.isArray(data.items) ? data.items as Array<Record<string, unknown>> : [];
+  const loadError = typeof data.loadError === "string" ? data.loadError : "";
   const [tab, setTab] = useState<"transfer" | "credit" | "deduct" | "history" | "bulk">("transfer");
   const [users, setUsers] = useState<Array<Record<string, unknown>>>([]);
   const [coins, setCoins] = useState<Array<Record<string, unknown>>>(Array.isArray(data.coins) ? data.coins as Array<Record<string, unknown>> : []);
   const [history, setHistory] = useState<Array<Record<string, unknown>>>(initialHistory);
-  const [form, setForm] = useState({ senderUserId: "", receiverUserId: "", userId: "", coinSymbol: "USDT", coinNetwork: "bsc", amount: "", note: "", userIds: "", targetMode: "manual", packageAmount: "4" });
+  const [form, setForm] = useState({ senderUserId: "", receiverUserId: "", userId: "", coinSymbol: "USDT", coinNetwork: "bsc", amount: "", note: "", userIds: "", targetMode: "package", packageAmount: "4" });
   const [coinSheetOpen, setCoinSheetOpen] = useState(false);
   const [bulkPreview, setBulkPreview] = useState<Record<string, unknown> | null>(null);
   const [bulkIdempotencyKey, setBulkIdempotencyKey] = useState("");
@@ -1372,6 +1381,77 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
     </div>
   );
 
+  async function executeBulkDistribution() {
+    const userIds = form.userIds.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+    if (!form.note.trim() || Number(form.amount) <= 0) {
+      const message = "Amount and note are required before bulk distribution.";
+      setMessage(message);
+      alert(message);
+      return;
+    }
+    if (form.targetMode === "manual" && userIds.length === 0) {
+      const message = "User IDs are required for manual bulk distribution.";
+      setMessage(message);
+      alert(message);
+      return;
+    }
+    setBusy(true);
+    setMessage("");
+    try {
+      console.log("ADMIN_BULK_EXECUTE_CLICKED");
+      const payload = form.targetMode === "package"
+        ? {
+            targetMode: "package",
+            packageAmount: Number(form.packageAmount),
+            coin: form.coinSymbol,
+            amount: Number(form.amount),
+            note: form.note.trim()
+          }
+        : {
+            targetMode: "manual",
+            userIds,
+            coin: form.coinSymbol,
+            amount: Number(form.amount),
+            note: form.note.trim()
+          };
+      console.log("BULK_SUBMIT_PAYLOAD", payload);
+      const endpoint = apiUrl("/admin/hb/funds/bulk-distribution");
+      console.log("BULK_API_URL", endpoint);
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+      console.log("BULK_RESPONSE_STATUS", response.status);
+      const data = await response.json();
+      console.log("BULK_RESPONSE_DATA", data);
+      if (!response.ok || !data?.success) {
+        throw new Error(String(data?.error || data?.message || "Bulk distribution failed"));
+      }
+      const result = (data.data || {}) as Record<string, unknown>;
+      const affectedUsers = Number(result.affectedUsers ?? result.creditedUsers ?? result.count ?? 0);
+      const amount = compact(result.amount ?? form.amount);
+      const coin = compact(result.coin ?? form.coinSymbol);
+      setMessage(`Bulk dividend distributed successfully: ${amount} ${coin} distributed to ${affectedUsers} users`);
+      alert(`Distributed ${coin} to ${affectedUsers} users successfully`);
+      setBulkPreview(null);
+      setBulkIdempotencyKey("");
+      setForm((current) => ({ ...current, amount: "" }));
+      await refreshFundsData();
+    } catch (err) {
+      console.error("BULK_SUBMIT_ERROR", err);
+      const errorMessage = (err as Error).message || "Bulk distribution failed";
+      alert((err as Error).message || "Bulk distribution failed");
+      setMessage(`Bulk distribution failed: ${errorMessage}`);
+      setBulkPreview((current) => current ? { ...current, confirmOpen: false } : current);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="grid gap-4">
       <Panel title="Funds Management">
@@ -1465,11 +1545,12 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
                   setBusy(false);
                 }
               }} type="button">Preview Distribution</button>
-              <button className="w-full rounded-2xl bg-accent px-4 py-3 font-semibold text-black disabled:opacity-60 sm:w-fit" disabled={busy || !bulkPreview} onClick={() => setBulkPreview((current) => current ? { ...current, confirmOpen: true } : current)} type="button">Execute Bulk Distribution</button>
+              <button className="w-full rounded-2xl bg-accent px-4 py-3 font-semibold text-black disabled:opacity-60 sm:w-fit" disabled={busy} onClick={executeBulkDistribution} type="button">{busy ? "Processing..." : "Execute Bulk Distribution"}</button>
             </div>
           </div>
         ) : null}
         {message ? <p className="mt-4 text-sm text-sky-100">{message}</p> : null}
+        {loadError ? <p className="mt-4 rounded-xl border border-danger/30 bg-danger/10 p-3 text-sm text-red-100">Funds history failed to load: {loadError}</p> : null}
       </Panel>
       {coinSheetOpen ? (
         <div className="fixed inset-0 z-[95] flex items-end bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4" role="dialog" aria-modal="true" aria-label="Select coin">
@@ -1510,48 +1591,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
             <p className="mt-2 text-sm text-slate-300">Send {compact(form.amount)} {form.coinSymbol} to {compact(bulkPreview.matchedUsers)} matched users. Estimated total: {compact(bulkPreview.estimatedTotal)} {form.coinSymbol}. This creates ledger entries and proof records.</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               <button className="rounded-xl border border-sky-200/10 bg-[#0b1728]/75 px-4 py-3 text-sm font-semibold text-slate-200" onClick={() => setBulkPreview((current) => current ? { ...current, confirmOpen: false } : current)} type="button">Cancel</button>
-              <button className="rounded-xl bg-accent px-4 py-3 text-sm font-black text-black disabled:opacity-60" disabled={busy} onClick={async () => {
-                const userIds = form.userIds.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
-                setBusy(true);
-                setMessage("");
-                try {
-                  console.log("ADMIN_BULK_EXECUTE_CLICKED");
-                  const payload = {
-                    targetMode: form.targetMode,
-                    ...(form.targetMode === "manual" ? { userIds } : {}),
-                    packageAmount: Number(form.packageAmount),
-                    coinSymbol: form.coinSymbol,
-                    network: form.coinNetwork,
-                    amount: form.amount,
-                    reason: form.note.trim(),
-                    note: form.note.trim(),
-                    idempotencyKey: bulkIdempotencyKey || `hb-ui-bulk-${Date.now()}-${crypto.randomUUID()}`
-                  };
-                  console.log("ADMIN_BULK_EXECUTE_PAYLOAD", payload);
-                  const response = await adminRequest<Record<string, unknown>>("/admin/hb/funds/bulk-distribution", token, {
-                    method: "POST",
-                    body: JSON.stringify(payload)
-                  });
-                  console.log("ADMIN_BULK_EXECUTE_RESPONSE", response);
-                  if (response.success === false) {
-                    throw new Error(String(response.message || "Bulk distribution failed"));
-                  }
-                  const creditedUsers = Number(response.creditedUsers ?? response.count ?? 0);
-                  const amount = compact(response.amount ?? form.amount);
-                  const coin = compact(response.coin ?? form.coinSymbol);
-                  setMessage(`Bulk dividend distributed successfully: ${amount} ${coin} distributed to ${creditedUsers} users`);
-                  setBulkPreview(null);
-                  setBulkIdempotencyKey("");
-                  setForm((current) => ({ ...current, amount: "" }));
-                  await refreshFundsData();
-                } catch (err) {
-                  console.error("ADMIN_BULK_EXECUTE_ERROR", err);
-                  setMessage(`Bulk distribution failed: ${err instanceof Error ? err.message : "Unknown backend error."}`);
-                  setBulkPreview((current) => current ? { ...current, confirmOpen: false } : current);
-                } finally {
-                  setBusy(false);
-                }
-              }} type="button">{busy ? "Processing..." : "Confirm Execute"}</button>
+              <button className="rounded-xl bg-accent px-4 py-3 text-sm font-black text-black disabled:opacity-60" disabled={busy} onClick={executeBulkDistribution} type="button">{busy ? "Processing..." : "Confirm Execute"}</button>
             </div>
           </div>
         </div>
