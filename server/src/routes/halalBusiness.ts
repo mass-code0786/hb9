@@ -363,37 +363,46 @@ const adminFundActionSchema = z.object({
   idempotencyKey: z.string().trim().min(12).max(160).optional()
 });
 
-const adminBulkDistributionSchema = z.object({
-  targetMode: z.enum(["manual", "package"]).default("manual"),
-  userIds: z.array(z.string()).optional(),
-  packageAmount: z.coerce.number().refine((value) => [4, 20, 100].includes(value), "Package amount must be 4, 20, or 100.").optional(),
-  coinSymbol: hbCoinSymbolSchema.optional(),
-  coin: hbCoinSymbolSchema.optional(),
-  network: z.string().trim().max(40).optional(),
-  amount: decimalAmountSchema,
-  note: z.string().trim().min(1).max(500).optional(),
-  reason: z.string().trim().min(3).max(500).optional(),
-  preview: z.boolean().optional(),
-  idempotencyKey: z.string().trim().min(12).max(160).optional()
-}).superRefine((value, ctx) => {
-  if (value.targetMode === "manual" && (!value.userIds || value.userIds.length === 0)) {
-    ctx.addIssue({ code: "custom", path: ["userIds"], message: "User IDs required for manual mode" });
-  }
-  if (value.targetMode === "package" && !value.packageAmount) {
-    ctx.addIssue({ code: "custom", path: ["packageAmount"], message: "Package amount required for package mode" });
-  }
-  if (!value.coinSymbol && !value.coin) {
-    ctx.addIssue({ code: "custom", path: ["coinSymbol"], message: "Coin is required" });
-  }
-  if (!value.note && !value.reason) {
-    ctx.addIssue({ code: "custom", path: ["reason"], message: "Reason is required" });
-  }
-}).transform((value) => ({
-  ...value,
-  userIds: value.targetMode === "manual" ? value.userIds : undefined,
-  coinSymbol: value.coinSymbol || value.coin || "USDT",
-  note: value.note || value.reason || ""
-}));
+const adminBulkDistributionSchema = z
+  .object({
+    targetMode: z.enum(["manual", "package"]),
+
+    userIds: z.array(z.string()).optional(),
+
+    packageAmount: z.coerce.number().optional(),
+
+    coin: z.string().optional(),
+
+    coinSymbol: z.string().optional(),
+
+    amount: z.coerce.number(),
+
+    note: z.string().optional(),
+
+    reason: z.string().optional()
+  })
+  .superRefine((value, ctx) => {
+
+    if (value.targetMode === "manual") {
+      if (!value.userIds || value.userIds.length < 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["userIds"],
+          message: "User IDs required for manual mode"
+        });
+      }
+    }
+
+    if (value.targetMode === "package") {
+      if (!value.packageAmount) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["packageAmount"],
+          message: "Package required"
+        });
+      }
+    }
+  });
 
 const purchaseSchema = z.object({
   idempotencyKey: z.string().trim().min(12).max(120).optional()
@@ -6565,14 +6574,24 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
   const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
     ? { ...(req.body as Record<string, unknown>), ...(forcePreview ? { preview: true } : {}) }
     : req.body;
-  console.log("ADMIN_BULK_BODY", body);
+  console.log("ADMIN_BULK_BODY", req.body);
   const parsed = adminBulkDistributionSchema.safeParse(body);
   if (!parsed.success) {
     fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid bulk distribution");
     return;
   }
+  const coinSymbol = normalizeHbCoinSymbol(parsed.data.coinSymbol || parsed.data.coin || "");
+  if (!coinSymbol) {
+    fail(res, "Coin is required.", 400, "Invalid bulk distribution");
+    return;
+  }
+  const note = (parsed.data.note || parsed.data.reason || "").trim();
+  if (!note) {
+    fail(res, "Reason is required.", 400, "Invalid bulk distribution");
+    return;
+  }
   const adminEmail = req.admin?.email || "admin";
-  const rootKey = parsed.data.idempotencyKey || `hb:funds:bulk:${crypto.randomUUID()}`;
+  const rootKey = `hb:funds:bulk:${crypto.randomUUID()}`;
   const client = await pool.connect();
   try {
     const packageName = parsed.data.packageAmount ? bulkDistributionPackages[Number(parsed.data.packageAmount)] || "Package" : "Manual selection";
@@ -6599,13 +6618,13 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       fail(res, `No users found for ${targetLabel}`, 400, "Bulk distribution failed");
       return;
     }
-    if (parsed.data.preview) {
+    if (forcePreview) {
       ok(res, {
         preview: true,
         targetMode: parsed.data.targetMode,
         packageAmount: parsed.data.packageAmount || null,
         packageName,
-        coinSymbol: parsed.data.coinSymbol,
+        coinSymbol,
         amount: parsed.data.amount,
         matchedUsers: targets.length,
         estimatedTotal: Number(parsed.data.amount) * targets.length,
@@ -6630,7 +6649,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
         matchedUsers: targets.length,
         creditedUsers,
         skippedUsers: Math.max(targets.length - creditedUsers, 0),
-        coin: parsed.data.coinSymbol,
+        coin: coinSymbol,
         amount: parsed.data.amount,
         duplicate: true,
         idempotencyKey: rootKey
@@ -6641,25 +6660,25 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
     for (const target of targets) {
       const userId = target.userId;
       await ensureHbUserExists(client, userId);
-      const before = await readCoinBalance(client, userId, parsed.data.coinSymbol);
+      const before = await readCoinBalance(client, userId, coinSymbol);
       const ledgerId = await applyHbCoinAdjustment({
         client,
         userId,
-        coinSymbol: parsed.data.coinSymbol,
+        coinSymbol,
         amount: parsed.data.amount,
         direction: "credit",
         type: "credit",
         reference: `admin_bulk_distribution:${rootKey}`,
         adminId: adminEmail,
-        note: parsed.data.note,
+        note,
         idempotencyKey: `${rootKey}:${userId}`,
         metadata: {
           source: "admin_bulk_distribution",
           action: "bulk_distribution",
           type: "credit",
-          coin: parsed.data.coinSymbol,
+          coin: coinSymbol,
           amount: parsed.data.amount,
-          reason: parsed.data.note,
+          reason: note,
           adminId: adminEmail,
           batchKey: rootKey,
           targetMode: parsed.data.targetMode,
@@ -6669,13 +6688,13 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       });
       if (!ledgerId) continue;
       const proof = await createLedgerProof(client, "hb_coin_balance_ledger", ledgerId);
-      const after = await readCoinBalance(client, userId, parsed.data.coinSymbol);
+      const after = await readCoinBalance(client, userId, coinSymbol);
       const actionRows = await client.query(
         `insert into hb_admin_balance_actions
           (user_id, coin_symbol, amount, type, note, admin_id, ledger_entry_id, proof_reference, before_balance, after_balance, idempotency_key)
          values ($1,$2,$3,'bulk_distribution',$4,$5,$6,$7,$8,$9,$10)
          returning id, user_id, coin_symbol, amount::text, proof_reference`,
-        [userId, parsed.data.coinSymbol, parsed.data.amount, parsed.data.note, adminEmail, ledgerId, (proof as any)?.public_reference_id || null, before, after, `${rootKey}:${userId}`]
+        [userId, coinSymbol, parsed.data.amount, note, adminEmail, ledgerId, (proof as any)?.public_reference_id || null, before, after, `${rootKey}:${userId}`]
       );
       results.push(actionRows.rows[0]);
     }
@@ -6694,7 +6713,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       matchedUsers: targets.length,
       creditedUsers: results.length,
       skippedUsers: targets.length - results.length,
-      coin: parsed.data.coinSymbol,
+      coin: coinSymbol,
       amount: parsed.data.amount,
       items: results,
       count: results.length,
