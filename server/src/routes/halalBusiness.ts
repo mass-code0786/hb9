@@ -363,34 +363,31 @@ const adminFundActionSchema = z.object({
   idempotencyKey: z.string().trim().min(12).max(160).optional()
 });
 
-const adminBulkDistributionSchema = z.preprocess((raw) => {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
-  const input = raw as Record<string, unknown>;
-  const targetMode = input.targetMode === "package" ? "package" : "manual";
-  return {
-    ...input,
-    targetMode,
-    userIds: targetMode === "manual" ? input.userIds : undefined,
-    note: input.note ?? input.reason
-  };
-}, z.object({
+const adminBulkDistributionSchema = z.object({
   targetMode: z.enum(["manual", "package"]).default("manual"),
-  userIds: z.array(z.string().uuid()).min(1).max(500).optional(),
-  packageAmount: z.union([z.literal(4), z.literal(20), z.literal(100)]).optional(),
+  userIds: z.array(z.string().uuid()).max(500).optional(),
+  packageAmount: z.coerce.number().refine((value) => [4, 20, 100].includes(value), "Package amount must be 4, 20, or 100.").optional(),
   coinSymbol: hbCoinSymbolSchema,
   network: z.string().trim().max(40).optional(),
   amount: decimalAmountSchema,
-  note: z.string().trim().min(3).max(500),
+  note: z.string().trim().min(1).max(500).optional(),
   reason: z.string().trim().min(3).max(500).optional(),
   preview: z.boolean().optional(),
   idempotencyKey: z.string().trim().min(12).max(160).optional()
 }).superRefine((value, ctx) => {
   if (value.targetMode === "manual" && (!value.userIds || value.userIds.length === 0)) {
-    ctx.addIssue({ code: "custom", path: ["userIds"], message: "At least one user ID is required for manual mode." });
+    ctx.addIssue({ code: "custom", path: ["userIds"], message: "User IDs required for manual mode" });
   }
   if (value.targetMode === "package" && !value.packageAmount) {
-    ctx.addIssue({ code: "custom", path: ["packageAmount"], message: "Package amount is required for package mode." });
+    ctx.addIssue({ code: "custom", path: ["packageAmount"], message: "Package amount required for package mode" });
   }
+  if (!value.note && !value.reason) {
+    ctx.addIssue({ code: "custom", path: ["reason"], message: "Reason is required" });
+  }
+}).transform((value) => ({
+  ...value,
+  userIds: value.targetMode === "manual" ? value.userIds : undefined,
+  note: value.note || value.reason || ""
 }));
 
 const purchaseSchema = z.object({
