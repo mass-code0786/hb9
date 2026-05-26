@@ -363,6 +363,11 @@ const adminFundActionSchema = z.object({
   idempotencyKey: z.string().trim().min(12).max(160).optional()
 });
 
+const hbBulkDistributionCoinSymbolSchema = z.preprocess(
+  (value) => typeof value === "string" ? normalizeHbCoinSymbol(value) || value : value,
+  z.enum(["USDT", "BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"])
+);
+
 const adminBulkDistributionSchema = z
   .object({
     targetMode: z.enum(["manual", "package"]),
@@ -373,7 +378,9 @@ const adminBulkDistributionSchema = z
 
     coin: z.string().optional(),
 
-    coinSymbol: z.string().optional(),
+    coinSymbol: hbBulkDistributionCoinSymbolSchema,
+
+    network: z.string().trim().max(40).optional(),
 
     amount: z.coerce.number(),
 
@@ -6572,16 +6579,34 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
     return;
   }
   const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
-    ? { ...(req.body as Record<string, unknown>), ...(forcePreview ? { preview: true } : {}) }
+    ? {
+        ...(req.body as Record<string, unknown>),
+        ...(!(req.body as Record<string, unknown>).coinSymbol && (req.body as Record<string, unknown>).coin ? { coinSymbol: (req.body as Record<string, unknown>).coin } : {}),
+        ...(forcePreview ? { preview: true } : {})
+      }
     : req.body;
   console.log("REQ BODY", req.body);
   const parsed = adminBulkDistributionSchema.safeParse(body);
   if (!parsed.success) {
-    fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid bulk distribution");
+    const debug = req.query.debug === "1" || req.query.debug === "true" || body?.debug === true || process.env.NODE_ENV !== "production";
+    const error = parsed.error.flatten();
+    if (debug) {
+      res.status(400).json({
+        success: false,
+        data: {
+          validation: error,
+          receivedBody: req.body
+        },
+        message: "Invalid bulk distribution",
+        error: JSON.stringify(error)
+      });
+      return;
+    }
+    fail(res, JSON.stringify(error), 400, "Invalid bulk distribution");
     return;
   }
   console.log("PARSED DATA", parsed.data);
-  const coinSymbol = normalizeHbCoinSymbol(parsed.data.coinSymbol || parsed.data.coin || "");
+  const coinSymbol = parsed.data.coinSymbol;
   if (!coinSymbol) {
     fail(res, "Coin is required.", 400, "Invalid bulk distribution");
     return;

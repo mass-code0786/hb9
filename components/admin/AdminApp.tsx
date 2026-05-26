@@ -1259,10 +1259,9 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
     { symbol: "HB9", label: "HB9", network: "BEP20" },
     { symbol: "PEPE", label: "PEPE", network: "BEP20" },
     { symbol: "DOGE", label: "DOGE", network: "Dogecoin" },
-    { symbol: "SHIBA", label: "SHIBA", network: "BEP20" },
+    { symbol: "SHIB", label: "SHIBA", network: "BEP20" },
     { symbol: "BTTC", label: "BTTC", network: "BTTC" },
-    { symbol: "ADA", label: "ADA", network: "Cardano" },
-    { symbol: "TRX", label: "TRX", network: "TRON" }
+    { symbol: "ADA", label: "ADA", network: "Cardano" }
   ];
   const initialHistory = Array.isArray(data.items) ? data.items as Array<Record<string, unknown>> : [];
   const loadError = typeof data.loadError === "string" ? data.loadError : "";
@@ -1399,20 +1398,25 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
     setMessage("");
     try {
       console.log("ADMIN_BULK_EXECUTE_CLICKED");
+      const selectedPackageAmount = Number(form.packageAmount);
+      const submitAmount = Number(form.amount);
+      const submitNote = form.note.trim();
       const payload = form.targetMode === "package"
         ? {
             targetMode: "package",
-            packageAmount: Number(form.packageAmount),
-            coin: form.coinSymbol,
-            amount: Number(form.amount),
-            note: form.note.trim()
+            packageAmount: selectedPackageAmount,
+            coinSymbol: selectedCoin.symbol,
+            network: selectedCoin.network,
+            amount: submitAmount,
+            note: submitNote
           }
         : {
             targetMode: "manual",
             userIds,
-            coin: form.coinSymbol,
-            amount: Number(form.amount),
-            note: form.note.trim()
+            coinSymbol: selectedCoin.symbol,
+            network: selectedCoin.network,
+            amount: submitAmount,
+            note: submitNote
           };
       console.log("BULK_SUBMIT_PAYLOAD", payload);
       const endpoint = apiUrl("/admin/hb/funds/bulk-distribution");
