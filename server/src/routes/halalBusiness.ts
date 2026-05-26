@@ -421,13 +421,13 @@ function normalizeManualBulkTarget(value: string) {
 }
 
 async function resolveBulkAdminIdentity(client: PoolClient, req: Request) {
-  const requestAny = req as Request & { user?: { id?: string; walletAddress?: string } };
+  const requestAny = req as Request & { user?: { id?: string; walletAddress?: string; role?: string } };
   const adminAny = req.admin as (typeof req.admin & { id?: string; walletAddress?: string }) | undefined;
   const adminEmail = req.admin?.email || "admin";
   const adminWallet = adminAny?.walletAddress
     || requestAny.user?.walletAddress
     || (isAddress(adminEmail) ? adminEmail : null);
-  let adminUuid = adminAny?.id || requestAny.user?.id || null;
+  let adminUuid = adminAny?.id || (requestAny.user?.role === "admin" || requestAny.user?.role === "super_admin" || requestAny.user?.role === "support_admin" ? requestAny.user?.id : null) || null;
 
   if (adminUuid && !isUuid(adminUuid)) adminUuid = null;
 
@@ -447,9 +447,31 @@ async function resolveBulkAdminIdentity(client: PoolClient, req: Request) {
     adminUuid = rows.rows[0]?.id || null;
   }
 
+  if (!adminUuid) {
+    const systemRows = await client.query<{ id: string }>(
+      "select id from hb_admin_users where email = 'system@hb9.internal' limit 1"
+    ).catch(() => ({ rows: [] as Array<{ id: string }> }));
+    adminUuid = systemRows.rows[0]?.id || null;
+  }
+
+  if (!adminUuid) {
+    const insertedRows = await client.query<{ id: string }>(
+      `insert into hb_admin_users (email, name, role, wallet_address)
+       values ('system@hb9.internal','System Admin','super_admin', null)
+       returning id`
+    ).catch(async () => client.query<{ id: string }>(
+      "select id from hb_admin_users where email = 'system@hb9.internal' limit 1"
+    ).catch(() => ({ rows: [] as Array<{ id: string }> })));
+    adminUuid = insertedRows.rows[0]?.id || null;
+  }
+
+  if (!adminUuid || !isUuid(adminUuid)) {
+    throw new Error("Unable to resolve a valid admin UUID for bulk distribution.");
+  }
+
   return {
     adminEmail,
-    adminUuid: adminUuid && isUuid(adminUuid) ? adminUuid : null,
+    adminUuid,
     adminWallet
   };
 }
