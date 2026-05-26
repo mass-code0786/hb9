@@ -366,13 +366,16 @@ const adminFundActionSchema = z.object({
 const adminBulkDistributionSchema = z.preprocess((raw) => {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
   const input = raw as Record<string, unknown>;
+  const targetMode = input.targetMode === "package" ? "package" : "manual";
   return {
     ...input,
+    targetMode,
+    userIds: targetMode === "manual" ? input.userIds : undefined,
     note: input.note ?? input.reason
   };
 }, z.object({
   targetMode: z.enum(["manual", "package"]).default("manual"),
-  userIds: z.array(z.string().uuid()).max(500).optional(),
+  userIds: z.array(z.string().uuid()).min(1).max(500).optional(),
   packageAmount: z.union([z.literal(4), z.literal(20), z.literal(100)]).optional(),
   coinSymbol: hbCoinSymbolSchema,
   network: z.string().trim().max(40).optional(),

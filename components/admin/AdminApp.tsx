@@ -1443,7 +1443,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
                 try {
                   const previewPayload = {
                     targetMode: form.targetMode,
-                    userIds,
+                    ...(form.targetMode === "manual" ? { userIds } : {}),
                     packageAmount: Number(form.packageAmount),
                     coinSymbol: form.coinSymbol,
                     network: form.coinNetwork,
@@ -1518,7 +1518,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
                   console.log("ADMIN_BULK_EXECUTE_CLICKED");
                   const payload = {
                     targetMode: form.targetMode,
-                    userIds,
+                    ...(form.targetMode === "manual" ? { userIds } : {}),
                     packageAmount: Number(form.packageAmount),
                     coinSymbol: form.coinSymbol,
                     network: form.coinNetwork,
