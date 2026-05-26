@@ -410,6 +410,16 @@ const adminBulkDistributionSchema = z
     }
   });
 
+function isUuid(value: string) {
+  return z.string().uuid().safeParse(value).success;
+}
+
+function normalizeManualBulkTarget(value: string) {
+  const target = value.trim();
+  if (target.toLowerCase().startsWith("wallet:")) return target.slice("wallet:".length).trim();
+  return target;
+}
+
 const purchaseSchema = z.object({
   idempotencyKey: z.string().trim().min(12).max(120).optional()
 });
@@ -4866,7 +4876,7 @@ hbRouter.post("/hb/auth/wallet/verify", asyncHandler(async (req, res) => {
 
     if (adminWalletAddress) {
       logger.info("ADMIN_WALLET_MATCH", { walletAddress: adminWalletAddress, authMode: parsed.data.authMode || null, phase: "verify" });
-      const adminEmail = config.adminEmail || `wallet:${adminWalletAddress}`;
+      const adminEmail = config.adminEmail || adminWalletAddress;
       const adminToken = createAdminToken(adminEmail, "super_admin");
       await client.query(
         `update hb_wallet_auth_challenges
@@ -6617,17 +6627,18 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
     let targets: Array<{ userId: string; email?: string | null; displayName?: string | null; packageName: string }>;
     if (parsed.data.targetMode === "package") {
       targets = (await client.query<{ user_id: string; email: string | null; display_name: string | null; package_name: string }>(
-          `select distinct on (up.user_id)
-                  up.user_id,
+          `select distinct on (u.id)
+                  u.id as user_id,
                   u.email,
                   u.display_name,
-                  coalesce(nullif(up.package_name, ''), $2::text) as package_name
-           from hb_user_products up
-           join hb_users u on u.id = up.user_id
-           where up.status = 'active'
-             and up.package_amount = $1::numeric
+                  coalesce(pkg.name, $2::text) as package_name
+           from hb_users u
+           join hb_package_purchases p on p.user_id = u.id
+           left join hb_packages pkg on pkg.id = p.package_id
+           where p.amount_usd = $1::numeric
+             and p.status = 'completed'
              and u.status = 'active'
-           order by up.user_id, up.activated_at desc, up.created_at desc`,
+           order by u.id, p.created_at desc`,
           [parsed.data.packageAmount, packageName]
         )).rows.map((row) => ({
           userId: row.user_id,
@@ -6636,10 +6647,51 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
           packageName: row.package_name
         }));
     } else {
-      targets = [...new Set(parsed.data.userIds || [])].map((userId) => ({ userId, packageName: "Manual selection" }));
+      const manualTargets = [...new Set((parsed.data.userIds || []).map(normalizeManualBulkTarget).filter(Boolean))];
+      const resolvedTargets: Array<{ userId: string; email?: string | null; displayName?: string | null; packageName: string }> = [];
+      const unresolvedTargets: string[] = [];
+
+      for (const target of manualTargets) {
+        if (isUuid(target)) {
+          const rows = await client.query<{ id: string; email: string | null; display_name: string | null }>(
+            "select id, email, display_name from hb_users where id = $1 limit 1",
+            [target]
+          );
+          const user = rows.rows[0];
+          if (user) {
+            resolvedTargets.push({ userId: user.id, email: user.email, displayName: user.display_name, packageName: "Manual selection" });
+          } else {
+            unresolvedTargets.push(target);
+          }
+          continue;
+        }
+
+        const rows = await client.query<{ id: string; email: string | null; display_name: string | null }>(
+          `select id, email, display_name
+           from hb_users
+           where lower(coalesce(wallet_address, '')) = lower($1)
+              or lower(coalesce(usdt_bep20_address, '')) = lower($1)
+              or lower(coalesce(hb9_wallet_address, '')) = lower($1)
+           limit 1`,
+          [target]
+        );
+        const user = rows.rows[0];
+        if (user) {
+          resolvedTargets.push({ userId: user.id, email: user.email, displayName: user.display_name, packageName: "Manual selection" });
+        } else {
+          unresolvedTargets.push(target);
+        }
+      }
+
+      if (unresolvedTargets.length > 0) {
+        fail(res, `Could not resolve users: ${unresolvedTargets.join(", ")}`, 400, "Invalid bulk distribution");
+        return;
+      }
+
+      targets = resolvedTargets.filter((target, index, list) => list.findIndex((item) => item.userId === target.userId) === index);
     }
     const targetUserIds = targets.map((target) => target.userId);
-    console.log("PACKAGE USERS", targetUserIds);
+    console.log("HB9_PACKAGE_USERS", targetUserIds);
     if (targets.length === 0) {
       const targetLabel = parsed.data.targetMode === "package" ? `${packageName} ($${parsed.data.packageAmount})` : "manual selection";
       fail(res, `No users found for ${targetLabel}`, 400, "Bulk distribution failed");
