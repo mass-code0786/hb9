@@ -1256,10 +1256,11 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
     { symbol: "BTTC", label: "BTTC", network: "BTTC" },
     { symbol: "ADA", label: "ADA", network: "Cardano" }
   ];
-  const history = Array.isArray(data.items) ? data.items as Array<Record<string, unknown>> : [];
+  const initialHistory = Array.isArray(data.items) ? data.items as Array<Record<string, unknown>> : [];
   const [tab, setTab] = useState<"transfer" | "credit" | "deduct" | "history" | "bulk">("transfer");
   const [users, setUsers] = useState<Array<Record<string, unknown>>>([]);
   const [coins, setCoins] = useState<Array<Record<string, unknown>>>(Array.isArray(data.coins) ? data.coins as Array<Record<string, unknown>> : []);
+  const [history, setHistory] = useState<Array<Record<string, unknown>>>(initialHistory);
   const [form, setForm] = useState({ senderUserId: "", receiverUserId: "", userId: "", coinSymbol: "USDT", coinNetwork: "bsc", amount: "", note: "", userIds: "", targetMode: "manual", packageAmount: "4" });
   const [coinSheetOpen, setCoinSheetOpen] = useState(false);
   const [bulkPreview, setBulkPreview] = useState<Record<string, unknown> | null>(null);
@@ -1274,6 +1275,17 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
     { amount: "100", label: "Growth Package ($100)" }
   ];
   const filteredHistory = history.filter((row) => !query || JSON.stringify(row).toLowerCase().includes(query.toLowerCase()));
+
+  async function refreshFundsData() {
+    const [historyResult, usersResult, coinsResult] = await Promise.all([
+      adminRequest<Record<string, unknown>>("/admin/hb/funds/history", token),
+      adminRequest<Record<string, unknown>>("/admin/hb/coins/users", token).catch(() => null),
+      adminRequest<Record<string, unknown>>("/admin/hb/coins", token).catch(() => null)
+    ]);
+    setHistory(Array.isArray(historyResult.items) ? historyResult.items as Array<Record<string, unknown>> : []);
+    if (usersResult && Array.isArray(usersResult.users)) setUsers(usersResult.users as Array<Record<string, unknown>>);
+    if (coinsResult && Array.isArray(coinsResult.items)) setCoins(coinsResult.items as Array<Record<string, unknown>>);
+  }
 
   useEffect(() => {
     Promise.all([
@@ -1429,19 +1441,21 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
                 setBusy(true);
                 setMessage("");
                 try {
+                  const previewPayload = {
+                    targetMode: form.targetMode,
+                    userIds,
+                    packageAmount: Number(form.packageAmount),
+                    coinSymbol: form.coinSymbol,
+                    network: form.coinNetwork,
+                    amount: form.amount,
+                    reason: form.note.trim(),
+                    note: form.note.trim(),
+                    preview: true,
+                    idempotencyKey: key
+                  };
                   const preview = await adminRequest<Record<string, unknown>>("/admin/hb/funds/bulk-distribution", token, {
                     method: "POST",
-                    body: JSON.stringify({
-                      targetMode: form.targetMode,
-                      userIds,
-                      packageAmount: Number(form.packageAmount),
-                      coinSymbol: form.coinSymbol,
-                      network: form.coinNetwork,
-                      amount: form.amount,
-                      note: form.note.trim(),
-                      preview: true,
-                      idempotencyKey: key
-                    })
+                    body: JSON.stringify(previewPayload)
                   });
                   setBulkPreview(preview);
                   setBulkIdempotencyKey(key);
@@ -1501,23 +1515,38 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
                 setBusy(true);
                 setMessage("");
                 try {
-                  await adminRequest("/admin/hb/funds/bulk-distribution", token, {
+                  console.log("ADMIN_BULK_EXECUTE_CLICKED");
+                  const payload = {
+                    targetMode: form.targetMode,
+                    userIds,
+                    packageAmount: Number(form.packageAmount),
+                    coinSymbol: form.coinSymbol,
+                    network: form.coinNetwork,
+                    amount: form.amount,
+                    reason: form.note.trim(),
+                    note: form.note.trim(),
+                    idempotencyKey: bulkIdempotencyKey || `hb-ui-bulk-${Date.now()}-${crypto.randomUUID()}`
+                  };
+                  console.log("ADMIN_BULK_EXECUTE_PAYLOAD", payload);
+                  const response = await adminRequest<Record<string, unknown>>("/admin/hb/funds/bulk-distribution", token, {
                     method: "POST",
-                    body: JSON.stringify({
-                      targetMode: form.targetMode,
-                      userIds,
-                      packageAmount: Number(form.packageAmount),
-                      coinSymbol: form.coinSymbol,
-                      network: form.coinNetwork,
-                      amount: form.amount,
-                      note: form.note.trim(),
-                      idempotencyKey: bulkIdempotencyKey || `hb-ui-bulk-${Date.now()}-${crypto.randomUUID()}`
-                    })
+                    body: JSON.stringify(payload)
                   });
-                  setMessage("Bulk distribution recorded with proofs.");
-                  window.location.reload();
+                  console.log("ADMIN_BULK_EXECUTE_RESPONSE", response);
+                  if (response.success === false) {
+                    throw new Error(String(response.message || "Bulk distribution failed"));
+                  }
+                  const creditedUsers = Number(response.creditedUsers ?? response.count ?? 0);
+                  const amount = compact(response.amount ?? form.amount);
+                  const coin = compact(response.coin ?? form.coinSymbol);
+                  setMessage(`${amount} ${coin} distributed to ${creditedUsers} users`);
+                  setBulkPreview(null);
+                  setBulkIdempotencyKey("");
+                  setForm((current) => ({ ...current, amount: "" }));
+                  await refreshFundsData();
                 } catch (err) {
-                  setMessage(err instanceof Error ? err.message : "Bulk distribution failed.");
+                  console.error("ADMIN_BULK_EXECUTE_ERROR", err);
+                  setMessage(`Bulk distribution failed: ${err instanceof Error ? err.message : "Unknown backend error."}`);
                   setBulkPreview((current) => current ? { ...current, confirmOpen: false } : current);
                 } finally {
                   setBusy(false);
