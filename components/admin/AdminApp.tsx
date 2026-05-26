@@ -1539,7 +1539,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
                   const creditedUsers = Number(response.creditedUsers ?? response.count ?? 0);
                   const amount = compact(response.amount ?? form.amount);
                   const coin = compact(response.coin ?? form.coinSymbol);
-                  setMessage(`${amount} ${coin} distributed to ${creditedUsers} users`);
+                  setMessage(`Bulk dividend distributed successfully: ${amount} ${coin} distributed to ${creditedUsers} users`);
                   setBulkPreview(null);
                   setBulkIdempotencyKey("");
                   setForm((current) => ({ ...current, amount: "" }));

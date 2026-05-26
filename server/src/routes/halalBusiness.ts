@@ -365,9 +365,10 @@ const adminFundActionSchema = z.object({
 
 const adminBulkDistributionSchema = z.object({
   targetMode: z.enum(["manual", "package"]).default("manual"),
-  userIds: z.array(z.string().uuid()).max(500).optional(),
+  userIds: z.array(z.string()).optional(),
   packageAmount: z.coerce.number().refine((value) => [4, 20, 100].includes(value), "Package amount must be 4, 20, or 100.").optional(),
-  coinSymbol: hbCoinSymbolSchema,
+  coinSymbol: hbCoinSymbolSchema.optional(),
+  coin: hbCoinSymbolSchema.optional(),
   network: z.string().trim().max(40).optional(),
   amount: decimalAmountSchema,
   note: z.string().trim().min(1).max(500).optional(),
@@ -381,12 +382,16 @@ const adminBulkDistributionSchema = z.object({
   if (value.targetMode === "package" && !value.packageAmount) {
     ctx.addIssue({ code: "custom", path: ["packageAmount"], message: "Package amount required for package mode" });
   }
+  if (!value.coinSymbol && !value.coin) {
+    ctx.addIssue({ code: "custom", path: ["coinSymbol"], message: "Coin is required" });
+  }
   if (!value.note && !value.reason) {
     ctx.addIssue({ code: "custom", path: ["reason"], message: "Reason is required" });
   }
 }).transform((value) => ({
   ...value,
   userIds: value.targetMode === "manual" ? value.userIds : undefined,
+  coinSymbol: value.coinSymbol || value.coin || "USDT",
   note: value.note || value.reason || ""
 }));
 
@@ -6552,12 +6557,16 @@ hbRouter.post("/admin/hb/funds/deduct", requireAdmin, asyncHandler(async (req, r
   await adminFundAction(req, res, "debit", "deduct");
 }));
 
-hbRouter.post("/admin/hb/funds/bulk-distribution", requireAdmin, asyncHandler(async (req, res) => {
+async function adminBulkDistribution(req: Request, res: Response, forcePreview = false) {
   if (!pool) {
     fail(res, "Database is not configured.", 500, "Bulk distribution failed");
     return;
   }
-  const parsed = adminBulkDistributionSchema.safeParse(req.body);
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+    ? { ...(req.body as Record<string, unknown>), ...(forcePreview ? { preview: true } : {}) }
+    : req.body;
+  console.log("ADMIN_BULK_BODY", body);
+  const parsed = adminBulkDistributionSchema.safeParse(body);
   if (!parsed.success) {
     fail(res, JSON.stringify(parsed.error.flatten()), 400, "Invalid bulk distribution");
     return;
@@ -6697,6 +6706,14 @@ hbRouter.post("/admin/hb/funds/bulk-distribution", requireAdmin, asyncHandler(as
   } finally {
     client.release();
   }
+}
+
+hbRouter.post("/admin/hb/funds/bulk-preview", requireAdmin, asyncHandler(async (req, res) => {
+  await adminBulkDistribution(req, res, true);
+}));
+
+hbRouter.post("/admin/hb/funds/bulk-distribution", requireAdmin, asyncHandler(async (req, res) => {
+  await adminBulkDistribution(req, res);
 }));
 
 hbRouter.get("/admin/hb/funds/history", requireAdmin, asyncHandler(async (req, res) => {
