@@ -1,15 +1,12 @@
-export type HbCoinSymbol = "USDT" | "BTC" | "ETH" | "BNB" | "TRX" | "MATIC" | "HB9" | "PEPE" | "DOGE" | "SHIB" | "BTTC" | "ADA";
+export type HbCoinSymbol = "USDT" | "BTC" | "BNB" | "HB9" | "PEPE" | "DOGE" | "SHIB" | "BTTC" | "ADA";
 
-export const hbNonUsdtCoinSymbols: HbCoinSymbol[] = ["BTC", "ETH", "BNB", "TRX", "MATIC", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"];
+export const hbNonUsdtCoinSymbols: HbCoinSymbol[] = ["BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"];
 export const hbCoinSymbols: HbCoinSymbol[] = ["USDT", ...hbNonUsdtCoinSymbols];
 
 const mockPrices: Record<HbCoinSymbol, number> = {
   USDT: 1,
   BTC: 65000,
-  ETH: 3200,
   BNB: 580,
-  TRX: 0.12,
-  MATIC: 0.75,
   HB9: 0.13,
   PEPE: 0.000012,
   DOGE: 0.16,
@@ -22,7 +19,6 @@ export function normalizeHbCoinSymbol(value: string): HbCoinSymbol | null {
   const upper = value.trim().toUpperCase();
   if (upper === "BTCT") return "BTTC";
   if (upper === "SHIBA") return "SHIB";
-  if (upper === "POLYGON") return "MATIC";
   return hbCoinSymbols.includes(upper as HbCoinSymbol) ? upper as HbCoinSymbol : null;
 }
 
@@ -30,10 +26,7 @@ export function hbCoinName(symbol: HbCoinSymbol) {
   const names: Record<HbCoinSymbol, string> = {
     USDT: "USDT BEP20",
     BTC: "Bitcoin",
-    ETH: "Ethereum",
     BNB: "Binance Coin",
-    TRX: "TRON",
-    MATIC: "Polygon",
     HB9: "HB9 Coin",
     PEPE: "Pepe",
     DOGE: "Dogecoin",

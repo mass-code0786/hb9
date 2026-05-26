@@ -292,9 +292,9 @@ const adminOnchainPurchaseEventSchema = z.object({
   rawEvent: z.record(z.string(), z.unknown()).optional()
 });
 
-const hbCoinSymbolSchema = z.preprocess((value) => typeof value === "string" ? normalizeHbCoinSymbol(value) || value : value, z.enum(["USDT", "BTC", "ETH", "BNB", "TRX", "MATIC", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"]));
-const hbAdminCreditCoinSymbolSchema = z.preprocess((value) => typeof value === "string" ? normalizeHbCoinSymbol(value) || value : value, z.enum(["BTC", "ETH", "BNB", "TRX", "MATIC", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"]));
-const hbConvertibleCoinSymbolSchema = z.preprocess((value) => typeof value === "string" ? normalizeHbCoinSymbol(value) || value : value, z.enum(["BTC", "ETH", "BNB", "TRX", "MATIC", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"]));
+const hbCoinSymbolSchema = z.preprocess((value) => typeof value === "string" ? normalizeHbCoinSymbol(value) || value : value, z.enum(["USDT", "BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"]));
+const hbAdminCreditCoinSymbolSchema = z.preprocess((value) => typeof value === "string" ? normalizeHbCoinSymbol(value) || value : value, z.enum(["BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"]));
+const hbConvertibleCoinSymbolSchema = z.preprocess((value) => typeof value === "string" ? normalizeHbCoinSymbol(value) || value : value, z.enum(["BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"]));
 function hasValidCoinPrecision(value: string | number) {
   if (typeof value === "string") return /^\d+(\.\d{1,18})?$/.test(value);
   return Number.isFinite(value) && value > 0;
@@ -1042,8 +1042,8 @@ const supportedCoins = hbCoinSymbols.map((symbol) => ({
   coin_symbol: symbol,
   symbol,
   name: hbCoinName(symbol),
-  network: symbol === "BTC" ? "bitcoin" : symbol === "ETH" ? "ethereum" : symbol === "TRX" ? "tron" : symbol === "MATIC" ? "polygon" : symbol === "USDT" || symbol === "BNB" || symbol === "HB9" ? "bsc" : "wallet",
-  decimals: symbol === "BTC" ? 8 : symbol === "USDT" || symbol === "ETH" || symbol === "BNB" || symbol === "MATIC" || symbol === "HB9" ? 18 : 8,
+  network: symbol === "BTC" ? "bitcoin" : symbol === "USDT" || symbol === "BNB" || symbol === "HB9" ? "bsc" : "wallet",
+  decimals: symbol === "BTC" ? 8 : symbol === "USDT" || symbol === "BNB" || symbol === "HB9" ? 18 : 8,
   enabled: true,
   usd_price: symbol === "USDT" ? "1" : null
 }));
@@ -1115,37 +1115,6 @@ async function applyHbCoinAdjustment(input: {
 async function readCoinBalance(client: PoolClient, userId: string, coinSymbol: string) {
   const rows = await client.query<{ balance: string }>("select balance::text from hb_coin_balances where user_id = $1 and coin_symbol = $2", [userId, coinSymbol]);
   return Number(rows.rows[0]?.balance || 0);
-}
-
-async function readDividendTreasuryBalance(client: PoolClient, coinSymbol: string) {
-  const rows = await client.query<{ balance: string; source_count: number }>(
-    `with treasury_wallets as (
-       select lower(wallet_address) as wallet_address
-       from hb_treasury_settings
-       where wallet_address is not null and wallet_address <> ''
-     ),
-     treasury_users as (
-       select distinct u.id
-       from hb_users u
-       left join hb_wallets w on w.user_id = u.id
-       left join treasury_wallets tw on tw.wallet_address = lower(w.wallet_address)
-       where ($2::text <> '' and lower(coalesce(u.email,'')) = lower($2::text))
-          or tw.wallet_address is not null
-          or lower(coalesce(u.display_name,'')) like '%treasury%'
-     )
-     select coalesce(sum(b.balance),0)::text as balance,
-            count(distinct b.user_id)::int as source_count
-     from hb_coin_balances b
-     join treasury_users tu on tu.id = b.user_id
-     where b.coin_symbol = $1`,
-    [coinSymbol, config.adminEmail || ""]
-  );
-  const row = rows.rows[0];
-  return {
-    balance: Number(row?.balance || 0),
-    sourceCount: Number(row?.source_count || 0),
-    configured: Number(row?.source_count || 0) > 0
-  };
 }
 
 async function ensureHbUserExists(client: PoolClient, userId: string) {
@@ -6605,9 +6574,6 @@ hbRouter.post("/admin/hb/funds/bulk-distribution", requireAdmin, asyncHandler(as
       fail(res, "No users matched this bulk distribution target.", 400, "No matched users");
       return;
     }
-    const estimatedTotal = Number(parsed.data.amount) * targets.length;
-    const treasury = await readDividendTreasuryBalance(client, parsed.data.coinSymbol);
-    const treasurySufficient = !treasury.configured || treasury.balance + Number.EPSILON >= estimatedTotal;
     if (parsed.data.preview) {
       ok(res, {
         preview: true,
@@ -6617,16 +6583,9 @@ hbRouter.post("/admin/hb/funds/bulk-distribution", requireAdmin, asyncHandler(as
         coinSymbol: parsed.data.coinSymbol,
         amount: parsed.data.amount,
         matchedUsers: targets.length,
-        estimatedTotal,
-        treasuryBalance: treasury.configured ? treasury.balance : null,
-        treasuryBalanceTracked: treasury.configured,
-        treasurySufficient,
+        estimatedTotal: Number(parsed.data.amount) * targets.length,
         users: targets.slice(0, 200)
       }, "Bulk distribution preview ready");
-      return;
-    }
-    if (!treasurySufficient) {
-      fail(res, `Insufficient treasury ${parsed.data.coinSymbol} balance for this dividend distribution.`, 400, "Treasury balance too low");
       return;
     }
     await client.query("begin");
@@ -6655,7 +6614,7 @@ hbRouter.post("/admin/hb/funds/bulk-distribution", requireAdmin, asyncHandler(as
         adminId: adminEmail,
         note: parsed.data.note,
         idempotencyKey: `${rootKey}:${userId}`,
-        metadata: { action: "bulk_distribution", dividend: true, batchKey: rootKey, targetMode: parsed.data.targetMode, packageAmount: parsed.data.packageAmount || null, packageName: target.packageName }
+        metadata: { action: "bulk_distribution", batchKey: rootKey, targetMode: parsed.data.targetMode, packageAmount: parsed.data.packageAmount || null, packageName: target.packageName }
       });
       if (!ledgerId) continue;
       const proof = await createLedgerProof(client, "hb_coin_balance_ledger", ledgerId);
@@ -6675,9 +6634,7 @@ hbRouter.post("/admin/hb/funds/bulk-distribution", requireAdmin, asyncHandler(as
       userIds: undefined,
       userCount: results.length,
       packageName: parsed.data.packageAmount ? bulkDistributionPackages[Number(parsed.data.packageAmount)] : "Manual selection",
-      estimatedTotal: Number(parsed.data.amount) * results.length,
-      treasuryBalanceBefore: treasury.configured ? treasury.balance : null,
-      treasuryBalanceTracked: treasury.configured
+      estimatedTotal: Number(parsed.data.amount) * results.length
     };
     await adminActionLog({ adminEmail, action: "admin.hb.funds.bulk_distribution", entityType: "hb_admin_balance_action", entityId: rootKey, metadata, req });
     await adminHbAudit(adminEmail, "admin.hb.funds.bulk_distribution", "hb_admin_balance_action", rootKey, metadata);

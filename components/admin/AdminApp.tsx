@@ -1253,7 +1253,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
   const [bulkIdempotencyKey, setBulkIdempotencyKey] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const coinOptions: Array<Record<string, unknown>> = (coins.length ? coins : ["USDT", "BTC", "ETH", "BNB", "TRX", "MATIC", "DOGE", "SHIB", "ADA", "HB9"].map((coin) => ({ coin_symbol: coin, name: displayAdminCoinSymbol(coin) })))
+  const coinOptions: Array<Record<string, unknown>> = (coins.length ? coins : ["USDT", "BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"].map((coin) => ({ coin_symbol: coin, name: displayAdminCoinSymbol(coin) })))
     .filter((coin) => coin.enabled === undefined || coin.enabled === true);
   const bulkPackages = [
     { amount: "4", label: "Starter Package ($4)" },
@@ -1403,12 +1403,10 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
             )}
             {controls}
             {bulkPreview ? (
-              <div className="grid gap-3 rounded-2xl border border-accent/25 bg-accent/10 p-3 text-sm text-slate-100 sm:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-3 rounded-2xl border border-accent/25 bg-accent/10 p-3 text-sm text-slate-100 sm:grid-cols-3">
                 <Metric title="Matched users" value={compact(bulkPreview.matchedUsers || 0)} tone="accent" />
                 <Metric title="Estimated total" value={`${compact(bulkPreview.estimatedTotal || 0)} ${form.coinSymbol}`} tone="mint" />
                 <Metric title="Package" value={compact(bulkPreview.packageName || "Manual selection")} />
-                <Metric title="Selected coin" value={form.coinSymbol} />
-                <Metric title="Treasury check" value={bulkPreview.treasuryBalanceTracked ? `${compact(bulkPreview.treasuryBalance || 0)} ${form.coinSymbol}` : "Not tracked"} tone={bulkPreview.treasurySufficient === false ? "danger" : "mint"} />
               </div>
             ) : null}
             <div className="grid gap-2 sm:flex sm:flex-wrap">
@@ -1444,7 +1442,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
                   setBusy(false);
                 }
               }} type="button">Preview Distribution</button>
-              <button className="w-full rounded-2xl bg-accent px-4 py-3 font-semibold text-black disabled:opacity-60 sm:w-fit" disabled={busy || !bulkPreview || bulkPreview.treasurySufficient === false} onClick={() => setBulkPreview((current) => current ? { ...current, confirmOpen: true } : current)} type="button">Execute Bulk Distribution</button>
+              <button className="w-full rounded-2xl bg-accent px-4 py-3 font-semibold text-black disabled:opacity-60 sm:w-fit" disabled={busy || !bulkPreview} onClick={() => setBulkPreview((current) => current ? { ...current, confirmOpen: true } : current)} type="button">Execute Bulk Distribution</button>
             </div>
           </div>
         ) : null}
@@ -1454,7 +1452,7 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
         <div className="fixed inset-0 z-[90] grid place-items-end bg-black/70 p-3 sm:place-items-center">
           <div className="w-full max-w-md rounded-2xl border border-accent/20 bg-[#07111f] p-4 shadow-2xl">
             <h3 className="text-lg font-black text-white">Confirm bulk distribution</h3>
-            <p className="mt-2 text-sm text-slate-300">Send {compact(form.amount)} {form.coinSymbol} to {compact(bulkPreview.matchedUsers)} matched users. Estimated total: {compact(bulkPreview.estimatedTotal)} {form.coinSymbol}. Treasury check: {bulkPreview.treasuryBalanceTracked ? `${compact(bulkPreview.treasuryBalance || 0)} ${form.coinSymbol}` : "not tracked"}. This creates ledger entries and proof records.</p>
+            <p className="mt-2 text-sm text-slate-300">Send {compact(form.amount)} {form.coinSymbol} to {compact(bulkPreview.matchedUsers)} matched users. Estimated total: {compact(bulkPreview.estimatedTotal)} {form.coinSymbol}. This creates ledger entries and proof records.</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               <button className="rounded-xl border border-sky-200/10 bg-[#0b1728]/75 px-4 py-3 text-sm font-semibold text-slate-200" onClick={() => setBulkPreview((current) => current ? { ...current, confirmOpen: false } : current)} type="button">Cancel</button>
               <button className="rounded-xl bg-accent px-4 py-3 text-sm font-black text-black disabled:opacity-60" disabled={busy} onClick={async () => {
