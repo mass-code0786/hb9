@@ -1406,7 +1406,6 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
             targetMode: "package",
             packageAmount: selectedPackageAmount,
             coinSymbol: selectedCoin.symbol,
-            network: selectedCoin.network,
             amount: submitAmount,
             note: submitNote
           }
@@ -1414,7 +1413,6 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
             targetMode: "manual",
             userIds,
             coinSymbol: selectedCoin.symbol,
-            network: selectedCoin.network,
             amount: submitAmount,
             note: submitNote
           };
@@ -1529,15 +1527,11 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
                     targetMode: form.targetMode,
                     ...(form.targetMode === "manual" ? { userIds } : {}),
                     packageAmount: Number(form.packageAmount),
-                    coinSymbol: form.coinSymbol,
-                    network: form.coinNetwork,
-                    amount: form.amount,
-                    reason: form.note.trim(),
-                    note: form.note.trim(),
-                    preview: true,
-                    idempotencyKey: key
+                    coinSymbol: selectedCoin.symbol,
+                    amount: Number(form.amount),
+                    note: form.note.trim()
                   };
-                  const preview = await adminRequest<Record<string, unknown>>("/admin/hb/funds/bulk-distribution", token, {
+                  const preview = await adminRequest<Record<string, unknown>>("/admin/hb/funds/bulk-preview", token, {
                     method: "POST",
                     body: JSON.stringify(previewPayload)
                   });
