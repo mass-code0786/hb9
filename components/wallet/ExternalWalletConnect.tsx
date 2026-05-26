@@ -237,7 +237,7 @@ export function ExternalWalletConnect({ compact = false, minimal = false, hero =
       selectedToken: null,
       customTokens: [],
       hiddenSymbols: [],
-      favorites: ["bsc:BNB", "bsc:USDT", "bsc:USDC", "ethereum:ETH", "ethereum:USDT", "polygon:MATIC", "polygon:USDT", "tron:TRX", "tron:USDT", "bitcoin:BTC"]
+      favorites: ["bsc:BNB", "bsc:USDT", "bsc:USDC", "ethereum:ETH", "ethereum:USDT", "polygon:USDT", "tron:TRX", "tron:USDT", "bitcoin:BTC"]
     });
     useRechargeStore.setState({
       country: "IN",

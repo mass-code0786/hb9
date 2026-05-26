@@ -40,6 +40,18 @@ export function CoinLogo({ symbol, size = 40, className = "" }: CoinLogoProps) {
     );
   }
 
+  if (coin === "ETH") {
+    return (
+      <svg viewBox="0 0 64 64" style={style} className={common} aria-hidden="true" role="img">
+        <circle cx="32" cy="32" r="31" fill="#627EEA" />
+        <path fill="#fff" fillOpacity=".92" d="M32 8 18.5 32.4 32 40.4l13.5-8L32 8Z" />
+        <path fill="#D8E0FF" d="M32 8v32.4l13.5-8L32 8Z" />
+        <path fill="#fff" fillOpacity=".92" d="M18.5 35 32 56l13.5-21L32 43l-13.5-8Z" />
+        <path fill="#D8E0FF" d="M32 43v13l13.5-21L32 43Z" />
+      </svg>
+    );
+  }
+
   if (coin === "BNB") {
     return (
       <svg viewBox="0 0 64 64" style={style} className={common} aria-hidden="true" role="img">
@@ -47,6 +59,15 @@ export function CoinLogo({ symbol, size = 40, className = "" }: CoinLogoProps) {
         <circle cx="32" cy="32" r="25" fill="#151A24" />
         <path fill="#F3BA2F" d="m32 10.5 7.3 7.3-4.2 4.2-3.1-3.1-3.1 3.1-4.2-4.2 7.3-7.3Zm-14.2 14.2 4.2 4.2-3.1 3.1 3.1 3.1-4.2 4.2-7.3-7.3 7.3-7.3Zm28.4 0 7.3 7.3-7.3 7.3-4.2-4.2 3.1-3.1-3.1-3.1 4.2-4.2ZM32 24.7l7.3 7.3-7.3 7.3-7.3-7.3 7.3-7.3Zm-3.1 17.3 3.1 3.1 3.1-3.1 4.2 4.2-7.3 7.3-7.3-7.3 4.2-4.2Z" />
         <path fill="#F8D33A" d="m32 28.9 3.1 3.1-3.1 3.1-3.1-3.1 3.1-3.1Z" />
+      </svg>
+    );
+  }
+
+  if (coin === "TRX") {
+    return (
+      <svg viewBox="0 0 64 64" style={style} className={common} aria-hidden="true" role="img">
+        <circle cx="32" cy="32" r="31" fill="#EF0027" />
+        <path fill="#fff" d="M49.8 15.1 11.8 8.2l20 50.2 28-34.2-10-9.1Zm-1.6 5.1 5.9 5.4-16.2 3 10.3-8.4ZM34.7 28 18.8 14.8l25.8 4.7-9.9 8.5Zm-2.8 5.4 3.7 15.8-16-32.3 12.3 16.5Zm4.2-.8 16.9-3.1-13.7 16.8-3.2-13.7Z" />
       </svg>
     );
   }
@@ -130,6 +151,24 @@ export function CoinLogo({ symbol, size = 40, className = "" }: CoinLogoProps) {
         <circle cx="32" cy="32" r="24" fill="#155EEF" opacity=".78" />
         <path fill="#DFFBFF" d="M17 15h15.4c6.4 0 10.1 2.9 10.1 7.7 0 2.9-1.5 5.1-4.2 6.4 4.2 1.1 6.8 4.1 6.8 8.5 0 6.7-5.2 11.2-13 11.2H17V15Zm9.2 12.6h4.9c2.2 0 3.4-1 3.4-2.7s-1.2-2.6-3.4-2.6h-4.9v5.3Zm0 13.8h5.9c3 0 4.6-1.3 4.6-3.7s-1.6-3.7-4.6-3.7h-5.9v7.4Z" />
         <path fill="#8AF5FF" d="M44.4 16.8h5.2v8.8H55v5.5h-5.4v17.1h-7.1V31.1h-5v-5.5h5v-6.9l1.9-1.9Z" />
+      </svg>
+    );
+  }
+
+  if (coin === "ADA") {
+    return (
+      <svg viewBox="0 0 64 64" style={style} className={common} aria-hidden="true" role="img">
+        <circle cx="32" cy="32" r="31" fill="#0033AD" />
+        <circle cx="32" cy="32" r="4" fill="#fff" />
+        {[0, 60, 120, 180, 240, 300].map((deg) => (
+          <circle key={deg} cx="32" cy="17" r="2.8" fill="#fff" transform={`rotate(${deg} 32 32)`} />
+        ))}
+        {[30, 90, 150, 210, 270, 330].map((deg) => (
+          <circle key={deg} cx="32" cy="23" r="1.9" fill="#DCEBFF" transform={`rotate(${deg} 32 32)`} />
+        ))}
+        {[0, 45, 90, 135, 180, 225, 270, 315].map((deg) => (
+          <circle key={deg} cx="32" cy="9" r="1.35" fill="#EAF3FF" transform={`rotate(${deg} 32 32)`} />
+        ))}
       </svg>
     );
   }

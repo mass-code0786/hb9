@@ -42,7 +42,7 @@ export type HbPackage = {
 };
 
 export type HbCoinBalance = {
-  coin_symbol: "USDT" | "BTC" | "BNB" | "HB9" | "PEPE" | "DOGE" | "SHIB" | "BTTC" | "ADA" | "TRX";
+  coin_symbol: "USDT" | "BTC" | "ETH" | "BNB" | "TRX" | "HB9" | "PEPE" | "DOGE" | "SHIB" | "BTTC" | "ADA";
   name: string;
   symbol: string;
   balance: string | number;

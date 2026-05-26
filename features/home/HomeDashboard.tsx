@@ -13,10 +13,13 @@ import type { WalletTransaction } from "@/types/wallet";
 import { bindHbWalletAddress, fetchHbCoinHistory, fetchHbCoins, fetchHbMe, fetchHbPurchases, fetchHbWallet, fetchHbWalletAddress, getHbToken, type HbCoinBalance, type HbCoinLedgerEntry } from "@/services/halalBusinessService";
 
 const DEV_BOUND_WALLET_KEY = "hb9.usdtBep20Address";
+const walletCoinOrder = ["USDT", "BTC", "ETH", "BNB", "TRX", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"] as const;
 const defaultCoins: HbCoinBalance[] = [
   { coin_symbol: "USDT", name: "USDT BEP20", symbol: "USDT", balance: "0", usd_price: "1" },
   { coin_symbol: "BTC", name: "Bitcoin", symbol: "BTC", balance: "0", usd_price: "0" },
+  { coin_symbol: "ETH", name: "Ethereum", symbol: "ETH", balance: "0", usd_price: "0" },
   { coin_symbol: "BNB", name: "Binance Coin", symbol: "BNB", balance: "0", usd_price: "0" },
+  { coin_symbol: "TRX", name: "TRON", symbol: "TRX", balance: "0", usd_price: "0" },
   { coin_symbol: "HB9", name: "HB9", symbol: "HB9 COIN", balance: "0", usd_price: "0" },
   { coin_symbol: "PEPE", name: "Pepe", symbol: "PEPE", balance: "0" },
   { coin_symbol: "DOGE", name: "Dogecoin", symbol: "DOGE", balance: "0" },
@@ -24,6 +27,16 @@ const defaultCoins: HbCoinBalance[] = [
   { coin_symbol: "BTTC", name: "BitTorrent Chain", symbol: "BTTC", balance: "0" },
   { coin_symbol: "ADA", name: "Cardano", symbol: "ADA", balance: "0" }
 ];
+
+function visibleWalletCoins(items: HbCoinBalance[]) {
+  const bySymbol = new Map(defaultCoins.map((coin) => [coin.coin_symbol, coin]));
+  for (const coin of items) {
+    const symbol = String(coin.coin_symbol || coin.symbol || "").toUpperCase();
+    if (!walletCoinOrder.includes(symbol as (typeof walletCoinOrder)[number])) continue;
+    bySymbol.set(symbol as HbCoinBalance["coin_symbol"], { ...bySymbol.get(symbol as HbCoinBalance["coin_symbol"]), ...coin, coin_symbol: symbol as HbCoinBalance["coin_symbol"] });
+  }
+  return walletCoinOrder.map((symbol) => bySymbol.get(symbol)).filter(Boolean) as HbCoinBalance[];
+}
 
 export function HomeDashboard({
   accountId,
@@ -76,7 +89,7 @@ export function HomeDashboard({
           currentPackage: purchases.items[0]?.package_name || "None",
           boundAddress: walletAddress.usdt_bep20_address || me.user.usdt_bep20_address || ""
         });
-        setCoins(coinData.items.length ? coinData.items : defaultCoins);
+        setCoins(visibleWalletCoins(coinData.items.length ? coinData.items : defaultCoins));
       })
       .catch(() => {
         const devAddress = window.localStorage.getItem(DEV_BOUND_WALLET_KEY) || "";

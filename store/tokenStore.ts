@@ -22,7 +22,7 @@ export const useTokenStore = create<TokenState>()(
       selectedToken: null,
       customTokens: [],
       hiddenSymbols: [],
-      favorites: ["bsc:BNB", "bsc:USDT", "bsc:USDC", "ethereum:ETH", "ethereum:USDT", "polygon:MATIC", "polygon:USDT", "tron:TRX", "tron:USDT", "bitcoin:BTC"],
+      favorites: ["bsc:BNB", "bsc:USDT", "bsc:USDC", "ethereum:ETH", "ethereum:USDT", "polygon:USDT", "tron:TRX", "tron:USDT", "bitcoin:BTC"],
       setSearch: (search) => set({ search }),
       setSelectedToken: (selectedToken) => set({ selectedToken }),
       addCustomToken: (token) =>

@@ -1813,7 +1813,6 @@ const walletCoinList = [
   { key: "ETH", label: "ETH", network: "Ethereum" },
   { key: "BNB", label: "BNB", network: "BINANCE COIN" },
   { key: "TRX", label: "TRX", network: "TRON" },
-  { key: "MATIC", label: "MATIC", network: "Polygon" },
   { key: "HB9", label: "HB9", network: "HB9 COIN" },
   { key: "PEPE", label: "PEPE", network: "Pepe coin" },
   { key: "DOGE", label: "DOGE", network: "Dogecoin" },

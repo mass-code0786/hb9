@@ -883,8 +883,8 @@ function onchainPackageIdForAmount(amount: string | number) {
 
 const hbCanonicalOnchainPackages = [
   { onchainPackageId: 1, amountUsd: 4, name: "$4 Starter", sortOrder: 1 },
-  { onchainPackageId: 2, amountUsd: 20, name: "$20 Growth", sortOrder: 2 },
-  { onchainPackageId: 3, amountUsd: 100, name: "$100 Popular", sortOrder: 3 },
+  { onchainPackageId: 2, amountUsd: 20, name: "$20 Builder", sortOrder: 2 },
+  { onchainPackageId: 3, amountUsd: 100, name: "$100 Growth", sortOrder: 3 },
   { onchainPackageId: 4, amountUsd: 500, name: "$500 Automation", sortOrder: 4 },
   { onchainPackageId: 5, amountUsd: 2500, name: "$2500 AI Business", sortOrder: 5 },
   { onchainPackageId: 6, amountUsd: 12500, name: "$12500 Enterprise", sortOrder: 6 }
