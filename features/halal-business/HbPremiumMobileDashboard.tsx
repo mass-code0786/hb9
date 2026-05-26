@@ -1193,6 +1193,7 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
   const [tab, setTab] = useState<"active" | "books" | "requests">("active");
   const [selectedFollowerPackageId, setSelectedFollowerPackageId] = useState("");
   const [selectedPlatform, setSelectedPlatform] = useState<HbFollowersPlatform | "">("");
+  const [packageSheetOpen, setPackageSheetOpen] = useState(false);
   const [platformSheetOpen, setPlatformSheetOpen] = useState(false);
   const [submittedLink, setSubmittedLink] = useState("");
   const [softwareType, setSoftwareType] = useState("");
@@ -1362,33 +1363,24 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
             <SectionTitle title="Followers Request" action={selectedFollowerProduct?.followersCount ? `${selectedFollowerProduct.followersCount} followers` : "Select package"} />
             <div className="mt-3 grid gap-4 pb-[calc(env(safe-area-inset-bottom)+7rem)]">
               <div className="grid gap-2.5">
-                {hasPurchases ? productRows.map((item) => {
-                  const selected = selectedFollowerProduct?.id === item.id;
-                  const requestStatus = latestFollowersRequestsByPurchase.get(item.id)?.status;
-                  const disabled = item.followersCount <= 0 || isFollowersRequestBlocked(requestStatus);
-                  return (
-                    <button
-                      key={item.id}
-                      className={`hb-interactive hb-glow-cyan flex min-h-[4.25rem] items-center justify-between gap-3 rounded-2xl border px-3.5 py-3 text-left transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55 ${selected ? "border-cyan-200/80 bg-cyan-300/18 text-cyan-50 shadow-[0_0_24px_rgba(34,211,238,0.34),inset_0_1px_0_rgba(255,255,255,0.10)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`}
-                      disabled={disabled}
-                      onClick={() => {
-                        setSelectedFollowerPackageId(item.id);
-                        setSelectedPlatform("");
-                        setSubmittedLink("");
-                      }}
-                      type="button"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-black">{item.title}</span>
-                        <span className="mt-1 block text-[11px] font-bold text-sky-100/55">Purchase {String(item.purchaseId || item.id).slice(0, 8)}</span>
-                      </span>
-                      <span className="shrink-0 text-right text-xs font-bold">
-                        <span className="block">{money(item.price)}</span>
-                        <span className={`${requestStatus === "rejected" ? "text-red-100/80" : selected ? "text-cyan-100/82" : "text-cyan-100/62"}`}>{followersRequestLabel(requestStatus, item)}</span>
-                      </span>
-                    </button>
-                  );
-                }) : <button className="rounded-2xl border border-cyan-200/16 bg-[#071b34]/78 px-3 py-3 text-sm font-black text-sky-100/72" onClick={onBuy} type="button">Buy a package first</button>}
+                {hasPurchases ? (
+                  <button
+                    className={`hb-interactive hb-glow-cyan flex min-h-[4.25rem] items-center justify-between gap-3 rounded-2xl border px-3.5 py-3 text-left transition active:scale-[0.98] ${selectedFollowerProduct ? "border-cyan-200/80 bg-cyan-300/18 text-cyan-50 shadow-[0_0_24px_rgba(34,211,238,0.34),inset_0_1px_0_rgba(255,255,255,0.10)]" : "border-cyan-200/16 bg-[#071b34]/78 text-sky-100/72"}`}
+                    onClick={() => setPackageSheetOpen(true)}
+                    type="button"
+                    aria-haspopup="dialog"
+                    aria-expanded={packageSheetOpen}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-black">{selectedFollowerProduct?.title || "Select Package"}</span>
+                      <span className="mt-1 block text-[11px] font-bold text-sky-100/55">{selectedFollowerProduct ? `Purchase ${String(selectedFollowerProduct.purchaseId || selectedFollowerProduct.id).slice(0, 8)}` : "Only purchased packages are shown"}</span>
+                    </span>
+                    <span className="shrink-0 text-right text-xs font-bold">
+                      <span className="block">{selectedFollowerProduct ? money(selectedFollowerProduct.price) : `${productRows.length} available`}</span>
+                      <span className={selectedFollowerRequestStatus === "rejected" ? "text-red-100/80" : "text-cyan-100/62"}>{selectedFollowerProduct ? followersRequestLabel(selectedFollowerRequestStatus, selectedFollowerProduct) : "No package selected"}</span>
+                    </span>
+                  </button>
+                ) : <button className="rounded-2xl border border-cyan-200/16 bg-[#071b34]/78 px-3 py-3 text-sm font-black text-sky-100/72" onClick={onBuy} type="button">Buy a package first</button>}
               </div>
               <div className={`rounded-2xl border px-3.5 py-3 text-xs font-bold ${selectedFollowerRequestStatus === "rejected" ? "border-red-200/18 bg-red-500/10 text-red-100" : selectedFollowerProduct ? "border-cyan-200/18 bg-cyan-300/10 text-cyan-100/82" : "border-cyan-200/12 bg-[#071b34]/72 text-sky-100/56"}`}>
                 <div className="text-[10px] uppercase tracking-[0.14em] text-cyan-100/52">Status</div>
@@ -1424,6 +1416,54 @@ function MyProductsScreen({ purchases, orders, delivery, packages, buyLoadingPro
               <button className="hb-interactive hb-glow-cyan rounded-2xl bg-cyan-300 px-4 py-3 font-black text-[#031326] disabled:opacity-45" disabled={!canSendFollowersRequest} onClick={() => canSendFollowersRequest && selectedFollowerProduct && selectedPlatform ? onFollowersRequest({ packagePurchaseId: selectedFollowerProduct.id, platform: selectedPlatform, submittedLink: submittedLink.trim() }) : undefined} type="button">Send Request</button>
             </div>
           </GlassCard>
+          {packageSheetOpen ? (
+            <div className="fixed inset-0 z-[120] flex items-end bg-black/70 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Select package">
+              <button className="absolute inset-0 h-full w-full cursor-default" onClick={() => setPackageSheetOpen(false)} type="button" aria-label="Close package selector" />
+              <div className="relative max-h-[86vh] w-full overflow-y-auto rounded-t-[26px] border border-cyan-200/16 bg-[#041225] px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-4 shadow-[0_-22px_60px_rgba(0,0,0,0.58),inset_0_1px_0_rgba(255,255,255,0.07)]">
+                <div className="mx-auto mb-3 h-1 w-12 rounded-full bg-cyan-100/25" />
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-base font-black text-cyan-50">Select Package</div>
+                    <div className="text-xs font-bold text-sky-100/48">Purchased packages only</div>
+                  </div>
+                  <button className="grid h-10 w-10 place-items-center rounded-2xl border border-cyan-200/14 bg-[#071b34]/90 text-cyan-100" onClick={() => setPackageSheetOpen(false)} type="button" aria-label="Close package selector">
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="grid gap-2">
+                  {productRows.map((item) => {
+                    const selected = selectedFollowerProduct?.id === item.id;
+                    const requestStatus = latestFollowersRequestsByPurchase.get(item.id)?.status;
+                    const disabled = item.followersCount <= 0 || isFollowersRequestBlocked(requestStatus);
+                    return (
+                      <button
+                        key={item.id}
+                        className={`hb-interactive hb-glow-cyan flex min-h-[4.35rem] items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${selected ? "border-cyan-200/70 bg-cyan-300 text-[#031326] shadow-[0_0_22px_rgba(34,211,238,0.28)]" : "border-cyan-200/14 bg-[#071b34]/86 text-sky-100/80"}`}
+                        disabled={disabled}
+                        onClick={() => {
+                          setSelectedFollowerPackageId(item.id);
+                          setSelectedPlatform("");
+                          setSubmittedLink("");
+                          setPackageSheetOpen(false);
+                        }}
+                        type="button"
+                        aria-pressed={selected}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-black">{item.title}</span>
+                          <span className={`mt-1 block text-xs font-bold ${selected ? "text-[#031326]/72" : "text-sky-100/52"}`}>{item.followersCount} followers</span>
+                        </span>
+                        <span className="shrink-0 text-right text-xs font-black">
+                          <span className="block">{money(item.price)}</span>
+                          <span className={requestStatus === "rejected" ? "text-red-100/90" : selected ? "text-[#031326]/72" : "text-cyan-100/62"}>{followersRequestLabel(requestStatus, item)}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : null}
           {platformSheetOpen ? (
             <div className="fixed inset-0 z-[120] flex items-end bg-black/70 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Select platform">
               <button className="absolute inset-0 h-full w-full cursor-default" onClick={() => setPlatformSheetOpen(false)} type="button" aria-label="Close platform selector" />

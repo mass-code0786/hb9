@@ -437,6 +437,7 @@ export type HbBook = {
   file_url?: string | null;
   download_url?: string | null;
   cover_image?: string | null;
+  package_tier?: string | number | null;
   status: string;
   sort_order: number;
   unlocked: boolean;

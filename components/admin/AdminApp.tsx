@@ -7,6 +7,7 @@ import {
   Activity,
   Banknote,
   BookOpen,
+  ChevronDown,
   ClipboardList,
   CreditCard,
   FileSearch,
@@ -1244,17 +1245,29 @@ function HbContracts({ data, token }: { data: Record<string, unknown>; token: st
 }
 
 function HbFundsManagement({ data, token, query }: { data: Record<string, unknown>; token: string; query: string }) {
+  const ADMIN_DISTRIBUTION_COINS = [
+    { symbol: "USDT", label: "USDT BEP20", network: "BEP20" },
+    { symbol: "BTC", label: "BTC", network: "Bitcoin" },
+    { symbol: "BNB", label: "BNB", network: "BEP20" },
+    { symbol: "HB9", label: "HB9", network: "BEP20" },
+    { symbol: "PEPE", label: "PEPE", network: "BEP20" },
+    { symbol: "DOGE", label: "DOGE", network: "Dogecoin" },
+    { symbol: "SHIBA", label: "SHIBA", network: "BEP20" },
+    { symbol: "BTTC", label: "BTTC", network: "BTTC" },
+    { symbol: "ADA", label: "ADA", network: "Cardano" }
+  ];
   const history = Array.isArray(data.items) ? data.items as Array<Record<string, unknown>> : [];
   const [tab, setTab] = useState<"transfer" | "credit" | "deduct" | "history" | "bulk">("transfer");
   const [users, setUsers] = useState<Array<Record<string, unknown>>>([]);
   const [coins, setCoins] = useState<Array<Record<string, unknown>>>(Array.isArray(data.coins) ? data.coins as Array<Record<string, unknown>> : []);
   const [form, setForm] = useState({ senderUserId: "", receiverUserId: "", userId: "", coinSymbol: "USDT", coinNetwork: "bsc", amount: "", note: "", userIds: "", targetMode: "manual", packageAmount: "4" });
+  const [coinSheetOpen, setCoinSheetOpen] = useState(false);
   const [bulkPreview, setBulkPreview] = useState<Record<string, unknown> | null>(null);
   const [bulkIdempotencyKey, setBulkIdempotencyKey] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const coinOptions: Array<Record<string, unknown>> = (coins.length ? coins : ["USDT", "BTC", "BNB", "HB9", "PEPE", "DOGE", "SHIB", "BTTC", "ADA"].map((coin) => ({ coin_symbol: coin, name: displayAdminCoinSymbol(coin) })))
-    .filter((coin) => coin.enabled === undefined || coin.enabled === true);
+  const coinOptions = ADMIN_DISTRIBUTION_COINS;
+  const selectedCoin = coinOptions.find((coin) => coin.symbol === form.coinSymbol) || coinOptions[0];
   const bulkPackages = [
     { amount: "4", label: "Starter Package ($4)" },
     { amount: "20", label: "Builder Package ($20)" },
@@ -1274,14 +1287,13 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
         setUsers(nextUsers);
         if (nextCoins.length) setCoins(nextCoins);
         const first = String(nextUsers[0]?.id || "");
-        const firstCoin = nextCoins.find((coin) => compact(coin.coin_symbol || coin.symbol) === "USDT") || nextCoins[0];
         setForm((current) => ({
           ...current,
           senderUserId: current.senderUserId || first,
           receiverUserId: current.receiverUserId || String(nextUsers[1]?.id || first),
           userId: current.userId || first,
-          coinSymbol: current.coinSymbol || compact(firstCoin?.coin_symbol || firstCoin?.symbol || "USDT"),
-          coinNetwork: current.coinNetwork || compact(firstCoin?.network || "bsc")
+          coinSymbol: current.coinSymbol || "USDT",
+          coinNetwork: current.coinNetwork || "BEP20"
         }));
       })
       .catch(() => undefined);
@@ -1328,17 +1340,14 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
     <div className="grid gap-3 md:grid-cols-3">
       <label className="space-y-2 text-sm text-slate-400">
         <span>Coin</span>
-        <select className="field min-h-12" value={form.coinSymbol} onChange={(event) => {
-          const selected = coinOptions.find((coin) => compact(coin.coin_symbol || coin.symbol) === event.target.value);
-          setForm((current) => ({ ...current, coinSymbol: event.target.value, coinNetwork: compact(selected?.network || "") }));
-          setBulkPreview(null);
-        }}>
-          {coinOptions.map((coin) => {
-            const symbol = compact(coin.coin_symbol || coin.symbol);
-            const network = compact(coin.network);
-            return <option key={`${symbol}-${network}`} value={symbol}>{compact(coin.name || displayAdminCoinSymbol(symbol))}{network ? ` (${network})` : ""}</option>;
-          })}
-        </select>
+        <button className="field flex min-h-12 items-center justify-between text-left" onClick={() => setCoinSheetOpen(true)} type="button">
+          <span>
+            <span className="block font-semibold text-slate-100">{selectedCoin.label}</span>
+            <span className="text-xs text-slate-500">{selectedCoin.network}</span>
+          </span>
+          <ChevronDown size={16} />
+        </button>
+        <div className="text-xs leading-5 text-slate-500">Coins loaded: {coinOptions.length}<br />Selected coin: {selectedCoin.label}</div>
       </label>
       <label className="space-y-2 text-sm text-slate-400">
         <span>Amount</span>
@@ -1448,6 +1457,38 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
         ) : null}
         {message ? <p className="mt-4 text-sm text-sky-100">{message}</p> : null}
       </Panel>
+      {coinSheetOpen ? (
+        <div className="fixed inset-0 z-[95] flex items-end bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4" role="dialog" aria-modal="true" aria-label="Select coin">
+          <button className="absolute inset-0 h-full w-full cursor-default" onClick={() => setCoinSheetOpen(false)} type="button" aria-label="Close coin selector" />
+          <div className="relative w-full max-h-[85vh] overflow-y-auto rounded-t-3xl border border-sky-200/15 bg-[#07111f] p-4 shadow-2xl sm:max-w-md sm:rounded-3xl">
+            <div className="mx-auto mb-3 h-1 w-12 rounded-full bg-slate-600 sm:hidden" />
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-base font-black text-white">Select coin</h3>
+              <button className="grid h-10 w-10 place-items-center rounded-xl border border-sky-200/10 bg-[#0b1728]/75 text-slate-200" onClick={() => setCoinSheetOpen(false)} type="button" aria-label="Close coin selector"><X size={18} /></button>
+            </div>
+            <div className="grid gap-2">
+              {coinOptions.map((coin) => {
+                const active = form.coinSymbol === coin.symbol;
+                return (
+                  <button
+                    key={coin.symbol}
+                    className={`flex min-h-14 items-center justify-between rounded-2xl border px-4 py-3 text-left ${active ? "border-accent bg-accent text-black" : "border-sky-200/10 bg-[#0b1728]/75 text-slate-100"}`}
+                    onClick={() => {
+                      setForm((current) => ({ ...current, coinSymbol: coin.symbol, coinNetwork: coin.network }));
+                      setBulkPreview(null);
+                      setCoinSheetOpen(false);
+                    }}
+                    type="button"
+                  >
+                    <span className="font-black">{coin.label}</span>
+                    <span className={`text-xs font-semibold ${active ? "text-black/70" : "text-slate-400"}`}>{coin.network}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
       {bulkPreview?.confirmOpen ? (
         <div className="fixed inset-0 z-[90] grid place-items-end bg-black/70 p-3 sm:place-items-center">
           <div className="w-full max-w-md rounded-2xl border border-accent/20 bg-[#07111f] p-4 shadow-2xl">
@@ -2023,7 +2064,7 @@ function HbTable({ title, rows, headers, fields, moneyFields = [], dateFields = 
 }
 
 function HbBooksManager({ rows, total, token }: { rows: Array<Record<string, unknown>>; total: number; token: string }) {
-  const emptyDraft = { title: "", coverImage: "", downloadUrl: "", sortOrder: String(Math.min(total + 1, 100)), isActive: true };
+  const emptyDraft = { title: "", description: "", coverImage: "", downloadUrl: "", packageTier: "4", sortOrder: String(Math.min(total + 1, 100)), isActive: true };
   const [draft, setDraft] = useState(emptyDraft);
   const [editingId, setEditingId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -2033,8 +2074,10 @@ function HbBooksManager({ rows, total, token }: { rows: Array<Record<string, unk
     setEditingId(compact(row.id));
     setDraft({
       title: compact(row.title),
+      description: compact(row.description),
       coverImage: compact(row.cover_image),
       downloadUrl: compact(row.download_url),
+      packageTier: compact(row.package_tier || 4),
       sortOrder: compact(row.sort_order || 1),
       isActive: Boolean(row.is_active)
     });
@@ -2043,7 +2086,7 @@ function HbBooksManager({ rows, total, token }: { rows: Array<Record<string, unk
   async function save() {
     setBusy(true);
     try {
-      const body = { ...draft, sortOrder: Number(draft.sortOrder || 1), isActive: draft.isActive };
+      const body = { ...draft, packageTier: Number(draft.packageTier || 4), sortOrder: Number(draft.sortOrder || 1), isActive: draft.isActive };
       await adminRequest(editingId ? `/admin/hb/books/${editingId}` : "/admin/hb/books", token, {
         method: editingId ? "PATCH" : "POST",
         body: JSON.stringify(body)
@@ -2086,8 +2129,17 @@ function HbBooksManager({ rows, total, token }: { rows: Array<Record<string, unk
         <div className="grid gap-3 md:grid-cols-2">
           <input className="rounded-xl border border-white/10 bg-[#0b1728]/75 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accent/70" placeholder="Title" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
           <input className="rounded-xl border border-white/10 bg-[#0b1728]/75 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accent/70" placeholder="Sort order" type="number" min={1} max={100} value={draft.sortOrder} onChange={(event) => setDraft({ ...draft, sortOrder: event.target.value })} />
+          <textarea className="min-h-24 rounded-xl border border-white/10 bg-[#0b1728]/75 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accent/70 md:col-span-2" placeholder="Description" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
           <input className="rounded-xl border border-white/10 bg-[#0b1728]/75 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accent/70 md:col-span-2" placeholder="Cover image URL" value={draft.coverImage} onChange={(event) => setDraft({ ...draft, coverImage: event.target.value })} />
           <input className="rounded-xl border border-white/10 bg-[#0b1728]/75 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accent/70 md:col-span-2" placeholder="Secure download URL" value={draft.downloadUrl} onChange={(event) => setDraft({ ...draft, downloadUrl: event.target.value })} />
+          <label className="space-y-2 text-sm text-slate-400">
+            <span>Package Tier</span>
+            <select className="field" value={draft.packageTier} onChange={(event) => setDraft({ ...draft, packageTier: event.target.value })}>
+              <option value="4">$4 Package</option>
+              <option value="20">$20 Package</option>
+              <option value="100">$100 Package</option>
+            </select>
+          </label>
           <label className="flex items-center gap-2 text-sm text-slate-200">
             <input type="checkbox" checked={draft.isActive} onChange={(event) => setDraft({ ...draft, isActive: event.target.checked })} /> Active
           </label>
@@ -2098,12 +2150,14 @@ function HbBooksManager({ rows, total, token }: { rows: Array<Record<string, unk
         </div>
       </Panel>
       <Panel title="Books Manager">
-        <AdminTable headers={["Order", "Cover", "Title", "Download URL", "Status", "Created", "Actions"]}>
+        <AdminTable headers={["Order", "Cover", "Title", "Description", "Package", "Download URL", "Status", "Created", "Actions"]}>
           {rows.map((row) => (
             <tr key={compact(row.id)}>
               <Td>{compact(row.sort_order)}</Td>
               <Td>{row.cover_image ? <img className="h-14 w-10 rounded-lg object-cover" src={compact(row.cover_image)} alt="" /> : <span className="text-xs text-slate-500">No cover</span>}</Td>
               <Td>{compact(row.title)}</Td>
+              <Td>{compact(row.description)}</Td>
+              <Td>{money(row.package_tier || 4)}</Td>
               <Td><a className="max-w-[220px] truncate text-accent underline" href={compact(row.download_url)} target="_blank" rel="noreferrer">Open</a></Td>
               <Td><Badge value={row.is_active ? "active" : "disabled"} /></Td>
               <Td>{formatDate(row.created_at)}</Td>

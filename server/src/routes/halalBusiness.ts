@@ -324,8 +324,10 @@ const hbFollowersRequestSchema = z.object({
 });
 const hbBookAdminSchema = z.object({
   title: z.string().trim().min(2).max(180),
+  description: z.string().trim().max(2000).optional().or(z.literal("")),
   coverImage: z.string().trim().url().max(800).optional().or(z.literal("")),
   downloadUrl: z.string().trim().url().max(1000),
+  packageTier: z.coerce.number().int().refine((value) => [4, 20, 100].includes(value), "Package tier must be 4, 20, or 100.").optional(),
   sortOrder: z.coerce.number().int().min(1).max(100),
   isActive: z.boolean().optional()
 });
@@ -1281,13 +1283,17 @@ async function ensureHbBooksTable() {
     create table if not exists hb_books (
       id uuid primary key default gen_random_uuid(),
       title text not null,
+      description text,
       cover_image text,
       download_url text not null,
+      package_tier integer not null default 4,
       sort_order integer not null default 1,
       is_active boolean not null default true,
       created_at timestamptz not null default now()
     )`
   );
+  await query("alter table hb_books add column if not exists description text").catch(() => undefined);
+  await query("alter table hb_books add column if not exists package_tier integer not null default 4").catch(() => undefined);
   await query("create index if not exists idx_hb_books_order on hb_books (is_active, sort_order, created_at)");
   await query(`
     insert into hb_books (title, cover_image, download_url, sort_order, is_active, created_at)
@@ -3603,12 +3609,12 @@ hbRouter.get("/hb/my-products", requireHbUser, asyncHandler(async (req, res) => 
   await ensureHbBooksTable();
   const books = await query(
     `with ranked as (
-       select b.id, b.title, b.cover_image, b.sort_order, b.is_active, b.created_at,
+       select b.id, b.title, b.description, b.cover_image, b.sort_order, b.is_active, b.created_at,
               row_number() over (order by b.sort_order asc, b.created_at asc) as rn
        from hb_books b
        where b.is_active = true
      )
-     select r.id, r.title, 'Digital Book'::text as category, null::text as description, null::text as file_url,
+     select r.id, r.title, 'Digital Book'::text as category, r.description, null::text as file_url,
             r.cover_image, case when r.is_active then 'active' else 'disabled' end as status, r.rn::int as sort_order,
             (r.rn <= $2::int) as unlocked,
             d.downloaded_at
@@ -3656,12 +3662,12 @@ hbRouter.get("/hb/books", requireHbUser, asyncHandler(async (req, res) => {
   await ensureHbBooksTable();
   const rows = await query(
     `with ranked as (
-       select b.id, b.title, b.cover_image, b.sort_order, b.is_active, b.created_at,
+       select b.id, b.title, b.description, b.cover_image, b.sort_order, b.is_active, b.created_at,
               row_number() over (order by b.sort_order asc, b.created_at asc) as rn
        from hb_books b
        where b.is_active = true
      )
-     select r.id, r.title, 'Digital Book'::text as category, null::text as description, null::text as file_url,
+     select r.id, r.title, 'Digital Book'::text as category, r.description, null::text as file_url,
             r.cover_image, case when r.is_active then 'active' else 'disabled' end as status, r.rn::int as sort_order,
             (r.rn <= $2::int) as unlocked,
             d.downloaded_at
@@ -7013,7 +7019,7 @@ hbRouter.get("/admin/hb/followers-requests", requireAdmin, asyncHandler(async (_
 hbRouter.get("/admin/hb/books", requireAdmin, asyncHandler(async (_req, res) => {
   await ensureHbBooksTable();
   const rows = await query(
-    `select id, title, cover_image, download_url, sort_order, is_active, created_at
+    `select id, title, description, cover_image, download_url, package_tier, sort_order, is_active, created_at
      from hb_books
      order by sort_order asc, created_at asc
      limit 100`
@@ -7034,10 +7040,10 @@ hbRouter.post("/admin/hb/books", requireAdmin, asyncHandler(async (req, res) => 
     return;
   }
   const rows = await query(
-    `insert into hb_books (title, cover_image, download_url, sort_order, is_active)
-     values ($1, nullif($2,''), $3, $4, $5)
+    `insert into hb_books (title, description, cover_image, download_url, package_tier, sort_order, is_active)
+     values ($1, nullif($2,''), nullif($3,''), $4, $5, $6, $7)
      returning *`,
-    [parsed.data.title, parsed.data.coverImage || "", parsed.data.downloadUrl, parsed.data.sortOrder, parsed.data.isActive ?? true]
+    [parsed.data.title, parsed.data.description || "", parsed.data.coverImage || "", parsed.data.downloadUrl, parsed.data.packageTier ?? 4, parsed.data.sortOrder, parsed.data.isActive ?? true]
   );
   await adminHbAudit(req.admin?.email || "admin", "admin.hb.books.create", "hb_books", String((rows[0] as any)?.id || ""), parsed.data);
   ok(res, rows[0], "Book added", 201);
@@ -7053,17 +7059,21 @@ hbRouter.patch("/admin/hb/books/:id", requireAdmin, asyncHandler(async (req, res
   const rows = await query(
     `update hb_books
      set title = coalesce($2::text, title),
-         cover_image = case when $3::text is null then cover_image else nullif($3,'') end,
-         download_url = coalesce($4::text, download_url),
-         sort_order = coalesce($5::integer, sort_order),
-         is_active = coalesce($6::boolean, is_active)
+         description = case when $3::text is null then description else nullif($3,'') end,
+         cover_image = case when $4::text is null then cover_image else nullif($4,'') end,
+         download_url = coalesce($5::text, download_url),
+         package_tier = coalesce($6::integer, package_tier),
+         sort_order = coalesce($7::integer, sort_order),
+         is_active = coalesce($8::boolean, is_active)
      where id = $1
      returning *`,
     [
       req.params.id,
       parsed.data.title ?? null,
+      Object.prototype.hasOwnProperty.call(parsed.data, "description") ? parsed.data.description || "" : null,
       Object.prototype.hasOwnProperty.call(parsed.data, "coverImage") ? parsed.data.coverImage || "" : null,
       parsed.data.downloadUrl ?? null,
+      parsed.data.packageTier ?? null,
       parsed.data.sortOrder ?? null,
       parsed.data.isActive ?? null
     ]
