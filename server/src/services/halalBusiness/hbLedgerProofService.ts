@@ -30,6 +30,11 @@ function maskedUserId(userId: string | null) {
   return `HB9-${sha256(userId).slice(0, 8).toUpperCase()}`;
 }
 
+function uuidOrNull(value: unknown) {
+  const text = String(value || "");
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(text) ? text : null;
+}
+
 function proofType(row: Record<string, any>, sourceTable: LedgerSourceTable) {
   if (sourceTable === "hb_coin_balance_ledger") {
     if (row.reference?.startsWith?.("admin_transfer:")) return row.direction === "credit" ? "internal_transfer_received" : "internal_transfer_sent";
@@ -96,6 +101,7 @@ export async function createLedgerProof(
   if (existingPublicRef.rows[0]) return existingPublicRef.rows[0];
   const type = proofType(row, sourceTable);
   const userId = row.user_id || null;
+  const referenceId = uuidOrNull(row.reference_id) || uuidOrNull(row.package_purchase_id) || uuidOrNull(row.reference);
   const payload = {
     version: 1,
     publicReferenceId: publicRef,
@@ -109,7 +115,7 @@ export async function createLedgerProof(
     status: row.status || null,
     coinSymbol: row.coin_symbol || null,
     referenceType: row.reference_type || row.income_type || row.type || null,
-    referenceId: row.reference_id || row.package_purchase_id || (/^[0-9a-fA-F-]{36}$/.test(String(row.reference || "")) ? row.reference : null),
+    referenceId,
     idempotencyKey: row.idempotency_key,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
     previousProofHash,
@@ -134,7 +140,7 @@ export async function createLedgerProof(
       row.amount_usd,
       row.status || row.direction || null,
       row.reference_type || row.income_type || row.type || null,
-      row.reference_id || row.package_purchase_id || (/^[0-9a-fA-F-]{36}$/.test(String(row.reference || "")) ? row.reference : null),
+      referenceId,
       proofHash,
       previousProofHash,
       JSON.stringify(payload),

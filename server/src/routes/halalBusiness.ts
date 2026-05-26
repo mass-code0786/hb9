@@ -6725,7 +6725,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       targets = resolvedTargets.filter((target, index, list) => list.findIndex((item) => item.userId === target.userId) === index);
     }
     const targetUserIds = targets.map((target) => target.userId);
-    console.log("HB9_PACKAGE_USERS", targetUserIds);
+    console.log("HB9 PACKAGE USERS", targets);
     if (targets.length === 0) {
       const targetLabel = parsed.data.targetMode === "package" ? `${packageName} ($${parsed.data.packageAmount})` : "manual selection";
       fail(res, `No users found for ${targetLabel}`, 400, "Bulk distribution failed");
@@ -6772,6 +6772,11 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
     const results: Array<Record<string, unknown>> = [];
     for (const target of targets) {
       const userId = target.userId;
+      if (!isUuid(userId)) {
+        console.log("HB9 SKIP NON UUID USER", userId);
+        continue;
+      }
+      console.log("HB9 VALID UUID", userId);
       await ensureHbUserExists(client, userId);
       const before = await readCoinBalance(client, userId, coinSymbol);
       console.log("BULK_INSERT_USER_ID", userId);
@@ -6784,7 +6789,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
         amount: parsed.data.amount,
         direction: "credit",
         type: "credit",
-        reference: `admin_bulk_distribution:${rootKey}`,
+        reference: null,
         adminId: adminUuid,
         note,
         idempotencyKey: `${rootKey}:${userId}`,
@@ -6799,6 +6804,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
           adminEmail,
           adminWallet,
           batchKey: rootKey,
+          reference: `admin_bulk_distribution:${rootKey}`,
           targetMode: parsed.data.targetMode,
           packageAmount: parsed.data.packageAmount || null,
           packageName: target.packageName
@@ -6828,12 +6834,14 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       coinSymbol,
       amount: parsed.data.amount,
       note,
+      batchKey: rootKey,
       userCount: results.length,
       packageName,
       estimatedTotal: Number(parsed.data.amount) * results.length
     };
-    await adminActionLog({ adminEmail, action: "admin.hb.funds.bulk_distribution", entityType: "hb_admin_balance_action", entityId: rootKey, metadata, req });
-    await adminHbAudit(adminEmail, "admin.hb.funds.bulk_distribution", "hb_admin_balance_action", rootKey, metadata);
+    const bulkEntityId = String(results[0]?.id || crypto.randomUUID());
+    await adminActionLog({ adminEmail, action: "admin.hb.funds.bulk_distribution", entityType: "hb_admin_balance_action", entityId: bulkEntityId, metadata, req });
+    await adminHbAudit(adminEmail, "admin.hb.funds.bulk_distribution", "hb_admin_balance_action", bulkEntityId, metadata);
     ok(res, {
       success: true,
       matchedUsers: targets.length,
