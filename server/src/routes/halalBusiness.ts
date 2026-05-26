@@ -420,6 +420,40 @@ function normalizeManualBulkTarget(value: string) {
   return target;
 }
 
+async function resolveBulkAdminIdentity(client: PoolClient, req: Request) {
+  const requestAny = req as Request & { user?: { id?: string; walletAddress?: string } };
+  const adminAny = req.admin as (typeof req.admin & { id?: string; walletAddress?: string }) | undefined;
+  const adminEmail = req.admin?.email || "admin";
+  const adminWallet = adminAny?.walletAddress
+    || requestAny.user?.walletAddress
+    || (isAddress(adminEmail) ? adminEmail : null);
+  let adminUuid = adminAny?.id || requestAny.user?.id || null;
+
+  if (adminUuid && !isUuid(adminUuid)) adminUuid = null;
+
+  if (!adminUuid && adminWallet) {
+    const rows = await client.query<{ id: string }>(
+      "select id from hb_admin_users where lower(wallet_address) = lower($1) limit 1",
+      [adminWallet]
+    ).catch(() => ({ rows: [] as Array<{ id: string }> }));
+    adminUuid = rows.rows[0]?.id || null;
+  }
+
+  if (!adminUuid && adminEmail && !isAddress(adminEmail)) {
+    const rows = await client.query<{ id: string }>(
+      "select id from admin_users where lower(email) = lower($1) limit 1",
+      [adminEmail]
+    ).catch(() => ({ rows: [] as Array<{ id: string }> }));
+    adminUuid = rows.rows[0]?.id || null;
+  }
+
+  return {
+    adminEmail,
+    adminUuid: adminUuid && isUuid(adminUuid) ? adminUuid : null,
+    adminWallet
+  };
+}
+
 const purchaseSchema = z.object({
   idempotencyKey: z.string().trim().min(12).max(120).optional()
 });
@@ -6619,10 +6653,10 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
     fail(res, "Reason is required.", 400, "Invalid bulk distribution");
     return;
   }
-  const adminEmail = req.admin?.email || "admin";
   const rootKey = `hb:funds:bulk:${crypto.randomUUID()}`;
   const client = await pool.connect();
   try {
+    const { adminEmail, adminUuid, adminWallet } = await resolveBulkAdminIdentity(client, req);
     const packageName = parsed.data.packageAmount ? bulkDistributionPackages[Number(parsed.data.packageAmount)] || "Package" : "Manual selection";
     let targets: Array<{ userId: string; email?: string | null; displayName?: string | null; packageName: string }>;
     if (parsed.data.targetMode === "package") {
@@ -6740,6 +6774,9 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       const userId = target.userId;
       await ensureHbUserExists(client, userId);
       const before = await readCoinBalance(client, userId, coinSymbol);
+      console.log("BULK_INSERT_USER_ID", userId);
+      console.log("BULK_INSERT_ADMIN_ID", adminUuid);
+      console.log("BULK_INSERT_ADMIN_WALLET", adminWallet);
       const ledgerId = await applyHbCoinAdjustment({
         client,
         userId,
@@ -6748,7 +6785,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
         direction: "credit",
         type: "credit",
         reference: `admin_bulk_distribution:${rootKey}`,
-        adminId: adminEmail,
+        adminId: adminUuid,
         note,
         idempotencyKey: `${rootKey}:${userId}`,
         metadata: {
@@ -6758,7 +6795,9 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
           coin: coinSymbol,
           amount: parsed.data.amount,
           reason: note,
-          adminId: adminEmail,
+          adminId: adminUuid,
+          adminEmail,
+          adminWallet,
           batchKey: rootKey,
           targetMode: parsed.data.targetMode,
           packageAmount: parsed.data.packageAmount || null,
@@ -6768,12 +6807,15 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       if (!ledgerId) continue;
       const proof = await createLedgerProof(client, "hb_coin_balance_ledger", ledgerId);
       const after = await readCoinBalance(client, userId, coinSymbol);
+      console.log("BULK_INSERT_USER_ID", userId);
+      console.log("BULK_INSERT_ADMIN_ID", adminUuid);
+      console.log("BULK_INSERT_ADMIN_WALLET", adminWallet);
       const actionRows = await client.query(
         `insert into hb_admin_balance_actions
           (user_id, coin_symbol, amount, type, note, admin_id, ledger_entry_id, proof_reference, before_balance, after_balance, idempotency_key)
          values ($1,$2,$3,'bulk_distribution',$4,$5,$6,$7,$8,$9,$10)
          returning id, user_id, coin_symbol, amount::text, proof_reference`,
-        [userId, coinSymbol, parsed.data.amount, note, adminEmail, ledgerId, (proof as any)?.public_reference_id || null, before, after, `${rootKey}:${userId}`]
+        [userId, coinSymbol, parsed.data.amount, note, adminUuid, ledgerId, (proof as any)?.public_reference_id || null, before, after, `${rootKey}:${userId}`]
       );
       results.push(actionRows.rows[0]);
     }
