@@ -8,7 +8,7 @@ import { BrowserProvider, Contract, encodeBytes32String, parseUnits, ZeroAddress
 import { createPublicClient, encodeFunctionData, http, parseUnits as viemParseUnits, type Hash } from "viem";
 import { bsc } from "viem/chains";
 import { HbLandingPage } from "@/components/halal-business/HbLandingPage";
-import { HbAllPackagesList, HbPackageProductCard, HbPackageVisual, buildDefaultHbPackageProducts, featuresForHbPackageAmount } from "@/components/halal-business/HbPackageCards";
+import { HbAllPackagesList, HbPackageProductCard, HbPackageVisual, buildDefaultHbPackageProducts, featuresForHbPackageAmount, hbPackageAmounts, hbPackageNames } from "@/components/halal-business/HbPackageCards";
 import { HB9Logo } from "@/components/brand/HB9Logo";
 import { CoinLogo as CryptoCoinLogo } from "@/components/crypto/CoinLogo";
 import { HB9VoiceAssistant, type HB9VoiceEvent, type HB9VoiceScript } from "@/components/voice/HB9VoiceAssistant";
@@ -30,6 +30,7 @@ import {
   fetchHbMyProducts,
   fetchHbOnchainPackageConfig,
   fetchHbOrders,
+  fetchHbPackages,
   fetchHbProducts,
   fetchHbPurchases,
   fetchHbReferrals,
@@ -42,6 +43,7 @@ import {
   hbDevDashboardProducts,
   isHbDevDashboardBypassEnabled,
   normalizeHbWalletAddress,
+  purchaseHbPackage,
   requestHbWalletChallenge,
   saveHbToken,
   trackHbOnchainPurchase,
@@ -53,6 +55,7 @@ import {
   type HbOnchainPackageConfig,
   type HbOrder,
   type HbFollowersPlatform,
+  type HbPackage,
   type HbProduct,
   type HbPurchase,
   type HbReferralSummary,
@@ -289,6 +292,56 @@ function isPackageAlreadyActive(product: HbProduct, purchases: HbPurchase[], ord
   });
 }
 
+function packageProductFromPackage(pkg: HbPackage, fallbackProduct?: HbProduct): HbProduct {
+  const amount = Number(pkg.amount_usd);
+  const defaultProduct = buildDefaultHbPackageProducts().find((item) => Number(item.package_price) === amount);
+  const fallback = fallbackProduct || defaultProduct;
+  const packageName = pkg.name || hbPackageNames[amount] || fallback?.package_name || "HB9 Package";
+  return {
+    id: fallback?.id || `hb-package-${amount}`,
+    title: fallback?.title || `${money(amount)} ${packageName}`,
+    slug: fallback?.slug || pkg.slug || `hb-package-${amount}`,
+    short_description: fallback?.short_description || null,
+    description: fallback?.description || null,
+    package_id: pkg.id,
+    package_price: pkg.amount_usd,
+    package_type: fallbackProduct?.package_type || "package",
+    image_url: fallback?.image_url || "",
+    thumbnail_url: fallback?.thumbnail_url || "",
+    stock: fallback?.stock ?? 999,
+    active: fallback?.active ?? pkg.status === "available",
+    featured: fallback?.featured ?? true,
+    package_name: packageName,
+    gallery: fallback?.gallery
+  };
+}
+
+function completePackageProductList(products: HbProduct[], packages: HbPackage[], devDashboardActive: boolean) {
+  const defaults = buildDefaultHbPackageProducts();
+  const sourceProducts = devDashboardActive ? hbDevDashboardProducts : products;
+  const productByAmount = new Map<number, HbProduct>();
+  for (const product of sourceProducts) {
+    const amount = Number(product.package_price);
+    if (!hbPackageAmounts.includes(amount as (typeof hbPackageAmounts)[number])) continue;
+    if (!productByAmount.has(amount)) productByAmount.set(amount, product);
+  }
+
+  const packageByAmount = new Map<number, HbPackage>();
+  for (const pkg of packages) {
+    const amount = Number(pkg.amount_usd);
+    if (!hbPackageAmounts.includes(amount as (typeof hbPackageAmounts)[number])) continue;
+    if (pkg.status !== "available" || pkg.active === false || pkg.visible === false) continue;
+    if (!packageByAmount.has(amount)) packageByAmount.set(amount, pkg);
+  }
+
+  return hbPackageAmounts.map((amount) => {
+    const product = productByAmount.get(amount);
+    const pkg = packageByAmount.get(amount);
+    if (pkg) return packageProductFromPackage(pkg, product);
+    return product || defaults.find((item) => Number(item.package_price) === amount)!;
+  });
+}
+
 async function resolveFreshProductForBuy(product: HbProduct) {
   const amount = Number(product.package_price);
   const productData = await fetchHbProducts();
@@ -308,6 +361,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   const [user, setUser] = useState<HbUser | null>(null);
   const [providerWalletAddress, setProviderWalletAddress] = useState("");
   const [products, setProducts] = useState<HbProduct[]>(() => buildDefaultHbPackageProducts());
+  const [packages, setPackages] = useState<HbPackage[]>([]);
   const [purchases, setPurchases] = useState<HbPurchase[]>([]);
   const [orders, setOrders] = useState<HbOrder[]>([]);
   const [withdrawals, setWithdrawals] = useState<HbWithdrawal[]>([]);
@@ -356,12 +410,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   const treasuryDepositAddress = useMemo(() => resolveClientTreasuryWallet(walletData.depositAddress), [walletData.depositAddress]);
   const totalBalance = Number(walletData.balances.deposit || 0) + Number(walletData.balances.income || 0);
   const orderedProducts = useMemo(() => [...products].sort((a, b) => Number(a.package_price) - Number(b.package_price)), [products]);
-  const completePackageProducts = useMemo(() => {
-    const byAmount = new Map<number, HbProduct>();
-    if (devDashboardActive) hbDevDashboardProducts.forEach((product) => byAmount.set(Number(product.package_price), product));
-    dashboardProducts.forEach((product) => byAmount.set(Number(product.package_price), product));
-    return Array.from(byAmount.values()).sort((a, b) => Number(a.package_price) - Number(b.package_price));
-  }, [dashboardProducts]);
+  const completePackageProducts = useMemo(() => completePackageProductList(dashboardProducts, packages, devDashboardActive), [dashboardProducts, packages, devDashboardActive]);
   const hasActiveProduct = Boolean(myProducts?.activeProducts?.length || purchases.length || orders.length);
 
   function playAssistant(script: HB9VoiceScript) {
@@ -521,6 +570,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       setError("");
       setUser(createHbDevDashboardUser(getHbDevWallet()));
       setProducts(hbDevDashboardProducts);
+      setPackages([]);
       cacheProducts(hbDevDashboardProducts);
       setReferralSummary({
         sponsor: null,
@@ -549,13 +599,15 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       setLoading(false);
       return;
     }
-    fetchHbProducts()
-      .then((data) => {
-        if (!data.items.length) return;
-        setProducts(data.items);
-        cacheProducts(data.items);
+    Promise.all([fetchHbProducts(), fetchHbPackages().catch(() => ({ items: [] as HbPackage[] }))])
+      .then(([productData, packageData]) => {
+        if (productData.items.length) {
+          setProducts(productData.items);
+          cacheProducts(productData.items);
+        }
+        setPackages(packageData.items);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Products could not be loaded."));
+      .catch((err) => setError(err instanceof Error ? err.message : "Packages could not be loaded."));
     const stored = getHbToken();
     if (stored) {
       setToken(stored);
@@ -609,6 +661,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       if (devDashboardActive) return;
       setToken("");
       setUser(null);
+      setPackages([]);
       setPurchases([]);
       setOrders([]);
       setWithdrawals([]);
@@ -655,9 +708,10 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
     setRefreshing(true);
     setError("");
     try {
-      const [me, productData, wallet, purchaseData, orderData, incomeData, referralData, activityData, coinData, config] = await Promise.all([
+      const [me, productData, packageData, wallet, purchaseData, orderData, incomeData, referralData, activityData, coinData, config] = await Promise.all([
         fetchHbMe(activeToken),
         fetchHbProducts(),
+        fetchHbPackages().catch(() => ({ items: [] as HbPackage[] })),
         fetchHbWallet(activeToken),
         fetchHbPurchases(activeToken),
         fetchHbOrders(activeToken),
@@ -673,6 +727,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         setProducts(productData.items);
         cacheProducts(productData.items);
       }
+      setPackages(packageData.items);
       setPurchases(purchaseData.items);
       setOrders(orderData.items);
       setWithdrawals(wallet.withdrawals);
@@ -1004,7 +1059,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       const optimisticDeposit = Math.max(0, Number(walletData.balances.deposit || 0) - Number(product.package_price || 0));
       setWalletData((current) => ({ ...current, balances: { ...current.balances, deposit: String(optimisticDeposit) } }));
       try {
-        const result = await buyHbProduct(token, product.id);
+        const result = product.package_type === "package" ? await purchaseHbPackage(token, product.package_id) : await buyHbProduct(token, product.id);
         applyPurchaseBalanceSnapshot(result);
         await refetchAfterSuccessfulBuy(token);
       } catch (err) {
@@ -1120,7 +1175,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         {error && !devDashboardActive ? <ErrorState message={error} onRetry={lastBuyProduct ? () => openBuyFlow(lastBuyProduct) : undefined} retrying={Boolean(buyLoadingProductId)} /> : null}
         {loading ? <DashboardSkeleton /> : null}
 
-        {!loading && activeTab === "home" ? <HomeScreen walletBalance={totalBalance} balances={walletData.balances} user={dashboardUser} boundWallet={boundWallet} currentPackage={currentPackage} products={devDashboardActive ? completePackageProducts : orderedProducts.length > 0 ? orderedProducts : completePackageProducts} coins={coins} convertingCoin={convertingCoin} buyLoadingProductId={buyLoadingProductId} onConvert={convertCoin} onTab={handleTabChange} onBuy={openBuyFlow} onInstruction={playAssistant} /> : null}
+        {!loading && activeTab === "home" ? <HomeScreen walletBalance={totalBalance} balances={walletData.balances} user={dashboardUser} boundWallet={boundWallet} currentPackage={currentPackage} products={completePackageProducts} coins={coins} convertingCoin={convertingCoin} buyLoadingProductId={buyLoadingProductId} onConvert={convertCoin} onTab={handleTabChange} onBuy={openBuyFlow} onInstruction={playAssistant} /> : null}
         {!loading && activeTab === "products" ? <MyProductsScreen purchases={purchases} orders={orders} delivery={myProducts} packages={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openPackagesScreen} onPackageBuy={openBuyFlow} onBookDownload={handleBookDownload} onFollowersRequest={handleFollowersRequest} onCustomSoftwareRequest={handleCustomSoftwareRequest} /> : null}
         {!loading && activeTab === "packages" ? <AllPackagesScreen products={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openBuyFlow} onBack={() => setActiveTab("home")} /> : null}
         {!loading && activeTab === "team" ? <TeamScreen user={dashboardUser} summary={referralSummary} /> : null}
@@ -1183,7 +1238,7 @@ function HomeScreen({ walletBalance, balances, user, boundWallet, currentPackage
       <MultiCoinWallet coins={coins} withdrawableBalance={balances.deposit} convertingCoin={convertingCoin} onConvert={onConvert} />
       <SectionTitle title="Available Packages" action="All 6 packages" />
       <div className="grid grid-cols-3 gap-2">
-        {featuredProducts.length === 0 ? <div className="col-span-3"><EmptyState title="No active packages available." /></div> : featuredProducts.map((product) => <HbPackageProductCard key={product.id} product={product} cta="Buy Now" onBuy={() => onBuy(product)} loading={buyLoadingProductId === product.id} compact />)}
+        {featuredProducts.length === 0 ? <div className="col-span-3"><EmptyState title="No active packages available." /></div> : featuredProducts.map((product) => <HbPackageProductCard key={`package-${Number(product.package_price)}`} product={product} cta="Buy Now" onBuy={() => onBuy(product)} loading={buyLoadingProductId === product.id} compact />)}
       </div>
     </div>
   );

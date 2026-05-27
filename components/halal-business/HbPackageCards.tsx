@@ -133,7 +133,7 @@ export function HbPackageListItem({ product, onBuy, loading = false }: { product
 export function HbAllPackagesList({ products, onBuy, loadingProductId = "" }: { products: HbProduct[]; onBuy: (product: HbProduct) => void; loadingProductId?: string }) {
   return (
     <div className="space-y-2.5">
-      {products.map((product) => <HbPackageListItem key={product.id} product={product} onBuy={() => onBuy(product)} loading={loadingProductId === product.id} />)}
+      {products.map((product) => <HbPackageListItem key={`package-${Number(product.package_price)}`} product={product} onBuy={() => onBuy(product)} loading={loadingProductId === product.id} />)}
     </div>
   );
 }
