@@ -13,6 +13,7 @@ import { asyncHandler, fail, ok } from "../http.js";
 import { logger } from "../logger.js";
 import { VerificationError, verifyBlockchainTransaction, type BlockchainVerification, type VerificationDiagnostics } from "../services/blockchainVerifier.js";
 import { distributePackagePurchase } from "../services/halalBusiness/hbDistributionService.js";
+import { getUserDividendStats, getUserDividendStatsForClient } from "../services/halalBusiness/hbDividendIncomeService.js";
 import { getHbCoinPrice, getHbCoinPrices, hbCoinName, hbCoinSymbols, hbNonUsdtCoinSymbols, normalizeHbCoinSymbol, type HbCoinSymbol } from "../services/halalBusiness/hbCoinPriceService.js";
 import { applyIncomeCap, getIncomeCapSummary } from "../services/halalBusiness/hbIncomeCapService.js";
 import { createLedgerProof, verifyLedgerProofChain, verifyLedgerProofReference } from "../services/halalBusiness/hbLedgerProofService.js";
@@ -1181,6 +1182,16 @@ async function applyHbCoinAdjustment(input: {
 async function readCoinBalance(client: PoolClient, userId: string, coinSymbol: string) {
   const rows = await client.query<{ balance: string }>("select balance::text from hb_coin_balances where user_id = $1 and coin_symbol = $2", [userId, coinSymbol]);
   return Number(rows.rows[0]?.balance || 0);
+}
+
+function decimalString(value: number, decimals = 8) {
+  if (!Number.isFinite(value)) return "0";
+  const normalized = value.toFixed(decimals).replace(/\.?0+$/, "");
+  return normalized || "0";
+}
+
+function floorCoinAmount(value: number) {
+  return Math.floor(value * 100_000_000) / 100_000_000;
 }
 
 async function ensureHbUserExists(client: PoolClient, userId: string) {
@@ -4425,6 +4436,10 @@ hbRouter.get("/hb/income", requireHbUser, asyncHandler(async (req, res) => {
     logger.warn("hb.income_cap.summary.failed", { userId: req.hbUser!.userId, error: error instanceof Error ? error.message : String(error) });
     return null;
   });
+  const dividendStats = await getUserDividendStats(req.hbUser!.userId).catch((error) => {
+    logger.warn("hb.dividend.summary.failed", { userId: req.hbUser!.userId, error: error instanceof Error ? error.message : String(error) });
+    return { totalDividendUsd: "0", dividendCapUsd: "0", remainingDividendUsd: "0" };
+  });
   const levelUnlockRows = await query<{ direct_count: number }>(
     `select count(distinct direct.id)::int as direct_count
      from hb_users direct
@@ -4463,6 +4478,9 @@ hbRouter.get("/hb/income", requireHbUser, asyncHandler(async (req, res) => {
     singleLegProgress,
     levelUnlockProgress,
     incomeCap,
+    dividendIncomeUsd: dividendStats.totalDividendUsd,
+    dividendCapUsd: dividendStats.dividendCapUsd,
+    dividendRemainingUsd: dividendStats.remainingDividendUsd,
     salaryIncome: salaryRows[0] || {
       user_id: req.hbUser!.userId,
       salary_amount: "100",
@@ -6645,6 +6663,11 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
     fail(res, "Reason is required.", 400, "Invalid bulk distribution");
     return;
   }
+  const coinUsdPrice = await getHbCoinPrice(coinSymbol);
+  if (!Number.isFinite(coinUsdPrice) || coinUsdPrice <= 0) {
+    fail(res, `USD price is not available for ${coinSymbol}.`, 400, "Bulk distribution failed");
+    return;
+  }
   const rootKey = `hb:funds:bulk:${crypto.randomUUID()}`;
   const client = await pool.connect();
   try {
@@ -6771,6 +6794,59 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       }
       console.log("HB9 VALID UUID", userId);
       await ensureHbUserExists(client, userId);
+      const dividendStats = await getUserDividendStatsForClient(client, userId);
+      const dividendCapUsd = Number(dividendStats.dividendCapUsd || 0);
+      const remainingDividendUsd = Math.max(Number(dividendStats.remainingDividendUsd || 0), 0);
+      const packageTotalUsd = dividendCapUsd / 2;
+      const requestedCoinAmount = Number(parsed.data.amount);
+      const requestedUsd = requestedCoinAmount * coinUsdPrice;
+      if (remainingDividendUsd <= 0) {
+        const dividendRows = await client.query<{ id: string }>(
+          `insert into hb_dividend_income_ledger
+            (user_id, source_action_id, coin_symbol, coin_amount, usd_value, package_total_usd, cap_usd, credited_usd, status, note)
+           values ($1,null,$2,0,$3,$4,$5,0,'capped',$6)
+           returning id`,
+          [userId, coinSymbol, decimalString(requestedUsd, 18), decimalString(packageTotalUsd, 18), decimalString(dividendCapUsd, 18), note]
+        );
+        results.push({
+          id: dividendRows.rows[0]?.id,
+          user_id: userId,
+          coin_symbol: coinSymbol,
+          amount: "0",
+          requested_amount: String(parsed.data.amount),
+          status: "capped",
+          credited_usd: "0",
+          cap_usd: dividendStats.dividendCapUsd,
+          remaining_usd: "0"
+        });
+        continue;
+      }
+      const fullCreditAllowed = requestedUsd <= remainingDividendUsd + Number.EPSILON;
+      const creditCoinAmount = fullCreditAllowed ? requestedCoinAmount : floorCoinAmount(remainingDividendUsd / coinUsdPrice);
+      if (creditCoinAmount <= 0) {
+        const dividendRows = await client.query<{ id: string }>(
+          `insert into hb_dividend_income_ledger
+            (user_id, source_action_id, coin_symbol, coin_amount, usd_value, package_total_usd, cap_usd, credited_usd, status, note)
+           values ($1,null,$2,0,$3,$4,$5,0,'capped',$6)
+           returning id`,
+          [userId, coinSymbol, decimalString(requestedUsd, 18), decimalString(packageTotalUsd, 18), decimalString(dividendCapUsd, 18), note]
+        );
+        results.push({
+          id: dividendRows.rows[0]?.id,
+          user_id: userId,
+          coin_symbol: coinSymbol,
+          amount: "0",
+          requested_amount: String(parsed.data.amount),
+          status: "capped",
+          credited_usd: "0",
+          cap_usd: dividendStats.dividendCapUsd,
+          remaining_usd: "0"
+        });
+        continue;
+      }
+      const creditedUsd = fullCreditAllowed ? requestedUsd : Math.min(creditCoinAmount * coinUsdPrice, remainingDividendUsd);
+      const dividendStatus = fullCreditAllowed ? "credited" : "partial_capped";
+      const creditCoinAmountText = decimalString(creditCoinAmount, 8);
       const before = await readCoinBalance(client, userId, coinSymbol);
       console.log("BULK_INSERT_USER_ID", userId);
       console.log("BULK_INSERT_ADMIN_TEXT", adminText);
@@ -6778,7 +6854,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       const coinLedgerParams = {
         userId,
         coinSymbol,
-        amount: parsed.data.amount,
+        amount: creditCoinAmountText,
         direction: "credit",
         type: "credit",
         reference: null,
@@ -6791,7 +6867,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
         client,
         userId,
         coinSymbol,
-        amount: parsed.data.amount,
+        amount: creditCoinAmountText,
         direction: "credit",
         type: "credit",
         reference: null,
@@ -6803,7 +6879,11 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
           action: "bulk_distribution",
           type: "credit",
           coin: coinSymbol,
-          amount: parsed.data.amount,
+          amount: creditCoinAmountText,
+          requestedAmount: parsed.data.amount,
+          dividendStatus,
+          dividendCreditedUsd: decimalString(creditedUsd, 18),
+          dividendCapUsd: dividendStats.dividendCapUsd,
           reason: note,
           adminId: adminText,
           adminUuid,
@@ -6812,7 +6892,9 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
           targetMode: parsed.data.targetMode,
           packageAmount: parsed.data.packageAmount || null,
           packageName: target.packageName
-        }
+        },
+        usdPrice: coinUsdPrice,
+        usdValue: decimalString(creditedUsd, 18)
       });
       if (!ledgerId) continue;
       console.log("BULK_SQL_INSERT", { table: "hb_ledger_proofs", params: { sourceTable: "hb_coin_balance_ledger", ledgerEntryId: ledgerId, userId } });
@@ -6821,7 +6903,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       console.log("BULK_INSERT_USER_ID", userId);
       console.log("BULK_INSERT_ADMIN_TEXT", adminText);
       console.log("BULK_INSERT_ADMIN_UUID", adminUuid);
-      const actionParams = [userId, coinSymbol, parsed.data.amount, note, adminText, ledgerId, (proof as any)?.public_reference_id || null, before, after, `${rootKey}:${userId}`];
+      const actionParams = [userId, coinSymbol, creditCoinAmountText, note, adminText, ledgerId, (proof as any)?.public_reference_id || null, before, after, `${rootKey}:${userId}`];
       console.log("BULK_SQL_INSERT", { table: "hb_admin_balance_actions", params: actionParams });
       const actionRows = await client.query(
         `insert into hb_admin_balance_actions
@@ -6830,10 +6912,40 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
          returning id, user_id, coin_symbol, amount::text, proof_reference`,
         actionParams
       );
-      results.push(actionRows.rows[0]);
+      await client.query(
+        `insert into hb_dividend_income_ledger
+          (user_id, source_action_id, coin_symbol, coin_amount, usd_value, package_total_usd, cap_usd, credited_usd, status, note)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [
+          userId,
+          actionRows.rows[0]?.id || null,
+          coinSymbol,
+          creditCoinAmountText,
+          decimalString(requestedUsd, 18),
+          decimalString(packageTotalUsd, 18),
+          decimalString(dividendCapUsd, 18),
+          decimalString(creditedUsd, 18),
+          dividendStatus,
+          note
+        ]
+      );
+      results.push({
+        ...actionRows.rows[0],
+        requested_amount: String(parsed.data.amount),
+        status: dividendStatus,
+        credited_usd: decimalString(creditedUsd, 18),
+        cap_usd: dividendStats.dividendCapUsd,
+        remaining_usd: decimalString(Math.max(remainingDividendUsd - creditedUsd, 0), 18)
+      });
     }
     console.log("DISTRIBUTION SUCCESS");
     await client.query("commit");
+    const creditedResults = results.filter((item) => item.status === "credited");
+    const partialCappedResults = results.filter((item) => item.status === "partial_capped");
+    const skippedCappedResults = results.filter((item) => item.status === "capped");
+    const creditedWalletResults = [...creditedResults, ...partialCappedResults];
+    const totalUsdDistributed = creditedWalletResults.reduce((sum, item) => sum + Number(item.credited_usd || 0), 0);
+    const totalCoinDistributed = creditedWalletResults.reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const metadata = {
       targetMode: parsed.data.targetMode,
       ...(parsed.data.targetMode === "manual" ? { userIds: parsed.data.userIds } : {}),
@@ -6842,11 +6954,16 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
       amount: parsed.data.amount,
       note,
       batchKey: rootKey,
-      userCount: results.length,
+      userCount: creditedWalletResults.length,
       packageName,
-      estimatedTotal: Number(parsed.data.amount) * results.length
+      targetedUsers: targets.length,
+      creditedUsers: creditedResults.length,
+      partialCappedUsers: partialCappedResults.length,
+      skippedCappedUsers: skippedCappedResults.length,
+      totalUsdDistributed,
+      totalCoinDistributed
     };
-    const bulkEntityId = String(results[0]?.id || crypto.randomUUID());
+    const bulkEntityId = String(creditedWalletResults[0]?.id || results[0]?.id || crypto.randomUUID());
     console.log("BULK_SQL_INSERT", { table: "hb_admin_action_logs", params: { adminEmail: adminText, entityId: bulkEntityId } });
     await adminActionLog({ adminEmail: adminText, action: "admin.hb.funds.bulk_distribution", entityType: "hb_admin_balance_action", entityId: bulkEntityId, metadata });
     console.log("BULK_SQL_INSERT", { table: "hb_audit_logs", params: { userId: null, entityId: bulkEntityId, admin: adminText } });
@@ -6854,8 +6971,13 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
     ok(res, {
       success: true,
       matchedUsers: targets.length,
-      creditedUsers: results.length,
-      skippedUsers: targets.length - results.length,
+      targetedUsers: targets.length,
+      creditedUsers: creditedResults.length,
+      partialCappedUsers: partialCappedResults.length,
+      skippedCappedUsers: skippedCappedResults.length,
+      skippedUsers: skippedCappedResults.length,
+      totalUsdDistributed: decimalString(totalUsdDistributed, 18),
+      totalCoinDistributed: decimalString(totalCoinDistributed, 8),
       coin: coinSymbol,
       amount: parsed.data.amount,
       items: results,

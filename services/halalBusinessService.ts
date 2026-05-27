@@ -1027,6 +1027,9 @@ export function fetchHbIncome(token: string) {
     singleLegProgress?: HbSingleLegProgress | null;
     levelUnlockProgress?: HbLevelUnlockProgress;
     incomeCap?: HbIncomeCapSummary;
+    dividendIncomeUsd?: string;
+    dividendCapUsd?: string;
+    dividendRemainingUsd?: string;
     salaryIncome: HbSalaryIncome;
     summary: {
       referral_income?: string;

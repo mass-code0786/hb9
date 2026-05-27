@@ -369,6 +369,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   const [singleLegReserve, setSingleLegReserve] = useState<HbSingleLegReserve[]>([]);
   const [singleLegProgress, setSingleLegProgress] = useState<HbSingleLegProgress | null>(null);
   const [incomeSummary, setIncomeSummary] = useState({ direct_income: "0", level_income: "0", single_leg_income: "0", single_leg_reserve: "0", salaryIncome: "0" });
+  const [dividendSummary, setDividendSummary] = useState({ dividendIncomeUsd: "0", dividendCapUsd: "0", dividendRemainingUsd: "0" });
   const [referralSummary, setReferralSummary] = useState<HbReferralSummary | null>(null);
   const [walletActivity, setWalletActivity] = useState<HbWalletActivity[]>([]);
   const [myProducts, setMyProducts] = useState<HbMyProductsDelivery | null>(null);
@@ -549,6 +550,11 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       single_leg_reserve: incomeData.summary.single_leg_reserve || "0",
       salaryIncome: "0"
     });
+    setDividendSummary({
+      dividendIncomeUsd: incomeData.dividendIncomeUsd || "0",
+      dividendCapUsd: incomeData.dividendCapUsd || "0",
+      dividendRemainingUsd: incomeData.dividendRemainingUsd || "0"
+    });
     setWithdrawals(wallet.withdrawals);
     setWalletData({
       depositAddress: wallet.depositAddress,
@@ -669,6 +675,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       setSingleLegReserve([]);
       setSingleLegProgress(null);
       setIncomeSummary({ direct_income: "0", level_income: "0", single_leg_income: "0", single_leg_reserve: "0", salaryIncome: "0" });
+      setDividendSummary({ dividendIncomeUsd: "0", dividendCapUsd: "0", dividendRemainingUsd: "0" });
       setReferralSummary(null);
       setWalletActivity([]);
       setMyProducts(null);
@@ -740,6 +747,11 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         single_leg_income: incomeData.summary.single_leg_income || "0",
         single_leg_reserve: incomeData.summary.single_leg_reserve || "0",
         salaryIncome: "0"
+      });
+      setDividendSummary({
+        dividendIncomeUsd: incomeData.dividendIncomeUsd || "0",
+        dividendCapUsd: incomeData.dividendCapUsd || "0",
+        dividendRemainingUsd: incomeData.dividendRemainingUsd || "0"
       });
       setReferralSummary(referralData);
       setWalletActivity(activityData.items);
@@ -1179,7 +1191,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         {!loading && activeTab === "products" ? <MyProductsScreen purchases={purchases} orders={orders} delivery={myProducts} packages={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openPackagesScreen} onPackageBuy={openBuyFlow} onBookDownload={handleBookDownload} onFollowersRequest={handleFollowersRequest} onCustomSoftwareRequest={handleCustomSoftwareRequest} /> : null}
         {!loading && activeTab === "packages" ? <AllPackagesScreen products={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openBuyFlow} onBack={() => setActiveTab("home")} /> : null}
         {!loading && activeTab === "team" ? <TeamScreen user={dashboardUser} summary={referralSummary} /> : null}
-        {!loading && activeTab === "income" ? <IncomeScreen income={income} singleLegReserve={singleLegReserve} singleLegProgress={singleLegProgress} summary={incomeSummary} availableBalance={walletData.balances.income} totalWithdrawn={withdrawals.filter((item) => item.status === "paid").reduce((sum, item) => sum + Number(item.amount_usd || 0), 0)} /> : null}
+        {!loading && activeTab === "income" ? <IncomeScreen income={income} singleLegReserve={singleLegReserve} singleLegProgress={singleLegProgress} summary={incomeSummary} dividendSummary={dividendSummary} availableBalance={walletData.balances.income} totalWithdrawn={withdrawals.filter((item) => item.status === "paid").reduce((sum, item) => sum + Number(item.amount_usd || 0), 0)} /> : null}
         {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} deposits={walletData.deposits} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={treasuryDepositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} depositPaymentStatus={depositPaymentStatus} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} onRefresh={() => token ? refresh(token) : Promise.resolve()} onInstruction={playAssistant} onModalChange={setActiveWalletModal} onResetDepositStatus={() => setDepositPaymentStatus("idle")} /> : null}
       </div>
 
@@ -1628,7 +1640,7 @@ function TeamScreen({ user, summary }: { user: HbUser; summary: HbReferralSummar
   );
 }
 
-function IncomeScreen({ income, singleLegReserve, singleLegProgress, summary, availableBalance, totalWithdrawn }: { income: HbIncome[]; singleLegReserve: HbSingleLegReserve[]; singleLegProgress: HbSingleLegProgress | null; summary: { direct_income: string; level_income: string; single_leg_income: string; single_leg_reserve: string; salaryIncome: string }; availableBalance: string; totalWithdrawn: number }) {
+function IncomeScreen({ income, singleLegReserve, singleLegProgress, summary, dividendSummary, availableBalance, totalWithdrawn }: { income: HbIncome[]; singleLegReserve: HbSingleLegReserve[]; singleLegProgress: HbSingleLegProgress | null; summary: { direct_income: string; level_income: string; single_leg_income: string; single_leg_reserve: string; salaryIncome: string }; dividendSummary: { dividendIncomeUsd: string; dividendCapUsd: string; dividendRemainingUsd: string }; availableBalance: string; totalWithdrawn: number }) {
   const totalIncome = Number(summary.direct_income || 0) + Number(summary.level_income || 0) + Number(summary.single_leg_income || 0) + Number(summary.single_leg_reserve || 0) + Number(summary.salaryIncome || 0);
   const rows = [
     { label: "Referral Income", value: summary.direct_income, icon: Users },
@@ -1648,6 +1660,18 @@ function IncomeScreen({ income, singleLegReserve, singleLegProgress, summary, av
         </div>
       </section>
       {rows.map((item) => <IncomeRow key={item.label} label={item.label} value={money(item.value)} icon={item.icon} />)}
+      <GlassCard className="p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-bold text-sky-100/72">Dividend Income</p>
+            <div className="mt-1 text-xl font-black">{money(dividendSummary.dividendIncomeUsd)} / {money(dividendSummary.dividendCapUsd)}</div>
+            <p className="mt-1 text-xs text-sky-100/58">Remaining {money(dividendSummary.dividendRemainingUsd)}</p>
+          </div>
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-cyan-300/12 text-cyan-100">
+            <CircleDollarSign size={18} />
+          </div>
+        </div>
+      </GlassCard>
       <GlassCard className="p-3"><div className="flex items-center justify-between gap-3"><div><p className="text-sm text-sky-100/62">Available Balance</p><div className="mt-1 text-xl font-black">{money(availableBalance)}</div></div><PremiumIllustration type="wallet" compact /></div></GlassCard>
       <PremiumSingleLegMilestones progress={singleLegProgress} />
       <GlassCard className="p-3"><SectionTitle title="Income History" /><div className="mt-2 space-y-2">{income.length || singleLegReserve.length ? [...income, ...singleLegReserve].map((item) => <HistoryRow key={item.id} title={"income_type" in item ? item.income_type.replace(/_/g, " ") : "Single leg income"} meta={`${item.status} - ${new Date(item.created_at).toLocaleString()}`} value={`+${money(item.amount_usd)}`} positive />) : <EmptyState title="No income history yet." />}</div></GlassCard>
