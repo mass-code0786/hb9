@@ -410,6 +410,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
   const boundWallet = providerWalletAddress || dashboardUser.usdt_bep20_address || dashboardUser.hb9_wallet_address || dashboardUser.wallet_address || walletData.depositAddress || "";
   const treasuryDepositAddress = useMemo(() => resolveClientTreasuryWallet(walletData.depositAddress), [walletData.depositAddress]);
   const totalBalance = Number(walletData.balances.deposit || 0) + Number(walletData.balances.income || 0);
+  const availableBalanceUsd = useMemo(() => calculateAvailableBalanceUsd(coins, walletData.balances.deposit), [coins, walletData.balances.deposit]);
   const orderedProducts = useMemo(() => [...products].sort((a, b) => Number(a.package_price) - Number(b.package_price)), [products]);
   const completePackageProducts = useMemo(() => completePackageProductList(dashboardProducts, packages, devDashboardActive), [dashboardProducts, packages, devDashboardActive]);
   const hasActiveProduct = Boolean(myProducts?.activeProducts?.length || purchases.length || orders.length);
@@ -1191,7 +1192,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         {!loading && activeTab === "products" ? <MyProductsScreen purchases={purchases} orders={orders} delivery={myProducts} packages={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openPackagesScreen} onPackageBuy={openBuyFlow} onBookDownload={handleBookDownload} onFollowersRequest={handleFollowersRequest} onCustomSoftwareRequest={handleCustomSoftwareRequest} /> : null}
         {!loading && activeTab === "packages" ? <AllPackagesScreen products={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openBuyFlow} onBack={() => setActiveTab("home")} /> : null}
         {!loading && activeTab === "team" ? <TeamScreen user={dashboardUser} summary={referralSummary} /> : null}
-        {!loading && activeTab === "income" ? <IncomeScreen income={income} singleLegReserve={singleLegReserve} singleLegProgress={singleLegProgress} summary={incomeSummary} dividendSummary={dividendSummary} availableBalance={walletData.balances.income} totalWithdrawn={withdrawals.filter((item) => item.status === "paid").reduce((sum, item) => sum + Number(item.amount_usd || 0), 0)} /> : null}
+        {!loading && activeTab === "income" ? <IncomeScreen income={income} singleLegReserve={singleLegReserve} singleLegProgress={singleLegProgress} summary={incomeSummary} dividendSummary={dividendSummary} availableBalance={availableBalanceUsd} totalWithdrawn={withdrawals.filter((item) => item.status === "paid").reduce((sum, item) => sum + Number(item.amount_usd || 0), 0)} /> : null}
         {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} deposits={walletData.deposits} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={treasuryDepositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} depositPaymentStatus={depositPaymentStatus} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} onRefresh={() => token ? refresh(token) : Promise.resolve()} onInstruction={playAssistant} onModalChange={setActiveWalletModal} onResetDepositStatus={() => setDepositPaymentStatus("idle")} /> : null}
       </div>
 
@@ -1640,8 +1641,8 @@ function TeamScreen({ user, summary }: { user: HbUser; summary: HbReferralSummar
   );
 }
 
-function IncomeScreen({ income, singleLegReserve, singleLegProgress, summary, dividendSummary, availableBalance, totalWithdrawn }: { income: HbIncome[]; singleLegReserve: HbSingleLegReserve[]; singleLegProgress: HbSingleLegProgress | null; summary: { direct_income: string; level_income: string; single_leg_income: string; single_leg_reserve: string; salaryIncome: string }; dividendSummary: { dividendIncomeUsd: string; dividendCapUsd: string; dividendRemainingUsd: string }; availableBalance: string; totalWithdrawn: number }) {
-  const totalIncome = Number(summary.direct_income || 0) + Number(summary.level_income || 0) + Number(summary.single_leg_income || 0) + Number(summary.single_leg_reserve || 0) + Number(summary.salaryIncome || 0);
+function IncomeScreen({ income, singleLegReserve, singleLegProgress, summary, dividendSummary, availableBalance, totalWithdrawn }: { income: HbIncome[]; singleLegReserve: HbSingleLegReserve[]; singleLegProgress: HbSingleLegProgress | null; summary: { direct_income: string; level_income: string; single_leg_income: string; single_leg_reserve: string; salaryIncome: string }; dividendSummary: { dividendIncomeUsd: string; dividendCapUsd: string; dividendRemainingUsd: string }; availableBalance: string | number; totalWithdrawn: number }) {
+  const totalIncome = Number(summary.direct_income || 0) + Number(summary.level_income || 0) + Number(summary.single_leg_income || 0) + Number(summary.salaryIncome || 0) + Number(dividendSummary.dividendIncomeUsd || 0);
   const rows = [
     { label: "Referral Income", value: summary.direct_income, icon: Users },
     { label: "Level Income", value: summary.level_income, icon: Layers3 },
@@ -1900,6 +1901,25 @@ const walletCoinList = [
   { key: "ADA", label: "ADA", network: "Cardano" }
 ] as const;
 
+function coinUsdValueFor(symbol: string, item: HbCoinBalance | undefined, usdtBalance: string | number) {
+  if (symbol === "USDT") return Number(usdtBalance || 0);
+  const balance = Number(item?.balance || 0);
+  if (symbol === "HB9") return Number((balance * HB9_COIN_PRICE_USD).toFixed(8));
+  const usdValue = Number(item?.usd_value || 0);
+  if (Number.isFinite(usdValue) && usdValue > 0) return usdValue;
+  const usdPrice = Number(item?.usd_price || 0);
+  return Number.isFinite(balance) && Number.isFinite(usdPrice) ? Number((balance * usdPrice).toFixed(8)) : 0;
+}
+
+function calculateAvailableBalanceUsd(coins: HbCoinBalance[], usdtBalance: string | number) {
+  return walletCoinList.reduce((sum, coin) => {
+    const normalized = coin.key === "BTTC" ? ["BTTC", "BTCT"] : [coin.key];
+    const item = coins.find((entry) => normalized.includes(String(entry.coin_symbol).toUpperCase()) || normalized.includes(String(entry.symbol).toUpperCase()));
+    const usdValue = coinUsdValueFor(coin.key, item, usdtBalance);
+    return sum + (Number.isFinite(usdValue) ? usdValue : 0);
+  }, 0);
+}
+
 function MultiCoinWallet({ coins, withdrawableBalance, convertingCoin, onConvert }: { coins: HbCoinBalance[]; withdrawableBalance: string | number; convertingCoin: string; onConvert: (coinSymbol: string, usdValue?: number) => void }) {
   const [expandedCoin, setExpandedCoin] = useState("");
   const [convertReview, setConvertReview] = useState<{ coinSymbol: string; usdValue: number } | null>(null);
@@ -1916,9 +1936,7 @@ function MultiCoinWallet({ coins, withdrawableBalance, convertingCoin, onConvert
   }
 
   function usdValueFor(symbol: string, item?: HbCoinBalance) {
-    if (symbol === "USDT") return Number(withdrawableBalance || 0);
-    if (symbol === "HB9") return Number((Number(item?.balance || 0) * HB9_COIN_PRICE_USD).toFixed(8));
-    return Number(item?.usd_value || 0);
+    return coinUsdValueFor(symbol, item, withdrawableBalance);
   }
 
   function hb9AmountForReview(review: { coinSymbol: string; usdValue: number }) {
@@ -1990,8 +2008,8 @@ function MultiCoinWallet({ coins, withdrawableBalance, convertingCoin, onConvert
         );
       })}
       {convertReview ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 px-3 pb-3 backdrop-blur-sm">
-          <div className="w-full max-w-[430px] rounded-[1.6rem] border border-cyan-200/15 bg-[#071827]/95 p-4 shadow-[0_0_40px_rgba(34,211,238,0.18)] backdrop-blur-2xl">
+        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/65 px-3 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm">
+          <div className="max-h-[85vh] w-full max-w-[430px] overflow-y-auto rounded-[1.6rem] border border-cyan-200/15 bg-[#071827]/95 px-4 pb-28 pt-4 shadow-[0_0_40px_rgba(34,211,238,0.18)] backdrop-blur-2xl">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-200">Coin conversion</p>
             <h2 className="mt-2 text-2xl font-semibold">Confirm Convert</h2>
             <p className="mt-2 text-sm leading-6 text-sky-100/62">{convertReview.coinSymbol === "HB9" ? "Convert HB9 Coin to USDT BEP20?" : `Convert ${convertReview.coinSymbol}?`}</p>
