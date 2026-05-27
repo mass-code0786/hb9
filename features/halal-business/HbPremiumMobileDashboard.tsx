@@ -1913,9 +1913,9 @@ function coinUsdValueFor(symbol: string, item: HbCoinBalance | undefined, usdtBa
 
 function calculateAvailableBalanceUsd(coins: HbCoinBalance[], usdtBalance: string | number) {
   return walletCoinList.reduce((sum, coin) => {
-    const normalized = coin.key === "BTTC" ? ["BTTC", "BTCT"] : [coin.key];
+    const normalized = coin.key === "BTTC" ? ["BTTC", "BTCT"] : coin.key === "SHIB" ? ["SHIB", "SHIBA"] : [coin.key];
     const item = coins.find((entry) => normalized.includes(String(entry.coin_symbol).toUpperCase()) || normalized.includes(String(entry.symbol).toUpperCase()));
-    const usdValue = coinUsdValueFor(coin.key, item, usdtBalance);
+    const usdValue = item ? coinUsdValueFor(coin.key, item, item.balance) : coinUsdValueFor(coin.key, item, usdtBalance);
     return sum + (Number.isFinite(usdValue) ? usdValue : 0);
   }, 0);
 }
