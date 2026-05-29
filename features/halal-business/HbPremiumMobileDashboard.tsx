@@ -1599,6 +1599,40 @@ function ProductActions() {
   );
 }
 
+function WhatsAppBrandIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+      <path d="M12.04 2a9.86 9.86 0 0 0-8.45 14.93L2.2 22l5.2-1.36A9.95 9.95 0 1 0 12.04 2Zm5.82 14.08c-.24.67-1.39 1.29-1.94 1.37-.5.07-1.12.1-1.81-.11-.42-.13-.96-.31-1.65-.61-2.9-1.25-4.79-4.17-4.94-4.36-.14-.19-1.18-1.57-1.18-3 0-1.42.75-2.12 1.01-2.41.27-.29.58-.36.77-.36h.56c.18.01.43-.07.67.51.24.58.82 2 .89 2.15.07.14.12.31.02.5-.09.19-.14.31-.29.48-.14.17-.31.38-.43.51-.14.14-.29.3-.12.59.17.29.74 1.22 1.59 1.97 1.09.97 2.01 1.27 2.3 1.42.29.14.46.12.63-.07.17-.19.72-.84.91-1.13.19-.29.39-.24.65-.14.27.1 1.69.8 1.98.94.29.14.48.22.55.34.07.12.07.7-.17 1.39Z" />
+    </svg>
+  );
+}
+
+function TelegramBrandIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+      <path d="M21.95 4.56c-.18-.7-.82-.96-1.47-.72L2.86 10.63c-.6.24-.59.84-.1 1l4.52 1.41 1.73 5.33c.22.61.55.75 1.11.38l2.5-1.82 4.64 3.43c.54.3.93.14 1.07-.5l3.62-15.3ZM8 12.72l8.86-5.6c.43-.26.82-.12.5.17l-7.16 6.46-.28 3.02L8 12.72Z" />
+    </svg>
+  );
+}
+
+function FacebookBrandIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+      <path d="M14.12 8.67V6.9c0-.86.58-1.06.99-1.06h2.52V2.02L14.16 2c-3.86 0-4.74 2.89-4.74 4.74v1.93H6.89v3.93h2.53V22h4.7v-9.4h3.16l.42-3.93h-3.58Z" />
+    </svg>
+  );
+}
+
+function InstagramBrandIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+      <rect width="15.5" height="15.5" x="4.25" y="4.25" stroke="currentColor" strokeWidth="2" rx="4.3" />
+      <circle cx="12" cy="12" r="3.15" stroke="currentColor" strokeWidth="2" />
+      <circle cx="16.7" cy="7.3" r="1.1" fill="currentColor" />
+    </svg>
+  );
+}
+
 function TeamScreen({ user, summary }: { user: HbUser; summary: HbReferralSummary | null }) {
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [shareToast, setShareToast] = useState("");
@@ -1666,8 +1700,8 @@ function TeamScreen({ user, summary }: { user: HbUser; summary: HbReferralSummar
         {shareToast ? <div className="mt-2 rounded-xl border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-xs font-semibold text-emerald-100">{shareToast}</div> : null}
       </GlassCard>
       {shareSheetOpen ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 px-3 pb-3 backdrop-blur-sm" onClick={() => setShareSheetOpen(false)} role="dialog" aria-modal="true" aria-label="Share referral link">
-          <div className="w-full max-w-md rounded-t-[1.35rem] border border-cyan-200/12 bg-[#07172b] p-4 shadow-[0_-20px_50px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]" onClick={(event) => event.stopPropagation()}>
+        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/65 px-3 pb-28 backdrop-blur-sm" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 96px)" }} onClick={() => setShareSheetOpen(false)} role="dialog" aria-modal="true" aria-label="Share referral link">
+          <div className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-t-[1.35rem] border border-cyan-200/12 bg-[#07172b] p-4 shadow-[0_-20px_50px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100/60">Share via</p>
@@ -1676,10 +1710,10 @@ function TeamScreen({ user, summary }: { user: HbUser; summary: HbReferralSummar
               <button className="hb-interactive grid h-8 w-8 place-items-center rounded-xl border border-cyan-200/12 text-cyan-100" onClick={() => setShareSheetOpen(false)} type="button" aria-label="Close share sheet"><X size={16} /></button>
             </div>
             <div className="mt-4 grid grid-cols-4 gap-2">
-              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://wa.me/?text=${encodedText}`)} type="button" aria-label="Share on WhatsApp"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#25D366] text-sm font-black text-white">WA</span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">WhatsApp</span></button>
-              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`)} type="button" aria-label="Share on Telegram"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#229ED9] text-sm font-black text-white">TG</span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Telegram</span></button>
-              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`)} type="button" aria-label="Share on Facebook"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#1877F2] text-lg font-black text-white">f</span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Facebook</span></button>
-              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => { copyReferralLink("Link copied. Paste it on Instagram."); setShareSheetOpen(false); }} type="button" aria-label="Copy referral link for Instagram"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-[#F58529] via-[#DD2A7B] to-[#515BD4] text-sm font-black text-white">IG</span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Instagram</span></button>
+              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://wa.me/?text=${encodedText}`)} type="button" aria-label="Share on WhatsApp"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#25D366] text-white"><WhatsAppBrandIcon /></span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">WhatsApp</span></button>
+              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`)} type="button" aria-label="Share on Telegram"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#229ED9] text-white"><TelegramBrandIcon /></span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Telegram</span></button>
+              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`)} type="button" aria-label="Share on Facebook"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#1877F2] text-white"><FacebookBrandIcon /></span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Facebook</span></button>
+              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => { copyReferralLink("Link copied. Paste it on Instagram."); setShareSheetOpen(false); }} type="button" aria-label="Copy referral link for Instagram"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-[#F58529] via-[#DD2A7B] to-[#515BD4] text-white"><InstagramBrandIcon /></span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Instagram</span></button>
             </div>
           </div>
         </div>
