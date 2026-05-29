@@ -45,9 +45,9 @@ const BSC_MAINNET_CHAIN_ID = 56;
 const USDT_BEP20_ADDRESS = "0x55d398326f99059fF775485246999027B3197955";
 const configuredUsdtCandidate = config.hbUsdtAddress || config.usdtBep20Contract || USDT_BEP20_ADDRESS;
 const CONFIGURED_USDT_BEP20_ADDRESS = isAddress(configuredUsdtCandidate) ? getAddress(configuredUsdtCandidate) : getAddress(USDT_BEP20_ADDRESS);
-const HB_WITHDRAWAL_MIN_USD = 2;
+const HB_WITHDRAWAL_MIN_USD = 9;
 const HB_WITHDRAWAL_FEE_PERCENT = 10;
-const HB_WITHDRAWAL_MIN_ERROR = "Minimum withdrawal is $2.";
+const HB_WITHDRAWAL_MIN_ERROR = "Minimum withdrawal amount is $9.";
 const HB9_COIN_PRICE_USD = 0.13;
 const HB9_TO_USDT_MIN_USD = 500;
 
@@ -328,7 +328,7 @@ const hbBookAdminSchema = z.object({
   description: z.string().trim().max(2000).optional().or(z.literal("")),
   coverImage: z.string().trim().url().max(800).optional().or(z.literal("")),
   downloadUrl: z.string().trim().url().max(1000),
-  packageTier: z.coerce.number().int().refine((value) => [4, 20, 100].includes(value), "Package tier must be 4, 20, or 100.").optional(),
+  packageTier: z.coerce.number().int().refine((value) => [4, 20, 100, 500, 2500, 12500].includes(value), "Package tier must be 4, 20, 100, 500, 2500, or 12500.").optional(),
   sortOrder: z.coerce.number().int().min(1).max(100),
   isActive: z.boolean().optional()
 });
@@ -6822,7 +6822,71 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
         continue;
       }
       const fullCreditAllowed = requestedUsd <= remainingDividendUsd + Number.EPSILON;
-      const creditCoinAmount = fullCreditAllowed ? requestedCoinAmount : floorCoinAmount(remainingDividendUsd / coinUsdPrice);
+      const dividendCandidateCoinAmount = fullCreditAllowed ? requestedCoinAmount : floorCoinAmount(remainingDividendUsd / coinUsdPrice);
+      if (dividendCandidateCoinAmount <= 0) {
+        const dividendRows = await client.query<{ id: string }>(
+          `insert into hb_dividend_income_ledger
+            (user_id, source_action_id, coin_symbol, coin_amount, usd_value, package_total_usd, cap_usd, credited_usd, status, note)
+           values ($1,null,$2,0,$3,$4,$5,0,'capped',$6)
+           returning id`,
+          [userId, coinSymbol, decimalString(requestedUsd, 18), decimalString(packageTotalUsd, 18), decimalString(dividendCapUsd, 18), note]
+        );
+        results.push({
+          id: dividendRows.rows[0]?.id,
+          user_id: userId,
+          coin_symbol: coinSymbol,
+          amount: "0",
+          requested_amount: String(parsed.data.amount),
+          status: "capped",
+          credited_usd: "0",
+          cap_usd: dividendStats.dividendCapUsd,
+          remaining_usd: "0"
+        });
+        continue;
+      }
+      const dividendCandidateUsd = fullCreditAllowed ? requestedUsd : Math.min(dividendCandidateCoinAmount * coinUsdPrice, remainingDividendUsd);
+      const incomeIdempotencyKey = `${rootKey}:${userId}:dividend_income`;
+      const incomeRows = await client.query<{ id: string }>(
+        `insert into hb_income_ledger
+          (earner_user_id, source_user_id, income_type, amount_usd, status, idempotency_key, metadata)
+         values ($1,$1,'dividend_income',$2,'credited',$3,$4::jsonb)
+         on conflict (idempotency_key) do nothing
+         returning id`,
+        [
+          userId,
+          decimalString(dividendCandidateUsd, 18),
+          incomeIdempotencyKey,
+          JSON.stringify({
+            source: "admin_bulk_distribution",
+            batchKey: rootKey,
+            coinSymbol,
+            requestedAmount: parsed.data.amount,
+            requestedUsd: decimalString(requestedUsd, 18),
+            dividendLifetimeRemainingUsd: dividendStats.remainingDividendUsd
+          })
+        ]
+      );
+      let incomeLedgerId = incomeRows.rows[0]?.id || null;
+      if (!incomeLedgerId) {
+        const existingIncomeRows = await client.query<{ id: string }>(
+          "select id from hb_income_ledger where idempotency_key = $1 limit 1",
+          [incomeIdempotencyKey]
+        );
+        incomeLedgerId = existingIncomeRows.rows[0]?.id || null;
+      }
+      if (!incomeLedgerId) throw new Error("Dividend income ledger could not be created.");
+      const dailyCapResult = await applyIncomeCap({
+        client,
+        userId,
+        incomeLedgerId,
+        incomeAmount: decimalString(dividendCandidateUsd, 18),
+        incomeType: "dividend_income",
+        creditWallet: false,
+        metadata: { batchKey: rootKey, coinSymbol, requestedAmount: parsed.data.amount }
+      });
+      const dailyCappedUsd = Number(dailyCapResult.creditedAmount || 0);
+      const dailyCapLimited = dailyCappedUsd + Number.EPSILON < dividendCandidateUsd;
+      const creditCoinAmount = dailyCapLimited ? floorCoinAmount(dailyCappedUsd / coinUsdPrice) : dividendCandidateCoinAmount;
       if (creditCoinAmount <= 0) {
         const dividendRows = await client.query<{ id: string }>(
           `insert into hb_dividend_income_ledger
@@ -6844,8 +6908,8 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
         });
         continue;
       }
-      const creditedUsd = fullCreditAllowed ? requestedUsd : Math.min(creditCoinAmount * coinUsdPrice, remainingDividendUsd);
-      const dividendStatus = fullCreditAllowed ? "credited" : "partial_capped";
+      const creditedUsd = dailyCapLimited ? Math.min(creditCoinAmount * coinUsdPrice, dailyCappedUsd) : dividendCandidateUsd;
+      const dividendStatus = fullCreditAllowed && !dailyCapLimited ? "credited" : "partial_capped";
       const creditCoinAmountText = decimalString(creditCoinAmount, 8);
       const before = await readCoinBalance(client, userId, coinSymbol);
       console.log("BULK_INSERT_USER_ID", userId);

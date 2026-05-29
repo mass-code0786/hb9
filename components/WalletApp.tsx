@@ -38,8 +38,8 @@ import {
 
 const DEV_BOUND_WALLET_KEY = "hb9.usdtBep20Address";
 const HB_ACCOUNT_ID_KEY = "hb9.accountId";
-const HB_WITHDRAWAL_MIN_USD = 2;
-const HB_WITHDRAWAL_MIN_ERROR = "Minimum withdrawal is $2.";
+const HB_WITHDRAWAL_MIN_USD = 9;
+const HB_WITHDRAWAL_MIN_ERROR = "Minimum withdrawal amount is $9.";
 
 function getOrCreateHbAccountId() {
   if (typeof window === "undefined") return "HB9-ACCOUNT";
@@ -453,7 +453,7 @@ function WithdrawalView() {
   return (
     <div className="space-y-4" data-testid="withdrawal-screen">
       <Panel>
-        <Title title="Withdraw USDT BEP20" subtitle="Minimum withdrawal $2. 10% withdrawal charge. BNB is used only by the network for gas." />
+        <Title title="Withdraw USDT BEP20" subtitle="Minimum withdrawal $9. 10% withdrawal charge. BNB is used only by the network for gas." />
         {!boundAddress ? <div className="mb-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm text-yellow-100">Please bind your USDT BEP20 wallet address before withdrawal.</div> : null}
         <div className="mb-4 rounded-2xl border border-sky-200/10 bg-[#0b1728]/70 p-4 shadow-[0_0_18px_rgba(56,189,248,0.08)] backdrop-blur-xl">
           <div className="text-xs text-slate-400">Available Internal Balance</div>

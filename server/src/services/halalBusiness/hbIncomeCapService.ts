@@ -1,8 +1,17 @@
 import type pg from "pg";
 import { pool } from "../../db/pool.js";
+import { logger } from "../../logger.js";
 import { createLedgerProof } from "./hbLedgerProofService.js";
 
 const incomeCapTimezone = process.env.HB_INCOME_CAP_TIMEZONE || "UTC";
+const dailyIncomeCapByPackage = new Map<number, string>([
+  [4, "2"],
+  [20, "10"],
+  [100, "50"],
+  [500, "250"],
+  [2500, "1250"],
+  [12500, "6250"]
+]);
 
 type CapResult = {
   capDate: string;
@@ -13,16 +22,24 @@ type CapResult = {
   remainingAmount: string;
 };
 
+export function getDailyIncomeCap(packageAmount: string | number) {
+  return dailyIncomeCapByPackage.get(Number(packageAmount)) || "0";
+}
+
 export async function getDailyCapForUser(client: pg.PoolClient, userId: string) {
   const rows = await client.query<{ package_amount: string; daily_cap_amount: string; cap_date: string }>(
     `select coalesce(max(amount_usd), 0)::text as package_amount,
-            round(coalesce(max(amount_usd), 0) * 0.50, 8)::text as daily_cap_amount,
             (now() at time zone $2)::date::text as cap_date
      from hb_package_purchases
      where user_id = $1 and status = 'completed'`,
     [userId, incomeCapTimezone]
   );
-  return rows.rows[0] || { package_amount: "0", daily_cap_amount: "0", cap_date: "" };
+  const row = rows.rows[0] || { package_amount: "0", cap_date: "" };
+  return {
+    package_amount: row.package_amount,
+    daily_cap_amount: getDailyIncomeCap(row.package_amount),
+    cap_date: row.cap_date
+  };
 }
 
 export async function getTodayIncomeUsed(client: pg.PoolClient, userId: string) {
@@ -80,6 +97,7 @@ export async function applyIncomeCap(input: {
   incomeAmount: string;
   incomeType: string;
   metadata?: Record<string, unknown>;
+  creditWallet?: boolean;
 }) {
   const { client, userId, incomeLedgerId, incomeAmount, incomeType } = input;
   const existingRows = await client.query<{
@@ -112,8 +130,8 @@ export async function applyIncomeCap(input: {
   await client.query("select pg_advisory_xact_lock(hashtext($1))", [`hb:daily-income-cap:${userId}:${cap.cap_date}`]);
   const capUpdateRows = await client.query<{ id: string }>(
     `update hb_daily_income_caps
-     set package_amount = greatest(package_amount, $3::numeric),
-         daily_cap_amount = greatest(daily_cap_amount, $4::numeric),
+     set package_amount = $3::numeric,
+         daily_cap_amount = $4::numeric,
          updated_at = now()
      where user_id = $1 and cap_date = $2::date
      returning id`,
@@ -141,6 +159,8 @@ export async function applyIncomeCap(input: {
     [userId, cap.cap_date]
   );
   const capRow = capRows.rows[0] || { package_amount: "0", daily_cap_amount: "0", credited_amount: "0", capped_amount: "0" };
+  const todayIncome = capRow.credited_amount;
+  const remainingCap = String(Math.max(0, Number(capRow.daily_cap_amount) - Number(todayIncome)));
   const splitRows = await client.query<{ credited_amount: string; capped_amount: string; remaining_amount: string }>(
     `select least($1::numeric, greatest($2::numeric - $3::numeric, 0))::text as credited_amount,
             greatest($1::numeric - least($1::numeric, greatest($2::numeric - $3::numeric, 0)), 0)::text as capped_amount,
@@ -169,7 +189,17 @@ export async function applyIncomeCap(input: {
   });
   await createLedgerProof(client, "hb_income_ledger", incomeLedgerId);
 
-  if (Number(split.credited_amount) > 0) {
+  logger.info("HB9_DAILY_CAP_APPLIED", {
+    userId,
+    packageAmount: capRow.package_amount,
+    dailyCap: capRow.daily_cap_amount,
+    todayIncome,
+    requestedAmount: incomeAmount,
+    creditedAmount: split.credited_amount,
+    remainingCap
+  });
+
+  if (input.creditWallet !== false && Number(split.credited_amount) > 0) {
     const internalIdempotencyKey = `hb:wallet:income_cap:${incomeLedgerId}`;
     const existingInternalLedgerRows = await client.query<{ id: string }>(
       "select id from hb_internal_ledger where idempotency_key = $1 limit 1",

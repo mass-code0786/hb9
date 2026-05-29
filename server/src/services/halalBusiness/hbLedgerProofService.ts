@@ -48,6 +48,7 @@ function proofType(row: Record<string, any>, sourceTable: LedgerSourceTable) {
     if (row.income_type === "level_income" || row.income_type === "level") return "level_income";
     if (row.income_type === "salary_income") return "salary_income";
     if (row.income_type === "single_leg_income") return "single_leg_income";
+    if (row.income_type === "dividend_income") return "dividend_income";
     if (row.income_type === "single_leg") return "single_leg_reserve";
     if (row.income_type === "product_value") return "product_allocation";
     if (row.income_type === "company") return "company_reserve";

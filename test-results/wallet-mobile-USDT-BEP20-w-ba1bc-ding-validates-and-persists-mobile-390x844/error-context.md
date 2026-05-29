@@ -35,7 +35,7 @@ Call log:
               - generic [ref=e17]: HB9
               - generic [ref=e18]: HB9
             - generic [ref=e21]: HB9
-          - button "Connect external wallet" [ref=e25] [cursor=pointer]:
+          - button "Choose wallet" [ref=e25] [cursor=pointer]:
             - img [ref=e26]
             - generic [ref=e29]: Connect Wallet
         - generic [ref=e30]:
@@ -43,10 +43,10 @@ Call log:
             - heading "Decentralized Ecosystem" [level=1] [ref=e34]
             - paragraph [ref=e35]: A decentralized digital product ecosystem powered by blockchain-connected infrastructure.
             - generic [ref=e36]:
-              - button "Connect external wallet" [ref=e40] [cursor=pointer]:
+              - button "Choose wallet" [ref=e40] [cursor=pointer]:
                 - img [ref=e41]
-                - generic [ref=e44]: Connect Wallet
-              - button "Connect external wallet" [ref=e48] [cursor=pointer]:
+                - generic [ref=e44]: Login
+              - button "Choose wallet" [ref=e48] [cursor=pointer]:
                 - img [ref=e49]
                 - generic [ref=e52]: Sign Up
             - generic [ref=e54]:
@@ -56,139 +56,104 @@ Call log:
               - paragraph [ref=e58]: The ecosystem is designed for transparency, speed, decentralized access, and modern digital business operations.
           - region "HB9 package products" [ref=e59]:
             - generic [ref=e60]:
-              - article [ref=e61]:
-                - img "starter package product illustration" [ref=e64]:
-                  - generic [ref=e85]: 150+
-                - generic [ref=e86]:
-                  - generic [ref=e87]:
-                    - heading "$4 Package" [level=3] [ref=e88]
-                    - img [ref=e90]
-                  - list [ref=e95]:
-                    - listitem [ref=e96]:
-                      - img [ref=e98]
-                      - generic [ref=e100]: 4 Business Idea Books
-                    - listitem [ref=e101]:
-                      - img [ref=e103]
-                      - generic [ref=e105]: Digital Startup Guides
-                    - listitem [ref=e106]:
-                      - img [ref=e108]
-                      - generic [ref=e110]: Instant Product Delivery
-                  - button "Activate Package" [ref=e111] [cursor=pointer]
-              - article [ref=e112]:
-                - img "growth package product illustration" [ref=e115]:
-                  - generic [ref=e137]: 700+
-                - generic [ref=e138]:
-                  - generic [ref=e139]:
-                    - heading "$20 Package" [level=3] [ref=e140]
-                    - img [ref=e142]
-                  - list [ref=e146]:
-                    - listitem [ref=e147]:
-                      - img [ref=e149]
-                      - generic [ref=e151]: 20 Business Idea Books
-                    - listitem [ref=e152]:
-                      - img [ref=e154]
-                      - generic [ref=e156]: Money Management Books
-                    - listitem [ref=e157]:
-                      - img [ref=e159]
-                      - generic [ref=e161]: Social Media Growth Kit
-                    - listitem [ref=e162]:
-                      - img [ref=e164]
-                      - generic [ref=e166]: 700 Social Media Followers
-                    - listitem [ref=e167]:
-                      - img [ref=e169]
-                      - generic [ref=e171]: Instant Delivery
-                  - button "Activate Package" [ref=e172] [cursor=pointer]
-              - article [ref=e173]:
-                - img "creator package product illustration" [ref=e176]:
-                  - generic [ref=e197]: 4000+
-                - generic [ref=e198]:
-                  - generic [ref=e199]:
-                    - heading "$100 Package" [level=3] [ref=e200]
-                    - img [ref=e202]
-                  - list [ref=e205]:
-                    - listitem [ref=e206]:
-                      - img [ref=e208]
-                      - generic [ref=e210]: 100 Story Templates
-                    - listitem [ref=e211]:
-                      - img [ref=e213]
-                      - generic [ref=e215]: Business Idea Collection
-                    - listitem [ref=e216]:
-                      - img [ref=e218]
-                      - generic [ref=e220]: Money Management Books
-                    - listitem [ref=e221]:
-                      - img [ref=e223]
-                      - generic [ref=e225]: Branding Resources
-                    - listitem [ref=e226]:
-                      - img [ref=e228]
-                      - generic [ref=e230]: 4000 Social Media Followers
-                  - button "Activate Package" [ref=e231] [cursor=pointer]
-              - article [ref=e232]:
-                - img "whatsapp package product illustration" [ref=e235]
-                - generic [ref=e257]:
-                  - generic [ref=e258]:
-                    - heading "$500 Package" [level=3] [ref=e259]
-                    - img [ref=e261]
-                  - list [ref=e263]:
-                    - listitem [ref=e264]:
-                      - img [ref=e266]
-                      - generic [ref=e268]: All $100 Features
-                    - listitem [ref=e269]:
-                      - img [ref=e271]
-                      - generic [ref=e273]: WhatsApp Automatic Message Software
-                    - listitem [ref=e274]:
-                      - img [ref=e276]
-                      - generic [ref=e278]: CRM-style Messaging System
-                    - listitem [ref=e279]:
-                      - img [ref=e281]
-                      - generic [ref=e283]: Automation Features
-                  - button "Activate Package" [ref=e284] [cursor=pointer]
-              - article [ref=e285]:
-                - img "ai ads package product illustration" [ref=e288]
-                - generic [ref=e307]:
-                  - generic [ref=e308]:
-                    - heading "$2500 Package" [level=3] [ref=e309]
-                    - img [ref=e311]
-                  - list [ref=e323]:
-                    - listitem [ref=e324]:
-                      - img [ref=e326]
-                      - generic [ref=e328]: All $500 Features
-                    - listitem [ref=e329]:
-                      - img [ref=e331]
-                      - generic [ref=e333]: AI Calling Agent Software
-                    - listitem [ref=e334]:
-                      - img [ref=e336]
-                      - generic [ref=e338]: Meta Auto Ads Run AI Software
-                    - listitem [ref=e339]:
-                      - img [ref=e341]
-                      - generic [ref=e343]: AI Automation Ecosystem
-                  - button "Activate Package" [ref=e344] [cursor=pointer]
-              - article [ref=e345]:
-                - img "enterprise package product illustration" [ref=e348]
-                - generic [ref=e367]:
-                  - generic [ref=e368]:
-                    - heading "$12500 Package" [level=3] [ref=e369]
-                    - img [ref=e371]
-                  - list [ref=e376]:
-                    - listitem [ref=e377]:
-                      - img [ref=e379]
-                      - generic [ref=e381]: All $2500 Features
-                    - listitem [ref=e382]:
-                      - img [ref=e384]
-                      - generic [ref=e386]: 3 Custom Software Projects
-                    - listitem [ref=e387]:
-                      - img [ref=e389]
-                      - generic [ref=e391]: Centralized or Decentralized Solutions
-                    - listitem [ref=e392]:
-                      - img [ref=e394]
-                      - generic [ref=e396]: Premium Business Infrastructure
-                    - listitem [ref=e397]:
-                      - img [ref=e399]
-                      - generic [ref=e401]: Custom Development Support
-                  - button "Activate Package" [ref=e402] [cursor=pointer]
-      - generic [ref=e403]: HB9 API request failed.
-  - button "Open Next.js Dev Tools" [ref=e409] [cursor=pointer]:
-    - img [ref=e410]
-  - alert [ref=e413]
+              - generic [ref=e61]:
+                - paragraph [ref=e62]: HB9 Premium
+                - heading "Available Packages" [level=2] [ref=e63]
+              - generic [ref=e64]: All 6 packages
+            - generic [ref=e65]:
+              - generic [ref=e69]:
+                - img [ref=e73]:
+                  - generic [ref=e79]:
+                    - generic [ref=e134]: EBOOK
+                    - generic [ref=e144]:
+                      - generic [ref=e146]: 4X
+                      - generic [ref=e147]: DIGITAL BUNDLE
+                - generic [ref=e148]:
+                  - generic [ref=e149]:
+                    - generic [ref=e150]:
+                      - heading "$4.00 Starter" [level=3] [ref=e151]
+                      - img [ref=e152]
+                    - paragraph [ref=e155]: 4 Books
+                  - button "Buy Now" [ref=e157] [cursor=pointer]
+              - generic [ref=e161]:
+                - img [ref=e165]:
+                  - generic [ref=e171]:
+                    - generic [ref=e236]: EBOOK
+                    - generic [ref=e245]:
+                      - generic [ref=e247]: 20X
+                      - generic [ref=e248]: DIGITAL BUNDLE
+                - generic [ref=e249]:
+                  - generic [ref=e250]:
+                    - generic [ref=e251]:
+                      - heading "$20.00 Builder" [level=3] [ref=e252]
+                      - img [ref=e253]
+                    - paragraph [ref=e256]: 20 Books + 700 Followers
+                  - button "Buy Now" [ref=e258] [cursor=pointer]
+              - generic [ref=e262]:
+                - img [ref=e266]:
+                  - generic [ref=e272]:
+                    - generic [ref=e357]: EBOOK
+                    - generic [ref=e366]:
+                      - generic [ref=e368]: "100"
+                      - generic [ref=e369]: DIGITAL BUNDLE
+                - generic [ref=e370]:
+                  - generic [ref=e371]:
+                    - generic [ref=e372]:
+                      - heading "$100.00 Growth" [level=3] [ref=e373]
+                      - img [ref=e374]
+                    - paragraph [ref=e377]: 100 Books + 4000 Followers
+                  - button "Buy Now" [ref=e379] [cursor=pointer]
+              - generic [ref=e383]:
+                - img [ref=e387]:
+                  - generic [ref=e393]:
+                    - generic [ref=e438]: CHAT
+                    - generic [ref=e448]:
+                      - generic [ref=e450]: WA
+                      - generic [ref=e451]: SOFTWARE KIT
+                - generic [ref=e452]:
+                  - generic [ref=e453]:
+                    - generic [ref=e454]:
+                      - heading "$500.00 Automation" [level=3] [ref=e455]
+                      - img [ref=e456]
+                    - paragraph [ref=e459]: WhatsApp Automation Software
+                  - button "Buy Now" [ref=e461] [cursor=pointer]
+              - generic [ref=e465]:
+                - img [ref=e469]:
+                  - generic [ref=e475]:
+                    - generic [ref=e520]: AI
+                    - generic [ref=e530]:
+                      - generic [ref=e532]: AI
+                      - generic [ref=e533]: SOFTWARE KIT
+                - generic [ref=e534]:
+                  - generic [ref=e535]:
+                    - generic [ref=e536]:
+                      - heading "$2,500.00 AI Business" [level=3] [ref=e537]
+                      - img [ref=e538]
+                    - paragraph [ref=e541]: AI Calling + Meta Ads AI
+                  - button "Buy Now" [ref=e543] [cursor=pointer]
+              - generic [ref=e547]:
+                - img [ref=e551]:
+                  - generic [ref=e557]:
+                    - generic [ref=e612]: VAULT
+                    - generic [ref=e622]:
+                      - generic [ref=e624]: ENT
+                      - generic [ref=e625]: SOFTWARE KIT
+                - generic [ref=e626]:
+                  - generic [ref=e627]:
+                    - generic [ref=e628]:
+                      - heading "$12,500.00 Enterprise" [level=3] [ref=e629]
+                      - img [ref=e630]
+                    - paragraph [ref=e633]: 3 Custom Software
+                  - button "Buy Now" [ref=e635] [cursor=pointer]
+      - generic [ref=e637]: Failed to fetch
+    - generic:
+      - button "Replay HB9 voice assistant message" [ref=e638] [cursor=pointer]:
+        - img [ref=e639]
+      - button "Play HB9 voice assistant message" [ref=e642] [cursor=pointer]:
+        - img [ref=e643]
+  - button "Open Next.js Dev Tools" [ref=e652] [cursor=pointer]:
+    - img [ref=e653]
+  - alert [ref=e656]
 ```
 
 # Test source
@@ -235,7 +200,7 @@ Call log:
   38  |   await createWallet(page);
   39  |   await expect(page.getByTestId("bottom-nav")).toBeVisible();
   40  |   await expect(page.getByTestId("usdt-wallet-section")).toBeVisible();
-  41  |   await expect(page.getByText("Recharge Wallet")).toBeVisible();
+  41  |   await expect(page.getByText("Recharge Wallet")).toHaveCount(0);
   42  |   await expect(page.getByTestId("asset-row")).toHaveCount(0);
   43  |   await expect(page.getByText("Import Token")).toHaveCount(0);
   44  |   await expect(page.getByText("Crypto")).toHaveCount(0);
@@ -287,7 +252,7 @@ Call log:
   90  |   await page.getByTestId("bottom-nav").getByRole("button", { name: "Wallet" }).click();
   91  |   await expect(page.getByTestId("hb-wallet-screen")).toBeVisible();
   92  |   await expect(page.getByText("HB Wallet ID")).toBeVisible();
-  93  |   await expect(page.getByText("Recharge").first()).toBeVisible();
+  93  |   await expect(page.getByText("Recharge").first()).toHaveCount(0);
   94  | });
   95  | 
   96  | test("deposit screen opens", async ({ page }) => {

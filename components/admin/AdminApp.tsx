@@ -364,7 +364,15 @@ export function AdminApp({ page }: { page: AdminPage }) {
           "hb-onchain": "/admin/hb/onchain-purchases",
           "hb-contracts": "/admin/hb/onchain-contracts"
         };
-        const data = await adminRequest<Record<string, unknown> | Array<Record<string, unknown>>>(pathByPage[page], token);
+        const data = page === "hb-books"
+          ? await Promise.all([
+            adminRequest<Array<Record<string, unknown>>>(pathByPage[page], token),
+            adminRequest<{ items: Array<Record<string, unknown>> }>("/admin/hb/packages", token)
+          ]).then(([books, packagesResponse]) => {
+            console.log("HB_BOOKS_PACKAGE_RESPONSE", packagesResponse);
+            return { items: books, total: books.length, packages: packagesResponse.items || [] };
+          })
+          : await adminRequest<Record<string, unknown> | Array<Record<string, unknown>>>(pathByPage[page], token);
         if (active) {
           if (page === "hb-books" && Array.isArray(data)) {
             setHbData({ items: data, total: data.length });
@@ -773,7 +781,8 @@ function HbAdminPage({ page, data, token, query }: { page: AdminPage; data: Reco
   }
 
   if (page === "hb-books") {
-    return <HbBooksManager rows={filtered} total={Number(data.total || items.length)} token={token} />;
+    const packages = Array.isArray(data.packages) ? data.packages as Array<Record<string, unknown>> : [];
+    return <HbBooksManager rows={filtered} total={Number(data.total || items.length)} token={token} packages={packages} />;
   }
 
   if (page === "hb-coins") {
@@ -840,7 +849,7 @@ function HbAdminPage({ page, data, token, query }: { page: AdminPage; data: Reco
           <AdminTable headers={["User", "Wallet", "Package", "Platform", "Link", "Followers", "Status", "Date", "Note", "Actions"]}>
             {filtered.map((row) => (
               <tr key={compact(row.id)}>
-                <Td>{compact(row.email || row.display_name)}</Td><Td>{compact(row.wallet_address)}</Td><Td>{compact(row.package_name)} {money(row.package_price)}</Td><Td>{compact(row.platform)}</Td><Td><a className="text-accent underline" href={String(row.submitted_link || "#")} target="_blank" rel="noreferrer">Open</a></Td><Td>{compact(row.followers_count)}</Td><Td><Badge value={compact(row.status)} /></Td><Td>{formatDate(row.created_at)}</Td><Td>{compact(row.admin_note)}</Td>
+                <Td>{compact(row.email || row.display_name)}</Td><Td>{compact(row.wallet_address)}</Td><Td>{compact(row.package_name)} {money(row.package_price)}</Td><Td>{compact(row.platform)}</Td><Td><SubmittedLinkCopy value={row.submitted_link} /></Td><Td>{compact(row.followers_count)}</Td><Td><Badge value={compact(row.status)} /></Td><Td>{formatDate(row.created_at)}</Td><Td>{compact(row.admin_note)}</Td>
                 <Td><RequestAdminActions row={row} onPatch={(status, adminNote) => patch(`/admin/hb/followers-requests/${row.id}`, { status, adminNote })} /></Td>
               </tr>
             ))}
@@ -2130,21 +2139,49 @@ function HbTable({ title, rows, headers, fields, moneyFields = [], dateFields = 
   );
 }
 
-function HbBooksManager({ rows, total, token }: { rows: Array<Record<string, unknown>>; total: number; token: string }) {
-  const emptyDraft = { title: "", description: "", coverImage: "", downloadUrl: "", packageTier: "4", sortOrder: String(Math.min(total + 1, 100)), isActive: true };
+const hbBookPackageLabels: Record<number, string> = {
+  4: "Starter",
+  20: "Builder",
+  100: "Growth",
+  500: "Automation",
+  2500: "AI Business",
+  12500: "Enterprise"
+};
+
+const hbBookPackageAmounts = [4, 20, 100, 500, 2500, 12500];
+
+function HbBooksManager({ rows, total, token, packages }: { rows: Array<Record<string, unknown>>; total: number; token: string; packages: Array<Record<string, unknown>> }) {
+  const packageOptions = useMemo(() => packages
+    .map((pkg) => ({
+      value: String(Number(pkg.amount_usd || 0)),
+      amount: Number(pkg.amount_usd || 0),
+      label: `${hbBookPackageLabels[Number(pkg.amount_usd || 0)] || compact(pkg.name) || "Package"} ($${Number(pkg.amount_usd || 0)})`,
+      sortOrder: Number(pkg.sort_order || 0)
+    }))
+    .filter((pkg) => hbBookPackageAmounts.includes(pkg.amount))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.amount - b.amount), [packages]);
+  const defaultPackageTier = packageOptions[0]?.value || "4";
+  const emptyDraft = { title: "", description: "", coverImage: "", downloadUrl: "", packageTier: defaultPackageTier, sortOrder: String(Math.min(total + 1, 100)), isActive: true };
   const [draft, setDraft] = useState(emptyDraft);
   const [editingId, setEditingId] = useState("");
   const [busy, setBusy] = useState(false);
   const editing = rows.find((row) => row.id === editingId);
 
+  useEffect(() => {
+    if (!editingId && draft.packageTier !== defaultPackageTier && !packageOptions.some((pkg) => pkg.value === draft.packageTier)) {
+      setDraft((current) => ({ ...current, packageTier: defaultPackageTier }));
+    }
+  }, [defaultPackageTier, draft.packageTier, editingId, packageOptions]);
+
   function edit(row: Record<string, unknown>) {
+    const packageTier = compact(row.package_tier || defaultPackageTier);
     setEditingId(compact(row.id));
     setDraft({
       title: compact(row.title),
       description: compact(row.description),
       coverImage: compact(row.cover_image),
       downloadUrl: compact(row.download_url),
-      packageTier: compact(row.package_tier || 4),
+      packageTier,
       sortOrder: compact(row.sort_order || 1),
       isActive: Boolean(row.is_active)
     });
@@ -2153,7 +2190,7 @@ function HbBooksManager({ rows, total, token }: { rows: Array<Record<string, unk
   async function save() {
     setBusy(true);
     try {
-      const body = { ...draft, packageTier: Number(draft.packageTier || 4), sortOrder: Number(draft.sortOrder || 1), isActive: draft.isActive };
+      const body = { ...draft, packageTier: Number(draft.packageTier || defaultPackageTier), sortOrder: Number(draft.sortOrder || 1), isActive: draft.isActive };
       await adminRequest(editingId ? `/admin/hb/books/${editingId}` : "/admin/hb/books", token, {
         method: editingId ? "PATCH" : "POST",
         body: JSON.stringify(body)
@@ -2202,9 +2239,9 @@ function HbBooksManager({ rows, total, token }: { rows: Array<Record<string, unk
           <label className="space-y-2 text-sm text-slate-400">
             <span>Package Tier</span>
             <select className="field" value={draft.packageTier} onChange={(event) => setDraft({ ...draft, packageTier: event.target.value })}>
-              <option value="4">$4 Package</option>
-              <option value="20">$20 Package</option>
-              <option value="100">$100 Package</option>
+              {packageOptions.map((pkg) => (
+                <option key={pkg.value} value={pkg.value}>{pkg.label}</option>
+              ))}
             </select>
           </label>
           <label className="flex items-center gap-2 text-sm text-slate-200">
@@ -2241,6 +2278,45 @@ function HbBooksManager({ rows, total, token }: { rows: Array<Record<string, unk
           ))}
         </AdminTable>
       </Panel>
+    </div>
+  );
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+}
+
+function SubmittedLinkCopy({ value }: { value: unknown }) {
+  const link = compact(value);
+  const [copied, setCopied] = useState(false);
+  const canCopy = link !== "-";
+
+  async function copy() {
+    if (!canCopy) return;
+    await copyText(link);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
+  }
+
+  return (
+    <div className="min-w-[220px] max-w-[360px] space-y-2">
+      <div className="break-all font-mono text-xs text-slate-200">{link}</div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button className="rounded-lg bg-[#0b1728]/75 px-2 py-1 text-xs font-semibold text-accent disabled:cursor-not-allowed disabled:opacity-50" onClick={copy} disabled={!canCopy} type="button">Copy Link</button>
+        {copied ? <span className="rounded-lg border border-mint/30 bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">Link copied</span> : null}
+      </div>
     </div>
   );
 }

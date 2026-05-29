@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: wallet-mobile.spec.ts >> home screen loads without overflow and bottom nav stays fixed
-- Location: tests\e2e\wallet-mobile.spec.ts:37:5
+- Name: wallet-mobile.spec.ts >> team page shows referral tools
+- Location: tests\e2e\wallet-mobile.spec.ts:71:5
 
 # Error details
 
