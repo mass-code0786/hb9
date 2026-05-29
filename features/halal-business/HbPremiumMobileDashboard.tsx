@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDownToLine, Banknote, Bell, Box, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign, Copy, Download, Eye, Home, Layers3, PackageCheck, Plus, ReceiptText, RefreshCw, Send, Settings, Sparkles, TrendingUp, Users, Wallet, X } from "lucide-react";
+import { ArrowDownToLine, Banknote, Bell, Box, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign, Copy, Download, Eye, Home, Layers3, PackageCheck, Plus, ReceiptText, RefreshCw, Send, Settings, Share2, Sparkles, TrendingUp, Users, Wallet, X } from "lucide-react";
 import { BrowserProvider, Contract, encodeBytes32String, parseUnits, ZeroAddress } from "ethers";
 import { createPublicClient, encodeFunctionData, http, parseUnits as viemParseUnits, type Hash } from "viem";
 import { bsc } from "viem/chains";
@@ -1600,7 +1600,12 @@ function ProductActions() {
 }
 
 function TeamScreen({ user, summary }: { user: HbUser; summary: HbReferralSummary | null }) {
+  const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  const [shareToast, setShareToast] = useState("");
   const referralUrl = typeof window === "undefined" ? user.referral_code : `${window.location.origin}/halal-business?ref=${user.referral_code}`;
+  const shareText = `Join HB9 Decentralized Ecosystem using my referral link: ${referralUrl}`;
+  const encodedText = encodeURIComponent(shareText);
+  const encodedUrl = encodeURIComponent(referralUrl);
   const sponsorWallet = summary?.sponsor?.id || user.sponsor_referral_code || user.source_referral_code || "No sponsor wallet";
   const totalTeamCount = Number(summary?.totalTeamCount || 0);
   const singleLegCount = Number(summary?.singleLegCount ?? summary?.singleLegProgress?.singleLegTeamCount ?? 0);
@@ -1621,6 +1626,22 @@ function TeamScreen({ user, summary }: { user: HbUser; summary: HbReferralSummar
     const existing = summary?.levelSummary.find((item) => Number(item.level_no) === levelNo);
     return existing || { level_no: levelNo, total_count: 0, active_count: 0, inactive_count: 0 };
   });
+  const showShareToast = (message: string) => {
+    setShareToast(message);
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => setShareToast(""), 2200);
+    }
+  };
+  const copyReferralLink = async (message?: string) => {
+    await navigator.clipboard?.writeText(referralUrl);
+    if (message) showShareToast(message);
+  };
+  const openShareUrl = (url: string) => {
+    if (typeof window !== "undefined") {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+    setShareSheetOpen(false);
+  };
   return (
     <div className="space-y-3 pb-8">
       <HeroPanel title="Total Team" subtitle={`${totalTeamCount} members`} icon={Users} art="team" />
@@ -1635,7 +1656,34 @@ function TeamScreen({ user, summary }: { user: HbUser; summary: HbReferralSummar
           {levelRows.map((item) => <LevelTile key={item.level_no} level={`Level ${item.level_no}`} total={Number(item.total_count || 0)} active={Number(item.active_count || 0)} />)}
         </div>
       </GlassCard>
-      <GlassCard className="hb-glow-purple p-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100/60">Referral Link</p><div className="mt-2 break-all rounded-xl border border-cyan-200/10 bg-[#061a31]/75 p-2.5 font-mono text-[11px] text-sky-100/80">{referralUrl}</div><button className="hb-interactive hb-glow-cyan mt-2 flex items-center gap-2 rounded-xl px-2 py-1.5 text-xs font-bold text-cyan-100" onClick={() => navigator.clipboard?.writeText(referralUrl)} type="button"><Copy size={14} /> Copy Referral Link</button></GlassCard>
+      <GlassCard className="hb-glow-purple p-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100/60">Referral Link</p>
+        <div className="mt-2 break-all rounded-xl border border-cyan-200/10 bg-[#061a31]/75 p-2.5 font-mono text-[11px] text-sky-100/80">{referralUrl}</div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <button className="hb-interactive hb-glow-cyan flex items-center justify-center gap-2 rounded-xl px-2 py-2 text-xs font-bold text-cyan-100" onClick={() => copyReferralLink()} type="button"><Copy size={14} /> Copy Referral Link</button>
+          <button className="hb-interactive hb-glow-purple flex items-center justify-center gap-2 rounded-xl border border-cyan-200/15 bg-cyan-300/10 px-2 py-2 text-xs font-bold text-cyan-100" onClick={() => setShareSheetOpen(true)} type="button"><Share2 size={14} /> Share Referral Link</button>
+        </div>
+        {shareToast ? <div className="mt-2 rounded-xl border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-xs font-semibold text-emerald-100">{shareToast}</div> : null}
+      </GlassCard>
+      {shareSheetOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 px-3 pb-3 backdrop-blur-sm" onClick={() => setShareSheetOpen(false)} role="dialog" aria-modal="true" aria-label="Share referral link">
+          <div className="w-full max-w-md rounded-t-[1.35rem] border border-cyan-200/12 bg-[#07172b] p-4 shadow-[0_-20px_50px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100/60">Share via</p>
+                <p className="mt-1 text-sm font-bold text-sky-100">Referral Link</p>
+              </div>
+              <button className="hb-interactive grid h-8 w-8 place-items-center rounded-xl border border-cyan-200/12 text-cyan-100" onClick={() => setShareSheetOpen(false)} type="button" aria-label="Close share sheet"><X size={16} /></button>
+            </div>
+            <div className="mt-4 grid grid-cols-4 gap-2">
+              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://wa.me/?text=${encodedText}`)} type="button" aria-label="Share on WhatsApp"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#25D366] text-sm font-black text-white">WA</span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">WhatsApp</span></button>
+              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`)} type="button" aria-label="Share on Telegram"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#229ED9] text-sm font-black text-white">TG</span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Telegram</span></button>
+              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`)} type="button" aria-label="Share on Facebook"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#1877F2] text-lg font-black text-white">f</span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Facebook</span></button>
+              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => { copyReferralLink("Link copied. Paste it on Instagram."); setShareSheetOpen(false); }} type="button" aria-label="Copy referral link for Instagram"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-[#F58529] via-[#DD2A7B] to-[#515BD4] text-sm font-black text-white">IG</span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Instagram</span></button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <GlassCard className="hb-glow-teal p-3"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100/60">Sponsor Wallet</p><div className="mt-2 flex items-center gap-2.5"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-cyan-300/12 text-cyan-100"><Users size={17} /></div><div className="min-w-0 flex-1"><div className="truncate font-mono text-xs font-semibold">{sponsorWallet}</div><div className="text-[11px] text-sky-100/55">{summary?.sponsor?.display_name || "Root account"}</div></div><button className="hb-interactive hb-glow-teal grid h-8 w-8 place-items-center rounded-xl text-cyan-100" onClick={() => navigator.clipboard?.writeText(sponsorWallet)} type="button" aria-label="Copy sponsor wallet"><Copy size={15} /></button></div></GlassCard>
     </div>
   );
