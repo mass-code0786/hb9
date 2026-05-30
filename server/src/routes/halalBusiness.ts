@@ -48,6 +48,9 @@ const CONFIGURED_USDT_BEP20_ADDRESS = isAddress(configuredUsdtCandidate) ? getAd
 const HB_WITHDRAWAL_MIN_USD = 9;
 const HB_WITHDRAWAL_FEE_PERCENT = 10;
 const HB_WITHDRAWAL_MIN_ERROR = "Minimum withdrawal amount is $9.";
+const HB_WITHDRAWAL_TREASURY_INSUFFICIENT_INTERNAL = "Insufficient treasury balance for withdrawal";
+const HB_WITHDRAWAL_TREASURY_INSUFFICIENT_PUBLIC = "Withdrawal temporarily unavailable. Treasury balance is insufficient.";
+const HB_WITHDRAWAL_TEMPORARILY_UNAVAILABLE = "Withdrawal temporarily unavailable. Please try again later.";
 const HB9_COIN_PRICE_USD = 0.13;
 const HB9_TO_USDT_MIN_USD = 500;
 
@@ -58,6 +61,13 @@ const loginLockMs = 15 * 60 * 1000;
 const walletAuthChallengeBuckets = new Map<string, { count: number; resetAt: number }>();
 const walletAuthChallengeWindowMs = 60_000;
 const walletAuthChallengeMax = 10;
+
+class InsufficientTreasuryBalanceError extends Error {
+  constructor() {
+    super(HB_WITHDRAWAL_TREASURY_INSUFFICIENT_INTERNAL);
+    this.name = "InsufficientTreasuryBalanceError";
+  }
+}
 
 function normalizeMobile(value: string) {
   const trimmed = value.trim();
@@ -1403,7 +1413,32 @@ function withdrawalProviderReady() {
   return Boolean(config.hbWithdrawalProviderEnabled && config.hbWithdrawalSignerPrivateKey && config.hbWithdrawalVaultAddress && config.bscRpcUrl && (config.hbUsdtAddress || config.usdtBep20Contract));
 }
 
-async function sendInstantUsdtWithdrawal(input: { toWallet: string; netAmount: number; withdrawalId: string }) {
+function sameBep20Address(left?: string | null, right?: string | null) {
+  if (!left || !right || !isValidBep20Address(left) || !isValidBep20Address(right)) return false;
+  return getAddress(left) === getAddress(right);
+}
+
+async function resolveWithdrawalSenderType(provider: JsonRpcProvider, senderAddress: string) {
+  const treasuryCandidates = [
+    config.hbWithdrawalTreasuryAddress,
+    config.hbWithdrawalVaultAddress,
+    config.hb9TreasuryWallet,
+    config.hbTreasuryDepositAddress,
+    config.companyEvmReceiveAddress
+  ];
+  if (treasuryCandidates.some((address) => sameBep20Address(senderAddress, address))) return "treasury_wallet";
+  if (isHb9AdminWallet(senderAddress)) return "admin_wallet";
+  const hotWalletCandidates = [
+    process.env.HB_HOT_WALLET_ADDRESS,
+    process.env.HB9_HOT_WALLET_ADDRESS,
+    process.env.HOT_WALLET_ADDRESS
+  ];
+  if (hotWalletCandidates.some((address) => sameBep20Address(senderAddress, address))) return "hot_wallet";
+  const code = await provider.getCode(senderAddress).catch(() => "0x");
+  return code && code !== "0x" ? "contract_wallet" : "external_wallet";
+}
+
+async function sendInstantUsdtWithdrawal(input: { toWallet: string; grossAmount: number; netAmount: number; withdrawalId: string }) {
   if (!withdrawalProviderReady()) throw new Error("USDT withdrawal provider not configured.");
   const provider = new JsonRpcProvider(config.bscRpcUrl, BSC_MAINNET_CHAIN_ID);
   const network = await provider.getNetwork();
@@ -1417,7 +1452,39 @@ async function sendInstantUsdtWithdrawal(input: { toWallet: string; netAmount: n
   const usdtAddress = config.hbUsdtAddress || config.usdtBep20Contract;
   if (!isValidBep20Address(usdtAddress) || getAddress(usdtAddress) !== getAddress(USDT_BEP20_ADDRESS)) throw new Error("USDT withdrawal provider not configured.");
   const token = new Contract(usdtAddress, BEP20_TRANSFER_ABI, signer);
-  const tx = await token.transfer(input.toWallet, parseUnits(input.netAmount.toFixed(8), 18));
+  const senderAddress = getAddress(signerWallet.address);
+  const tokenAddress = getAddress(usdtAddress);
+  const requestedAmount = parseUnits(input.grossAmount.toFixed(8), 18);
+  const transferAmount = parseUnits(input.netAmount.toFixed(8), 18);
+  const treasuryBalance = await token.balanceOf(senderAddress) as bigint;
+  const senderType = await resolveWithdrawalSenderType(provider, senderAddress);
+  logger.info("hb.withdrawal.debug", {
+    withdrawalId: input.withdrawalId,
+    senderAddress,
+    senderType,
+    tokenAddress,
+    userWallet: input.toWallet,
+    requestedAmount: formatUnits(requestedAmount, 18),
+    requestedAmountRaw: requestedAmount.toString(),
+    transferAmount: formatUnits(transferAmount, 18),
+    transferAmountRaw: transferAmount.toString(),
+    treasuryBalance: formatUnits(treasuryBalance, 18),
+    treasuryBalanceRaw: treasuryBalance.toString()
+  });
+  if (treasuryBalance < requestedAmount) {
+    logger.warn("hb.withdrawal.treasury_insufficient", {
+      withdrawalId: input.withdrawalId,
+      senderAddress,
+      senderType,
+      tokenAddress,
+      userWallet: input.toWallet,
+      requestedAmount: formatUnits(requestedAmount, 18),
+      transferAmount: formatUnits(transferAmount, 18),
+      treasuryBalance: formatUnits(treasuryBalance, 18)
+    });
+    throw new InsufficientTreasuryBalanceError();
+  }
+  const tx = await token.transfer(input.toWallet, transferAmount);
   const receipt = await tx.wait(Math.max(1, config.minBlockConfirmations));
   if (!receipt || receipt.status !== 1) throw new Error("Blockchain withdrawal transaction failed.");
   return String(tx.hash);
@@ -3443,7 +3510,7 @@ hbRouter.post("/hb/withdrawals", requireHbUser, asyncHandler(async (req, res) =>
     await client.query("commit");
     committed = true;
     logger.info("hb.withdrawal.processing", { withdrawalId, userId: req.hbUser!.userId, grossAmount: parsed.data.amountUsd, feeUsd, payoutUsd });
-    const txHash = await sendInstantUsdtWithdrawal({ toWallet: parsed.data.walletAddress, netAmount: payoutUsd, withdrawalId });
+    const txHash = await sendInstantUsdtWithdrawal({ toWallet: parsed.data.walletAddress, grossAmount: parsed.data.amountUsd, netAmount: payoutUsd, withdrawalId });
     await query(
       `update hb_withdrawals
        set status = 'paid', tx_hash = $2, onchain_tx_hash = $2, onchain_status = 'confirmed',
@@ -3460,14 +3527,26 @@ hbRouter.post("/hb/withdrawals", requireHbUser, asyncHandler(async (req, res) =>
     logger.info("hb.withdrawal.paid", { withdrawalId, userId: req.hbUser!.userId, txHash, grossAmount: parsed.data.amountUsd, feeUsd, payoutUsd });
     ok(res, rows[0], "Withdrawal paid instantly", 201);
   } catch (err) {
+    const publicReason = err instanceof InsufficientTreasuryBalanceError
+      ? HB_WITHDRAWAL_TREASURY_INSUFFICIENT_PUBLIC
+      : committed
+        ? HB_WITHDRAWAL_TEMPORARILY_UNAVAILABLE
+        : err instanceof Error ? err.message : "Withdrawal could not be created.";
     if (!committed) {
       await client.query("rollback");
     } else if (withdrawalId) {
-      const reason = err instanceof Error ? err.message : "Instant payout failed.";
-      logger.error("hb.withdrawal.signer_failed", { withdrawalId, userId: req.hbUser!.userId, reason });
+      const reason = err instanceof InsufficientTreasuryBalanceError
+        ? HB_WITHDRAWAL_TREASURY_INSUFFICIENT_INTERNAL
+        : HB_WITHDRAWAL_TEMPORARILY_UNAVAILABLE;
+      logger.error("hb.withdrawal.signer_failed", {
+        withdrawalId,
+        userId: req.hbUser!.userId,
+        reason,
+        rawReason: err instanceof Error ? err.message : "Instant payout failed."
+      });
       await refundFailedInstantWithdrawal({ withdrawalId, userId: req.hbUser!.userId, grossAmount: parsed.data.amountUsd, netAmount: payoutUsd, feeAmount: feeUsd, reason });
     }
-    fail(res, err instanceof Error ? err.message : "Withdrawal could not be created.", 500, "Withdrawal failed");
+    fail(res, publicReason, err instanceof InsufficientTreasuryBalanceError ? 503 : 500, "Withdrawal failed");
   } finally {
     client.release();
   }
