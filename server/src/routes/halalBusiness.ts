@@ -1330,6 +1330,45 @@ async function optionalDelete(client: PoolClient, tableName: string, sql: string
   return { exists: true, deleted: result.rowCount || 0 };
 }
 
+const hbResetIncomeTypes = [
+  "referral_income",
+  "level_income",
+  "single_leg_income",
+  "salary_income",
+  "dividend_income",
+  "admin_income",
+  "bulk_distribution",
+  "upline",
+  "level",
+  "single_leg"
+];
+
+async function auditHbInternalLedgerReferences(client: PoolClient) {
+  const rows = await client.query<{
+    table_name: string;
+    column_name: string;
+    foreign_table_name: string;
+    foreign_column_name: string;
+  }>(
+    `SELECT
+       tc.table_name,
+       kcu.column_name,
+       ccu.table_name AS foreign_table_name,
+       ccu.column_name AS foreign_column_name
+     FROM information_schema.table_constraints tc
+     JOIN information_schema.key_column_usage kcu
+       ON tc.constraint_name = kcu.constraint_name
+      AND tc.constraint_schema = kcu.constraint_schema
+     JOIN information_schema.constraint_column_usage ccu
+       ON ccu.constraint_name = tc.constraint_name
+      AND ccu.constraint_schema = tc.constraint_schema
+     WHERE tc.constraint_type='FOREIGN KEY'
+       AND ccu.table_name='hb_internal_ledger'
+     ORDER BY tc.table_name, kcu.column_name`
+  );
+  return rows.rows;
+}
+
 async function readUserActivationIncomeResetSnapshot(client: PoolClient, userId: string) {
   const userRows = await client.query(
     `select id, email, mobile_number, display_name, referral_code, own_referral_code,
@@ -1366,6 +1405,7 @@ async function readUserActivationIncomeResetSnapshot(client: PoolClient, userId:
     singleLegReserve,
     userProducts,
     productOrders,
+    bookDownloads,
     dividendLedger,
     followersRequests,
     customSoftwareRequests,
@@ -1378,6 +1418,7 @@ async function readUserActivationIncomeResetSnapshot(client: PoolClient, userId:
     optionalCount(client, "hb_single_leg_reserve", "select count(*)::int as count from hb_single_leg_reserve where buyer_user_id = $1", [userId]),
     optionalCount(client, "hb_user_products", "select count(*)::int as count from hb_user_products where user_id = $1", [userId]),
     optionalCount(client, "hb_product_orders", "select count(*)::int as count from hb_product_orders where buyer_user_id = $1", [userId]),
+    optionalCount(client, "hb_book_downloads", "select count(*)::int as count from hb_book_downloads where user_id = $1", [userId]),
     optionalCount(client, "hb_dividend_income_ledger", "select count(*)::int as count from hb_dividend_income_ledger where user_id = $1", [userId]),
     optionalCount(client, "hb_followers_requests", "select count(*)::int as count from hb_followers_requests where user_id = $1", [userId]),
     optionalCount(client, "hb_custom_software_requests", "select count(*)::int as count from hb_custom_software_requests where user_id = $1", [userId]),
@@ -1396,6 +1437,7 @@ async function readUserActivationIncomeResetSnapshot(client: PoolClient, userId:
     singleLegReserve,
     userProducts,
     productOrders,
+    bookDownloads,
     dividendLedger,
     followersRequests,
     customSoftwareRequests,
@@ -1406,67 +1448,95 @@ async function readUserActivationIncomeResetSnapshot(client: PoolClient, userId:
 async function resetUserActivationIncome(client: PoolClient, userId: string) {
   const deleted: Record<string, number> = {};
   const updated: Record<string, number> = {};
+  const incomeTypes = hbResetIncomeTypes;
   const packageRows = await client.query<{ id: string }>("select id from hb_package_purchases where user_id = $1 for update", [userId]);
   const packageIds = packageRows.rows.map((row) => row.id);
+  const incomeInternalLedgerRows = await client.query<{ id: string }>(
+    `select id
+     from hb_internal_ledger
+     where user_id = $1
+       and (
+         reference_type = any($2::text[])
+         or metadata->>'incomeType' = any($2::text[])
+         or metadata->>'income_type' = any($2::text[])
+         or metadata->>'source' = 'admin_bulk_distribution'
+       )
+     for update`,
+    [userId, incomeTypes]
+  );
+  const incomeInternalLedgerIds = incomeInternalLedgerRows.rows.map((row) => row.id);
 
   const proofResult = await client.query(
     `delete from hb_ledger_proofs
-     where user_id = $1
-        or (source_table = 'hb_income_ledger' and ledger_entry_id in (select id from hb_income_ledger where earner_user_id = $1))
-        or (source_table = 'hb_internal_ledger' and ledger_entry_id in (select id from hb_internal_ledger where user_id = $1))
-        or (source_table = 'hb_coin_balance_ledger' and ledger_entry_id in (select id from hb_coin_balance_ledger where user_id = $1))`,
-    [userId]
+     where (source_table = 'hb_income_ledger' and ledger_entry_id in (select id from hb_income_ledger where earner_user_id = $1 and income_type = any($3::text[])))
+        or (source_table = 'hb_internal_ledger' and ledger_entry_id = any($2::uuid[]))`,
+    [userId, incomeInternalLedgerIds, incomeTypes]
   );
   deleted.hb_ledger_proofs = proofResult.rowCount || 0;
-
-  if (packageIds.length > 0) {
-    const detachResult = await client.query(
-      `update hb_income_ledger
-       set package_purchase_id = null, updated_at = now()
-       where package_purchase_id = any($1::uuid[]) and earner_user_id <> $2`,
-      [packageIds, userId]
-    );
-    updated.hb_income_ledger_reference_cleanup = detachResult.rowCount || 0;
-  }
 
   deleted.hb_dividend_income_ledger = (await optionalDelete(client, "hb_dividend_income_ledger", "delete from hb_dividend_income_ledger where user_id = $1", [userId])).deleted;
   deleted.hb_daily_income_caps = (await optionalDelete(client, "hb_daily_income_caps", "delete from hb_daily_income_caps where user_id = $1", [userId])).deleted;
   deleted.hb_salary_income = (await optionalDelete(client, "hb_salary_income", "delete from hb_salary_income where user_id = $1", [userId])).deleted;
   deleted.hb_single_leg_rewards = (await optionalDelete(client, "hb_single_leg_rewards", "delete from hb_single_leg_rewards where user_id = $1", [userId])).deleted;
-  deleted.hb_single_leg_reserve = (await optionalDelete(client, "hb_single_leg_reserve", "delete from hb_single_leg_reserve where buyer_user_id = $1", [userId])).deleted;
   deleted.hb_user_products = (await optionalDelete(client, "hb_user_products", "delete from hb_user_products where user_id = $1", [userId])).deleted;
+  deleted.hb_book_downloads = (await optionalDelete(client, "hb_book_downloads", "delete from hb_book_downloads where user_id = $1", [userId])).deleted;
   deleted.hb_followers_requests = (await optionalDelete(client, "hb_followers_requests", "delete from hb_followers_requests where user_id = $1", [userId])).deleted;
   deleted.hb_custom_software_requests = (await optionalDelete(client, "hb_custom_software_requests", "delete from hb_custom_software_requests where user_id = $1", [userId])).deleted;
   deleted.hb_product_allocations = (await optionalDelete(client, "hb_product_allocations", "delete from hb_product_allocations where user_id = $1", [userId])).deleted;
-  deleted.hb_product_order_items = (await optionalDelete(
+  deleted.hb_activation_logs = (await optionalDelete(client, "hb_activation_logs", "delete from hb_activation_logs where user_id = $1", [userId])).deleted;
+  deleted.hb_admin_balance_actions = (await optionalDelete(client, "hb_admin_balance_actions", "delete from hb_admin_balance_actions where user_id = $1 and type = 'bulk_distribution'", [userId])).deleted;
+  deleted.hb_level_income_records = (await optionalDelete(
     client,
-    "hb_product_order_items",
-    "delete from hb_product_order_items where order_id in (select id from hb_product_orders where buyer_user_id = $1)",
+    "hb_level_income_records",
+    "delete from hb_level_income_records where receiver_user_id = $1 or ledger_entry_id in (select id from hb_income_ledger where earner_user_id = $1)",
     [userId]
   )).deleted;
-  deleted.hb_product_orders = (await optionalDelete(client, "hb_product_orders", "delete from hb_product_orders where buyer_user_id = $1", [userId])).deleted;
-  deleted.hb_distribution_runs = (await optionalDelete(client, "hb_distribution_runs", "delete from hb_distribution_runs where user_id = $1", [userId])).deleted;
-  deleted.hb_activation_logs = (await optionalDelete(client, "hb_activation_logs", "delete from hb_activation_logs where user_id = $1", [userId])).deleted;
-  deleted.hb_admin_balance_actions = (await optionalDelete(client, "hb_admin_balance_actions", "delete from hb_admin_balance_actions where user_id = $1", [userId])).deleted;
 
-  const incomeResult = await client.query("delete from hb_income_ledger where earner_user_id = $1", [userId]);
+  const incomeResult = await client.query("delete from hb_income_ledger where earner_user_id = $1 and income_type = any($2::text[])", [userId, incomeTypes]);
   deleted.hb_income_ledger = incomeResult.rowCount || 0;
-  const internalResult = await client.query("delete from hb_internal_ledger where user_id = $1", [userId]);
+
+  if (incomeInternalLedgerIds.length > 0) {
+    const blockedRows = await client.query<{ table_name: string; column_name: string; count: number }>(
+      `select table_name, column_name, count(*)::int as count
+       from (
+         select 'hb_deposits' as table_name, 'ledger_entry_id' as column_name from hb_deposits where ledger_entry_id = any($1::uuid[])
+         union all
+         select 'hb_package_purchases', 'ledger_entry_id' from hb_package_purchases where ledger_entry_id = any($1::uuid[])
+         union all
+         select 'hb_withdrawals', 'reserve_ledger_entry_id' from hb_withdrawals where reserve_ledger_entry_id = any($1::uuid[])
+         union all
+         select 'hb_withdrawals', 'refund_ledger_entry_id' from hb_withdrawals where refund_ledger_entry_id = any($1::uuid[])
+         union all
+         select 'hb_withdrawals', 'paid_ledger_entry_id' from hb_withdrawals where paid_ledger_entry_id = any($1::uuid[])
+         union all
+         select 'hb_coin_conversions', 'internal_ledger_entry_id' from hb_coin_conversions where internal_ledger_entry_id = any($1::uuid[])
+       ) refs
+       group by table_name, column_name
+       having count(*) > 0
+       order by table_name, column_name`,
+      [incomeInternalLedgerIds]
+    );
+    if (blockedRows.rows.length > 0) {
+      throw new Error(`Income ledger reset blocked by referenced internal ledger rows: ${JSON.stringify(blockedRows.rows)}`);
+    }
+  }
+  const internalResult = await client.query(
+    "delete from hb_internal_ledger where id = any($1::uuid[])",
+    [incomeInternalLedgerIds]
+  );
   deleted.hb_internal_ledger = internalResult.rowCount || 0;
-  const coinLedgerResult = await client.query("delete from hb_coin_balance_ledger where user_id = $1", [userId]);
-  deleted.hb_coin_balance_ledger = coinLedgerResult.rowCount || 0;
   const coinBalanceResult = await client.query("update hb_coin_balances set balance = 0, updated_at = now() where user_id = $1", [userId]);
   updated.hb_coin_balances = coinBalanceResult.rowCount || 0;
 
-  const purchaseResult = await client.query("delete from hb_package_purchases where user_id = $1", [userId]);
-  deleted.hb_package_purchases = purchaseResult.rowCount || 0;
+  const purchaseResult = await client.query("update hb_package_purchases set status = 'reversed' where user_id = $1 and status = 'completed'", [userId]);
+  updated.hb_package_purchases = purchaseResult.rowCount || 0;
   const userResult = await client.query(
     "update hb_users set status = 'inactive', activated_at = null, updated_at = now() where id = $1",
     [userId]
   );
   updated.hb_users = userResult.rowCount || 0;
 
-  return { deleted, updated, packageIds };
+  return { deleted, updated, packageIds, incomeInternalLedgerIds };
 }
 
 async function getBalance(userId: string, walletType: "deposit" | "income" = "deposit") {
@@ -7469,6 +7539,8 @@ hbRouter.post("/admin/hb/users/:id/reset-income-activation", requireAdmin, async
     }
     const target = targetRows.rows[0];
     const targetWallet = target.usdt_bep20_address || target.hb9_wallet_address || target.wallet_address || null;
+    const internalLedgerForeignKeys = await auditHbInternalLedgerReferences(client);
+    logger.info("hb.admin.user_reset_internal_ledger_fk_audit", { userId, admin: adminId, foreignKeys: internalLedgerForeignKeys });
     const beforeSnapshot = await readUserActivationIncomeResetSnapshot(client, userId);
     const resetResult = await resetUserActivationIncome(client, userId);
     const afterSnapshot = await readUserActivationIncomeResetSnapshot(client, userId);
@@ -7482,6 +7554,7 @@ hbRouter.post("/admin/hb/users/:id/reset-income-activation", requireAdmin, async
           admin_wallet: adminWallet,
           target_user_id: userId,
           target_wallet: targetWallet,
+          internal_ledger_foreign_keys: internalLedgerForeignKeys,
           before_snapshot: beforeSnapshot,
           after_snapshot: afterSnapshot,
           reset_result: resetResult
@@ -7502,6 +7575,7 @@ hbRouter.post("/admin/hb/users/:id/reset-income-activation", requireAdmin, async
           admin_wallet: adminWallet,
           target_user_id: userId,
           target_wallet: targetWallet,
+          internal_ledger_foreign_keys: internalLedgerForeignKeys,
           reset_result: resetResult
         }),
         requestIp(req),
@@ -7524,12 +7598,13 @@ hbRouter.post("/admin/hb/users/:id/reset-income-activation", requireAdmin, async
           admin_wallet: adminWallet,
           target_user_id: userId,
           target_wallet: targetWallet,
+          internal_ledger_foreign_keys: internalLedgerForeignKeys,
           reset_result: resetResult
         })
       ]
     ).catch(() => undefined);
     await client.query("commit");
-    ok(res, { userId, beforeSnapshot, afterSnapshot, ...resetResult }, "User activation and income reset completed");
+    ok(res, { userId, internalLedgerForeignKeys, beforeSnapshot, afterSnapshot, ...resetResult }, "User activation and income reset completed");
   } catch (err) {
     await client.query("rollback").catch(() => undefined);
     logger.error("hb.admin.user_reset_failed", { userId, admin: req.admin?.email || "admin", error: err instanceof Error ? err.message : String(err) });
