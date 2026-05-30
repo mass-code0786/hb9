@@ -537,6 +537,9 @@ function Overview({ summary, auditRows }: { summary: AdminSummary | null; auditR
 function HbAdminPage({ page, data, token, query }: { page: AdminPage; data: Record<string, unknown>; token: string; query: string }) {
   const items = Array.isArray(data.items) ? data.items as Array<Record<string, unknown>> : [];
   const filtered = items.filter((row) => JSON.stringify(row).toLowerCase().includes(query.toLowerCase()));
+  const [resetTarget, setResetTarget] = useState<Record<string, unknown> | null>(null);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState("");
 
   async function patch(path: string, body: Record<string, unknown>) {
     const dangerous = path.includes("/mark-paid") || path.includes("/treasury-settings") || path.includes("/onchain-contracts") || path.includes("/batch");
@@ -548,6 +551,22 @@ function HbAdminPage({ page, data, token, query }: { page: AdminPage; data: Reco
     if (!confirmedBody) return;
     await adminRequest(path, token, { method: "PATCH", body: JSON.stringify(confirmedBody) });
     window.location.reload();
+  }
+
+  async function confirmResetUserActivationIncome() {
+    if (!resetTarget?.id) return;
+    setResetBusy(true);
+    setResetError("");
+    try {
+      await adminRequest(`/admin/hb/users/${resetTarget.id}/reset-income-activation`, token, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      window.location.reload();
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : "Reset failed.");
+      setResetBusy(false);
+    }
   }
 
   if (page === "hb-dashboard") {
@@ -585,16 +604,43 @@ function HbAdminPage({ page, data, token, query }: { page: AdminPage; data: Reco
 
   if (page === "hb-users") {
     return (
-      <Panel title="HB9 users">
-        <AdminTable headers={["User ID", "Name", "Email", "Wallet", "Sponsor", "Status", "Current package", "Deposits", "Purchases", "Income", "Joined", "Actions"]}>
-          {filtered.map((row) => (
-            <tr key={compact(row.id)}>
-              <Td>{compact(row.id)}</Td><Td>{compact(row.display_name)}</Td><Td>{compact(row.email)}</Td><Td>{compact(row.wallet_address)}</Td><Td>{compact(row.sponsor_name || row.sponsor_email)}</Td><Td><Badge value={compact(row.status)} /></Td><Td>{compact(row.current_package)}</Td><Td>{money(row.total_deposits)}</Td><Td>{money(row.total_purchases)}</Td><Td>{money(row.total_income)}</Td><Td>{formatDate(row.created_at)}</Td>
-              <Td><ActionButtons actions={["View"]} /><button className="mt-1 rounded-lg bg-[#0b1728]/75 px-2 py-1 text-xs" onClick={() => patch(`/admin/hb/users/${row.id}/status`, { status: row.status === "suspended" ? "active" : "suspended", adminRemark: "Status changed from admin panel" })} type="button">{row.status === "suspended" ? "Unsuspend" : "Suspend"}</button></Td>
-            </tr>
-          ))}
-        </AdminTable>
-      </Panel>
+      <>
+        <Panel title="HB9 users">
+          <AdminTable headers={["User ID", "Name", "Email", "Wallet", "Sponsor", "Status", "Current package", "Deposits", "Purchases", "Income", "Joined", "Actions"]}>
+            {filtered.map((row) => (
+              <tr key={compact(row.id)}>
+                <Td>{compact(row.id)}</Td><Td>{compact(row.display_name)}</Td><Td>{compact(row.email)}</Td><Td>{compact(row.wallet_address)}</Td><Td>{compact(row.sponsor_name || row.sponsor_email)}</Td><Td><Badge value={compact(row.status)} /></Td><Td>{compact(row.current_package)}</Td><Td>{money(row.total_deposits)}</Td><Td>{money(row.total_purchases)}</Td><Td>{money(row.total_income)}</Td><Td>{formatDate(row.created_at)}</Td>
+                <Td>
+                  <ActionButtons actions={["View"]} />
+                  <button className="mt-1 rounded-lg bg-[#0b1728]/75 px-2 py-1 text-xs" onClick={() => patch(`/admin/hb/users/${row.id}/status`, { status: row.status === "suspended" ? "active" : "suspended", adminRemark: "Status changed from admin panel" })} type="button">{row.status === "suspended" ? "Unsuspend" : "Suspend"}</button>
+                  <button className="mt-1 rounded-lg bg-danger/20 px-2 py-1 text-xs font-semibold text-red-100" onClick={() => { setResetError(""); setResetTarget(row); }} type="button">Reset User Activation & Income</button>
+                </Td>
+              </tr>
+            ))}
+          </AdminTable>
+        </Panel>
+        {resetTarget ? (
+          <div className="fixed inset-0 z-[95] grid place-items-end bg-black/70 p-3 backdrop-blur-sm sm:place-items-center" role="dialog" aria-modal="true" aria-label="Reset User Activation & Income">
+            <div className="w-full max-w-xl rounded-2xl border border-red-300/20 bg-[#08111f] p-5 shadow-2xl">
+              <h3 className="text-lg font-black text-red-100">Reset User Activation & Income</h3>
+              <div className="mt-3 space-y-3 text-sm leading-6 text-slate-300">
+                <p>This action will remove all package activations, income records, dividend records, wallet earnings, and package entitlements for this user.</p>
+                <p>The user account, wallet address, referral code, sponsor relation, and team position will remain unchanged.</p>
+                <p className="font-semibold text-red-100">This action cannot be undone.</p>
+              </div>
+              <div className="mt-4 rounded-xl border border-sky-200/10 bg-[#0b1728]/75 p-3 text-xs text-slate-300">
+                <div>User: {compact(resetTarget.display_name || resetTarget.email || resetTarget.id)}</div>
+                <div>Wallet: {compact(resetTarget.wallet_address)}</div>
+              </div>
+              {resetError ? <div className="mt-3 rounded-xl border border-red-300/20 bg-red-500/10 p-3 text-sm text-red-100">{resetError}</div> : null}
+              <div className="mt-5 flex flex-wrap justify-end gap-2">
+                <button className="rounded-xl border border-sky-200/10 bg-[#0b1728]/75 px-4 py-3 text-sm font-semibold text-slate-200 disabled:opacity-60" disabled={resetBusy} onClick={() => setResetTarget(null)} type="button">Cancel</button>
+                <button className="rounded-xl bg-danger px-4 py-3 text-sm font-black text-white disabled:opacity-60" disabled={resetBusy} onClick={confirmResetUserActivationIncome} type="button">{resetBusy ? "Resetting..." : "Confirm Reset"}</button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </>
     );
   }
 
