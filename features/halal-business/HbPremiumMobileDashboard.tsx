@@ -1633,12 +1633,31 @@ function InstagramBrandIcon() {
   );
 }
 
+function getHb9ReferralPromoText(referralLink: string) {
+  return ` Join HB9 — The Future of Decentralized Business
+
+✅ AI Powered Business Packages
+✅ Blockchain Technology
+✅ HB9 Token Utility
+✅ Global Community Growth
+✅ Daily Opportunities
+✅ Decentralized Ecosystem
+
+Start your journey with HB9 today.
+
+Register using my referral link:
+
+${referralLink}
+
+ www.hb9.live`;
+}
+
 function TeamScreen({ user, summary }: { user: HbUser; summary: HbReferralSummary | null }) {
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [shareToast, setShareToast] = useState("");
   const referralUrl = typeof window === "undefined" ? user.referral_code : `${window.location.origin}/halal-business?ref=${user.referral_code}`;
-  const shareText = `Join HB9 Decentralized Ecosystem using my referral link: ${referralUrl}`;
-  const encodedText = encodeURIComponent(shareText);
+  const promoText = getHb9ReferralPromoText(referralUrl);
+  const encodedPromoText = encodeURIComponent(promoText);
   const encodedUrl = encodeURIComponent(referralUrl);
   const sponsorWallet = summary?.sponsor?.id || user.sponsor_referral_code || user.source_referral_code || "No sponsor wallet";
   const totalTeamCount = Number(summary?.totalTeamCount || 0);
@@ -1669,6 +1688,10 @@ function TeamScreen({ user, summary }: { user: HbUser; summary: HbReferralSummar
   const copyReferralLink = async (message?: string) => {
     await navigator.clipboard?.writeText(referralUrl);
     if (message) showShareToast(message);
+  };
+  const copyPromotionText = async () => {
+    await navigator.clipboard?.writeText(promoText);
+    showShareToast("Promotion text and referral link copied successfully.");
   };
   const openShareUrl = (url: string) => {
     if (typeof window !== "undefined") {
@@ -1710,10 +1733,10 @@ function TeamScreen({ user, summary }: { user: HbUser; summary: HbReferralSummar
               <button className="hb-interactive grid h-8 w-8 place-items-center rounded-xl border border-cyan-200/12 text-cyan-100" onClick={() => setShareSheetOpen(false)} type="button" aria-label="Close share sheet"><X size={16} /></button>
             </div>
             <div className="mt-4 grid grid-cols-4 gap-2">
-              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://wa.me/?text=${encodedText}`)} type="button" aria-label="Share on WhatsApp"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#25D366] text-white"><WhatsAppBrandIcon /></span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">WhatsApp</span></button>
-              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`)} type="button" aria-label="Share on Telegram"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#229ED9] text-white"><TelegramBrandIcon /></span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Telegram</span></button>
+              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://wa.me/?text=${encodedPromoText}`)} type="button" aria-label="Share on WhatsApp"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#25D366] text-white"><WhatsAppBrandIcon /></span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">WhatsApp</span></button>
+              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://t.me/share/url?url=${encodedUrl}&text=${encodedPromoText}`)} type="button" aria-label="Share on Telegram"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#229ED9] text-white"><TelegramBrandIcon /></span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Telegram</span></button>
               <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => openShareUrl(`https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`)} type="button" aria-label="Share on Facebook"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-[#1877F2] text-white"><FacebookBrandIcon /></span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Facebook</span></button>
-              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => { copyReferralLink("Link copied. Paste it on Instagram."); setShareSheetOpen(false); }} type="button" aria-label="Copy referral link for Instagram"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-[#F58529] via-[#DD2A7B] to-[#515BD4] text-white"><InstagramBrandIcon /></span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Instagram</span></button>
+              <button className="hb-interactive rounded-2xl border border-cyan-200/10 bg-white/[0.04] p-2.5 text-center" onClick={() => { copyPromotionText(); setShareSheetOpen(false); }} type="button" aria-label="Copy promotion text for Instagram"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-[#F58529] via-[#DD2A7B] to-[#515BD4] text-white"><InstagramBrandIcon /></span><span className="mt-2 block text-[11px] font-semibold text-sky-100/80">Instagram</span></button>
             </div>
           </div>
         </div>
