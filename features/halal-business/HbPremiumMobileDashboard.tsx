@@ -118,7 +118,7 @@ const HB_DEV_DASHBOARD_BYPASS = isHbDevDashboardBypassEnabled();
 const LOGIN_SUCCESS_MESSAGE = "Login successful.";
 const HB_WITHDRAWAL_MIN_USD = 9;
 const HB_WITHDRAWAL_MIN_ERROR = "Minimum withdrawal amount is $9.";
-const HB9_COIN_PRICE_USD = 0.13;
+const HB9_COIN_PRICE_USD = 0.90;
 const HB9_TO_USDT_MIN_USD = 500;
 const PACKAGE_AMOUNT_TO_ONCHAIN_ID: Record<number, number> = {
   4: 1,
@@ -2075,7 +2075,7 @@ function MultiCoinWallet({ coins, withdrawableBalance, convertingCoin, onConvert
               <div className="shrink-0 text-right">
                 <div className="max-w-[7.25rem] truncate text-sm font-black leading-4 text-cyan-100">{balanceFor(coin.key)}</div>
                 <div className="mt-0.5 text-[10px] font-semibold text-sky-100/45">{coin.key === "USDT" ? "USDT" : `$${usdValue.toFixed(2)}`}</div>
-                {coin.key === "HB9" ? <div className="mt-0.5 text-[10px] font-semibold text-cyan-100/60">$0.13</div> : null}
+                {coin.key === "HB9" ? <div className="mt-0.5 text-[10px] font-semibold text-cyan-100/60">${HB9_COIN_PRICE_USD.toFixed(2)}</div> : null}
               </div>
               <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-xl border transition duration-200 ${expanded ? "border-cyan-200/24 bg-cyan-300/14 text-cyan-100 shadow-[0_0_12px_rgba(34,211,238,0.18)]" : "border-cyan-200/10 bg-white/[0.03] text-sky-100/42"}`}>
                 {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}

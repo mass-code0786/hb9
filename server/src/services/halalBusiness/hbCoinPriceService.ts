@@ -7,7 +7,7 @@ const mockPrices: Record<HbCoinSymbol, number> = {
   USDT: 1,
   BTC: 65000,
   BNB: 580,
-  HB9: 0.13,
+  HB9: 0.90,
   PEPE: 0.000012,
   DOGE: 0.16,
   SHIB: 0.000025,

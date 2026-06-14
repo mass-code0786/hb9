@@ -37,7 +37,7 @@ create table if not exists hb_coin_conversions (
   from_usd_value numeric(28, 8) not null default 0 check (from_usd_value >= 0),
   usdt_credit_amount numeric(28, 8) not null default 0 check (usdt_credit_amount >= 0),
   hb9_credit_amount numeric(38, 18) not null default 0 check (hb9_credit_amount >= 0),
-  hb9_price_used numeric(28, 12) not null default 0.13,
+  hb9_price_used numeric(28, 12) not null default 0.90,
   status text not null default 'completed' check (status in ('completed', 'failed')),
   proof_reference text,
   proof_reference_id text,

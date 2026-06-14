@@ -16,14 +16,14 @@ alter table hb_coin_conversions
   add column if not exists from_usd_value numeric(28, 8) not null default 0,
   add column if not exists usdt_credit_amount numeric(28, 8) not null default 0,
   add column if not exists hb9_credit_amount numeric(38, 18) not null default 0,
-  add column if not exists hb9_price_used numeric(28, 12) not null default 0.13,
+  add column if not exists hb9_price_used numeric(28, 12) not null default 0.90,
   add column if not exists proof_reference text,
   add column if not exists usdt_credit_ledger_entry_id uuid references hb_coin_balance_ledger(id),
   add column if not exists hb9_credit_ledger_entry_id uuid references hb_coin_balance_ledger(id);
 update hb_coin_conversions
 set from_usd_value = coalesce(nullif(from_usd_value, 0), usd_value),
     usdt_credit_amount = coalesce(nullif(usdt_credit_amount, 0), credited_usdt),
-    hb9_price_used = coalesce(nullif(hb9_price_used, 0), 0.13),
+    hb9_price_used = coalesce(nullif(hb9_price_used, 0), 0.90),
     proof_reference = coalesce(proof_reference, proof_reference_id),
     usdt_credit_ledger_entry_id = coalesce(usdt_credit_ledger_entry_id, credit_ledger_entry_id);
 alter table hb_coin_conversions
