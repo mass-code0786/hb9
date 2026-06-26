@@ -51,7 +51,7 @@ const HB_WITHDRAWAL_MIN_ERROR = "Minimum withdrawal amount is $9.";
 const HB_WITHDRAWAL_TREASURY_INSUFFICIENT_INTERNAL = "Insufficient treasury balance for withdrawal";
 const HB_WITHDRAWAL_TREASURY_INSUFFICIENT_PUBLIC = "Withdrawal temporarily unavailable. Treasury balance is insufficient.";
 const HB_WITHDRAWAL_TEMPORARILY_UNAVAILABLE = "Withdrawal temporarily unavailable. Please try again later.";
-const HB9_COIN_PRICE_USD = 0.90;
+const HB9_COIN_PRICE_USD = 2.23;
 const HB9_TO_USDT_MIN_USD = 500;
 
 const bcryptRounds = 12;
