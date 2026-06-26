@@ -118,7 +118,7 @@ const HB_DEV_DASHBOARD_BYPASS = isHbDevDashboardBypassEnabled();
 const LOGIN_SUCCESS_MESSAGE = "Login successful.";
 const HB_WITHDRAWAL_MIN_USD = 9;
 const HB_WITHDRAWAL_MIN_ERROR = "Minimum withdrawal amount is $9.";
-const HB9_COIN_PRICE_USD = 0.90;
+const HB9_COIN_PRICE_USD = 2.23;
 const HB9_TO_USDT_MIN_USD = 500;
 const PACKAGE_AMOUNT_TO_ONCHAIN_ID: Record<number, number> = {
   4: 1,
