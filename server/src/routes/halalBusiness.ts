@@ -2719,22 +2719,24 @@ hbRouter.get("/hb/coins", requireHbUser, asyncHandler(async (req, res) => {
     [req.hbUser!.userId]
   ).catch(() => []);
   const map = new Map(rows.map((row) => [row.coin_symbol, row]));
+  const items = supportedCoins.map((coin) => {
+    const symbol = coin.coin_symbol as HbCoinSymbol;
+    const balance = map.get(symbol)?.balance || "0";
+    const usdPrice = Number(prices[symbol] || 0);
+    const usdValue = symbol === "USDT" ? Number(balance || 0) : Number((Number(balance || 0) * usdPrice).toFixed(8));
+    return {
+      ...coin,
+      usd_price: String(usdPrice || 0),
+      usd_value: String(usdValue || 0),
+      can_convert: symbol === "HB9" ? usdValue >= HB9_TO_USDT_MIN_USD : symbol !== "USDT" && usdValue >= 2,
+      min_convert_usd: symbol === "HB9" ? String(HB9_TO_USDT_MIN_USD) : "2",
+      balance,
+      updated_at: map.get(symbol)?.updated_at || null
+    };
+  });
+  console.log("HB9_PRICE_DEBUG", items.find((x) => x.symbol === "HB9"));
   ok(res, {
-    items: supportedCoins.map((coin) => {
-      const symbol = coin.coin_symbol as HbCoinSymbol;
-      const balance = map.get(symbol)?.balance || "0";
-      const usdPrice = Number(prices[symbol] || 0);
-      const usdValue = symbol === "USDT" ? Number(balance || 0) : Number((Number(balance || 0) * usdPrice).toFixed(8));
-      return {
-        ...coin,
-        usd_price: String(usdPrice || 0),
-        usd_value: String(usdValue || 0),
-        can_convert: symbol === "HB9" ? usdValue >= HB9_TO_USDT_MIN_USD : symbol !== "USDT" && usdValue >= 2,
-        min_convert_usd: symbol === "HB9" ? String(HB9_TO_USDT_MIN_USD) : "2",
-        balance,
-        updated_at: map.get(symbol)?.updated_at || null
-      };
-    })
+    items
   }, "HB coin balances loaded");
 }));
 
