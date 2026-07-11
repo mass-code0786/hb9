@@ -389,6 +389,7 @@ function DepositView() {
 
 function WithdrawalView() {
   const [balance, setBalance] = useState("0");
+  const [purchaseBalance, setPurchaseBalance] = useState("0");
   const [withdrawals, setWithdrawals] = useState<HbWithdrawal[]>([]);
   const [settings, setSettings] = useState({ withdrawalMinUsd: HB_WITHDRAWAL_MIN_USD, withdrawalFeePercent: 10, withdrawalDailyLimitUsd: 500, withdrawalCooldownMinutes: 10 });
   const [amountUsd, setAmountUsd] = useState("");
@@ -403,7 +404,8 @@ function WithdrawalView() {
     if (!token) return;
     const wallet = await fetchHbWallet(token);
     const address = await fetchHbWalletAddress(token).catch(() => null);
-    setBalance(wallet.availableBalance);
+    setBalance(wallet.withdrawableIncome ?? wallet.availableBalance);
+    setPurchaseBalance(wallet.nonWithdrawablePurchaseBalance ?? wallet.balances.deposit);
     setWithdrawals(wallet.withdrawals);
     if (wallet.withdrawalSettings) setSettings({ ...wallet.withdrawalSettings, withdrawalMinUsd: HB_WITHDRAWAL_MIN_USD });
     const nextBoundAddress = address?.usdt_bep20_address || window.localStorage.getItem(DEV_BOUND_WALLET_KEY) || "";
@@ -437,7 +439,7 @@ function WithdrawalView() {
       await createHbWithdrawal(token, { amountUsd: Number(amountUsd), walletAddress, currency: "USDT", network: "bsc", chainId: 56, idempotencyKey: `hb-withdrawal-ui-${Date.now()}-${crypto.randomUUID()}` });
       setAmountUsd("");
       setWalletAddress("");
-      setNotice("Withdrawal request submitted. Balance is reserved until admin review.");
+      setNotice("Withdrawal request submitted from withdrawable income.");
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Withdrawal request failed.");
@@ -455,9 +457,16 @@ function WithdrawalView() {
       <Panel>
         <Title title="Withdraw USDT BEP20" subtitle="Minimum withdrawal $9. 10% withdrawal charge. BNB is used only by the network for gas." />
         {!boundAddress ? <div className="mb-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm text-yellow-100">Please bind your USDT BEP20 wallet address before withdrawal.</div> : null}
-        <div className="mb-4 rounded-2xl border border-sky-200/10 bg-[#0b1728]/70 p-4 shadow-[0_0_18px_rgba(56,189,248,0.08)] backdrop-blur-xl">
-          <div className="text-xs text-slate-400">Available Internal Balance</div>
-          <div className="mt-1 text-2xl font-semibold">${Number(balance || 0).toFixed(2)}</div>
+        <div className="mb-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl border border-mint/20 bg-[#0b1728]/70 p-4 shadow-[0_0_18px_rgba(56,189,248,0.08)] backdrop-blur-xl">
+            <div className="text-xs text-slate-400">Withdrawable Income</div>
+            <div className="mt-1 text-2xl font-semibold">${Number(balance || 0).toFixed(2)}</div>
+          </div>
+          <div className="rounded-2xl border border-sky-200/10 bg-[#0b1728]/70 p-4 shadow-[0_0_18px_rgba(56,189,248,0.08)] backdrop-blur-xl">
+            <div className="text-xs text-slate-400">Deposit / Purchase Balance — Non-Withdrawable</div>
+            <div className="mt-1 text-2xl font-semibold">${Number(purchaseBalance || 0).toFixed(2)}</div>
+            <div className="mt-2 text-xs leading-5 text-slate-400">This balance can only be used for product purchase or staking and cannot be withdrawn.</div>
+          </div>
         </div>
         <div className="mb-4 grid grid-cols-3 gap-2 text-xs">
           <div className="rounded-2xl border border-sky-200/10 bg-[#0b1728]/70 p-3"><div className="text-slate-400">Minimum</div><div className="font-semibold">${HB_WITHDRAWAL_MIN_USD.toFixed(2)}</div></div>
@@ -479,7 +488,7 @@ function WithdrawalView() {
         ) : null}
         {Number(amountUsd) > 0 && Number(amountUsd) < HB_WITHDRAWAL_MIN_USD ? <div className="mt-2 text-sm font-semibold text-red-200">{HB_WITHDRAWAL_MIN_ERROR}</div> : null}
         <ErrorText error={error} />
-        <PrimaryButton className="mt-4 w-full" onClick={submit} disabled={busy || Number(amountUsd) < HB_WITHDRAWAL_MIN_USD || !walletValid || !boundAddress} type="button">
+        <PrimaryButton className="mt-4 w-full" onClick={submit} disabled={busy || Number(amountUsd) < HB_WITHDRAWAL_MIN_USD || Number(amountUsd) > Number(balance) || !walletValid || !boundAddress} type="button">
           {busy ? "Submitting" : "Submit Withdrawal"}
         </PrimaryButton>
       </Panel>

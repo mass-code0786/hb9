@@ -843,6 +843,9 @@ export function fetchHbWallet(token: string) {
     deposits: HbDeposit[];
     withdrawals: HbWithdrawal[];
     availableBalance: string;
+    withdrawableIncome: string;
+    withdrawableIncomeBreakdown: Array<{ incomeType: string; available: string }>;
+    nonWithdrawablePurchaseBalance: string;
     balances: { deposit: string; income: string };
     pendingDeposits: { total: string; count: number };
     verifiedDeposits: { total: string; count: number };

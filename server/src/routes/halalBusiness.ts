@@ -51,6 +51,16 @@ const HB_WITHDRAWAL_MIN_ERROR = "Minimum withdrawal amount is $9.";
 const HB_WITHDRAWAL_TREASURY_INSUFFICIENT_INTERNAL = "Insufficient treasury balance for withdrawal";
 const HB_WITHDRAWAL_TREASURY_INSUFFICIENT_PUBLIC = "Withdrawal temporarily unavailable. Treasury balance is insufficient.";
 const HB_WITHDRAWAL_TEMPORARILY_UNAVAILABLE = "Withdrawal temporarily unavailable. Please try again later.";
+const WITHDRAWAL_FROM_INCOME = "WITHDRAWAL_FROM_INCOME";
+const WITHDRAWABLE_INCOME_PRIORITY = [
+  "referral_income",
+  "level_income",
+  "salary_income",
+  "single_leg_income",
+  "dividend_income",
+  "upline",
+  "level"
+] as const;
 const HB9_COIN_PRICE_USD = 2.23;
 const HB9_TO_USDT_MIN_USD = 500;
 
@@ -1549,6 +1559,99 @@ async function getBalance(userId: string, walletType: "deposit" | "income" = "de
   return rows[0]?.balance || "0";
 }
 
+type WithdrawableIncomeAllocation = { incomeType: string; available: string };
+
+async function getWithdrawableIncomeAllocations(client: PoolClient, userId: string): Promise<WithdrawableIncomeAllocation[]> {
+  const rows = await client.query<{ income_type: string; available: string }>(
+    `with earned as (
+       select il.income_type, coalesce(sum(l.amount_usd), 0) as amount
+       from hb_internal_ledger l
+       join hb_income_ledger il on il.id = l.reference_id
+       where l.user_id = $1
+         and l.direction = 'credit'
+         and il.earner_user_id = $1
+         and il.status = 'credited'
+         and il.income_type = any($2::text[])
+       group by il.income_type
+     ), adjustments as (
+       select metadata->>'incomeType' as income_type,
+              coalesce(sum(case when direction = 'credit' then amount_usd else -amount_usd end), 0) as amount
+       from hb_internal_ledger
+       where user_id = $1
+         and wallet_type = 'income'
+         and metadata->>'type' in ($3, 'WITHDRAWAL_FROM_INCOME_REFUND')
+         and metadata->>'incomeType' = any($2::text[])
+       group by metadata->>'incomeType'
+     )
+     select types.income_type,
+            greatest(coalesce(earned.amount, 0) + coalesce(adjustments.amount, 0), 0)::text as available
+     from unnest($2::text[]) with ordinality as types(income_type, priority)
+     left join earned using (income_type)
+     left join adjustments using (income_type)
+     order by types.priority`,
+    [userId, [...WITHDRAWABLE_INCOME_PRIORITY], WITHDRAWAL_FROM_INCOME]
+  );
+  const balanceRows = await client.query<{ total_balance: string; protected_balance: string; legacy_withdrawn: string }>(
+    `select
+       coalesce(sum(case when l.direction = 'credit' then l.amount_usd else -l.amount_usd end), 0)::text as total_balance,
+       greatest(coalesce(sum(case
+         when l.wallet_type = 'deposit' and l.direction = 'credit' and income_source.id is null then l.amount_usd
+         when l.wallet_type = 'deposit' and l.direction = 'debit' and l.reference_type <> 'withdrawal' then -l.amount_usd
+         else 0 end), 0), 0)::text as protected_balance,
+       greatest(coalesce(sum(case
+         when l.wallet_type = 'deposit' and l.reference_type = 'withdrawal' and l.direction = 'debit' then l.amount_usd
+         when l.wallet_type = 'deposit' and l.reference_type = 'withdrawal' and l.direction = 'credit' then -l.amount_usd
+         else 0 end), 0), 0)::text as legacy_withdrawn
+     from hb_internal_ledger l
+     left join hb_income_ledger income_source
+       on income_source.id = l.reference_id
+      and income_source.income_type = any($2::text[])
+     where l.user_id = $1 and l.wallet_type in ('deposit','income')`,
+    [userId, [...WITHDRAWABLE_INCOME_PRIORITY]]
+  );
+  let legacyWithdrawn = Number(balanceRows.rows[0]?.legacy_withdrawn || 0);
+  let currentIncomeCapacity = Math.max(0, Number(balanceRows.rows[0]?.total_balance || 0) - Number(balanceRows.rows[0]?.protected_balance || 0));
+  return rows.rows.map((row) => {
+    let available = Number(row.available || 0);
+    const legacyDeduction = Math.min(available, legacyWithdrawn);
+    available -= legacyDeduction;
+    legacyWithdrawn -= legacyDeduction;
+    const capped = Math.max(0, Math.min(available, currentIncomeCapacity));
+    currentIncomeCapacity -= capped;
+    return { incomeType: row.income_type, available: capped.toFixed(8) };
+  });
+}
+
+async function getWithdrawableIncome(userId: string) {
+  if (!pool) return { total: "0", allocations: [] as WithdrawableIncomeAllocation[] };
+  const client = await pool.connect();
+  try {
+    const allocations = await getWithdrawableIncomeAllocations(client, userId);
+    return { total: allocations.reduce((sum, row) => sum + Number(row.available || 0), 0).toFixed(8), allocations };
+  } finally {
+    client.release();
+  }
+}
+
+async function getNonWithdrawablePurchaseBalance(userId: string) {
+  const rows = await query<{ balance: string }>(
+    `select greatest(coalesce(sum(
+       case
+         when l.direction = 'credit' and income_source.id is null then l.amount_usd
+         when l.direction = 'debit' and l.reference_type <> 'withdrawal' then -l.amount_usd
+         else 0
+       end
+     ), 0), 0)::text as balance
+     from hb_internal_ledger l
+     left join hb_income_ledger income_source
+       on income_source.id = l.reference_id
+      and income_source.income_type = any($2::text[])
+     where l.user_id = $1 and l.wallet_type = 'deposit'`,
+    [userId, [...WITHDRAWABLE_INCOME_PRIORITY]]
+  );
+  return rows[0]?.balance || "0";
+}
+
 async function getFinancialSettings(userId?: string) {
   const defaults = await query<{ key: string; value: string }>("select key, value from hb_financial_settings");
   const map = new Map(defaults.map((row) => [row.key, row.value]));
@@ -1733,15 +1836,27 @@ async function refundFailedInstantWithdrawal(input: { withdrawalId: string; user
       await client.query("commit");
       return;
     }
-    const refundRows = await client.query<{ id: string }>(
-      `insert into hb_internal_ledger (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
-       values ($1,'deposit','credit',$2,'withdrawal',$3,$4,$5::jsonb)
-       on conflict (idempotency_key) do nothing
-       returning id`,
-      [input.userId, input.grossAmount, input.withdrawalId, `hb:ledger:withdrawal:${input.withdrawalId}:instant_refund`, JSON.stringify({ type: "withdrawal_refund", reason: input.reason })]
+    const reservedRows = await client.query<{ amount_usd: string; income_type: string }>(
+      `select amount_usd::text, metadata->>'incomeType' as income_type
+       from hb_internal_ledger
+       where user_id = $1 and reference_id = $2 and wallet_type = 'income'
+         and direction = 'debit' and metadata->>'type' = $3
+       order by created_at`,
+      [input.userId, input.withdrawalId, WITHDRAWAL_FROM_INCOME]
     );
-    const refundLedgerId = refundRows.rows[0]?.id || null;
-    await createLedgerProof(client, "hb_internal_ledger", refundLedgerId);
+    let refundLedgerId: string | null = null;
+    for (const reserved of reservedRows.rows) {
+      const refundRows = await client.query<{ id: string }>(
+        `insert into hb_internal_ledger (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
+         values ($1,'income','credit',$2,'withdrawal',$3,$4,$5::jsonb)
+         on conflict (idempotency_key) do nothing
+         returning id`,
+        [input.userId, reserved.amount_usd, input.withdrawalId, `hb:ledger:withdrawal:${input.withdrawalId}:instant_refund:${reserved.income_type}`,
+          JSON.stringify({ type: "WITHDRAWAL_FROM_INCOME_REFUND", incomeType: reserved.income_type, reason: input.reason })]
+      );
+      refundLedgerId ||= refundRows.rows[0]?.id || null;
+      await createLedgerProof(client, "hb_internal_ledger", refundRows.rows[0]?.id || null);
+    }
     const coinRefundId = await applyHbCoinAdjustment({
       client,
       userId: input.userId,
@@ -3011,9 +3126,11 @@ hbRouter.get("/hb/wallet", requireHbUser, asyncHandler(async (req, res) => {
      limit 50`,
     [req.hbUser!.userId]
   );
-  const [depositBalance, incomeBalance, pendingDeposits, verifiedDeposits, purchased, pendingWithdrawals] = await Promise.all([
+  const [depositBalance, incomeBalance, withdrawableIncome, nonWithdrawablePurchaseBalance, pendingDeposits, verifiedDeposits, purchased, pendingWithdrawals] = await Promise.all([
     getBalance(req.hbUser!.userId, "deposit"),
     getBalance(req.hbUser!.userId, "income"),
+    getWithdrawableIncome(req.hbUser!.userId),
+    getNonWithdrawablePurchaseBalance(req.hbUser!.userId),
     query<{ total: string; count: number }>(
       "select coalesce(sum(usd_amount),0)::text as total, count(*)::int as count from hb_deposits where user_id = $1 and status in ('pending','pending_verification')",
       [req.hbUser!.userId]
@@ -3039,7 +3156,10 @@ hbRouter.get("/hb/wallet", requireHbUser, asyncHandler(async (req, res) => {
     deposits,
     withdrawals,
     withdrawalSettings: settings,
-    availableBalance: depositBalance,
+    availableBalance: withdrawableIncome.total,
+    withdrawableIncome: withdrawableIncome.total,
+    withdrawableIncomeBreakdown: withdrawableIncome.allocations,
+    nonWithdrawablePurchaseBalance,
     balances: { deposit: depositBalance, income: incomeBalance },
     pendingDeposits: pendingDeposits[0] || { total: "0", count: 0 },
     verifiedDeposits: verifiedDeposits[0] || { total: "0", count: 0 },
@@ -3675,16 +3795,11 @@ hbRouter.post("/hb/withdrawals", requireHbUser, asyncHandler(async (req, res) =>
       fail(res, "A matching withdrawal is already pending.", 409, "Duplicate withdrawal blocked");
       return;
     }
-    const balanceRows = await client.query<{ balance: string }>(
-      `select coalesce(sum(case when direction = 'credit' then amount_usd else -amount_usd end),0)::text as balance
-       from hb_internal_ledger
-       where user_id = $1 and wallet_type = 'deposit'`,
-      [req.hbUser!.userId]
-    );
-    const available = Number(balanceRows.rows[0]?.balance || 0);
+    const incomeAllocations = await getWithdrawableIncomeAllocations(client, req.hbUser!.userId);
+    const available = incomeAllocations.reduce((sum, row) => sum + Number(row.available || 0), 0);
     if (!Number.isFinite(available) || available + Number.EPSILON < parsed.data.amountUsd) {
       await client.query("rollback");
-      fail(res, "Insufficient USDT balance", 400, "Withdrawal failed");
+      fail(res, "Insufficient withdrawable income. Deposit, principal, top-up, and admin-transferred balances cannot be withdrawn.", 400, "Withdrawal failed");
       return;
     }
     const withdrawalRows = await client.query<{ id: string }>(
@@ -3697,20 +3812,26 @@ hbRouter.post("/hb/withdrawals", requireHbUser, asyncHandler(async (req, res) =>
     );
     withdrawalId = withdrawalRows.rows[0]?.id || null;
     if (!withdrawalId) throw new Error("Withdrawal could not be created.");
-    const ledgerRows = await client.query<{ id: string }>(
-      `insert into hb_internal_ledger (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
-       values ($1,'deposit','debit',$2,'withdrawal',$3,$4,$5::jsonb)
-       returning id`,
-      [
-        req.hbUser!.userId,
-        parsed.data.amountUsd,
-        withdrawalId,
-        `hb:ledger:withdrawal:${withdrawalId}:reserve`,
-        JSON.stringify({ type: "withdrawal_reserve", currency: parsed.data.currency, network: parsed.data.network, walletAddress: parsed.data.walletAddress, feeUsd, payoutUsd })
-      ]
-    );
-    const reserveLedgerId = ledgerRows.rows[0]?.id || null;
-    await createLedgerProof(client, "hb_internal_ledger", reserveLedgerId);
+    let remaining = parsed.data.amountUsd;
+    let reserveLedgerId: string | null = null;
+    const deductionBreakdown: Array<{ incomeType: string; amountUsd: number }> = [];
+    for (const allocation of incomeAllocations) {
+      if (remaining <= Number.EPSILON) break;
+      const deduction = Number(Math.min(remaining, Number(allocation.available || 0)).toFixed(8));
+      if (deduction <= 0) continue;
+      const ledgerRows = await client.query<{ id: string }>(
+        `insert into hb_internal_ledger (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
+         values ($1,'income','debit',$2,'withdrawal',$3,$4,$5::jsonb)
+         returning id`,
+        [req.hbUser!.userId, deduction, withdrawalId, `hb:ledger:withdrawal:${withdrawalId}:income:${allocation.incomeType}`,
+          JSON.stringify({ type: WITHDRAWAL_FROM_INCOME, incomeType: allocation.incomeType, currency: parsed.data.currency, network: parsed.data.network, walletAddress: parsed.data.walletAddress, feeUsd, payoutUsd })]
+      );
+      reserveLedgerId ||= ledgerRows.rows[0]?.id || null;
+      await createLedgerProof(client, "hb_internal_ledger", ledgerRows.rows[0]?.id || null);
+      deductionBreakdown.push({ incomeType: allocation.incomeType, amountUsd: deduction });
+      remaining = Number((remaining - deduction).toFixed(8));
+    }
+    if (remaining > Number.EPSILON) throw new Error("Withdrawable income changed while the request was being processed.");
     const payoutCoinLedgerId = await applyHbCoinAdjustment({
       client,
       userId: req.hbUser!.userId,
@@ -3739,7 +3860,7 @@ hbRouter.post("/hb/withdrawals", requireHbUser, asyncHandler(async (req, res) =>
     await client.query(
       `insert into hb_withdrawal_audit_logs (withdrawal_id, user_id, action, next_status, metadata)
        values ($1,$2,'withdrawal.instant_processing','processing',$3::jsonb)`,
-      [withdrawalId, req.hbUser!.userId, JSON.stringify({ amountUsd: parsed.data.amountUsd, feeUsd, payoutUsd })]
+      [withdrawalId, req.hbUser!.userId, JSON.stringify({ type: WITHDRAWAL_FROM_INCOME, amountUsd: parsed.data.amountUsd, feeUsd, payoutUsd, deductionBreakdown })]
     );
     await client.query("commit");
     committed = true;
@@ -5917,20 +6038,39 @@ hbRouter.patch("/admin/hb/withdrawals/:id/reject", requireAdmin, asyncHandler(as
       fail(res, "Withdrawal was not found or cannot be rejected.", 404, "Withdrawal rejection failed");
       return;
     }
-    const refundRows = await client.query<{ id: string }>(
-      `insert into hb_internal_ledger (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
-       values ($1,'deposit','credit',$2,'withdrawal',$3,$4,$5::jsonb)
-       on conflict (idempotency_key) do update set idempotency_key = excluded.idempotency_key
-       returning id`,
-      [
-        withdrawal.user_id,
-        withdrawal.amount_usd,
-        withdrawal.id,
-        `hb:ledger:withdrawal:${withdrawal.id}:refund`,
-        JSON.stringify({ type: "withdrawal_refund", reason: parsed.data.reason })
-      ]
+    const reservedRows = await client.query<{ amount_usd: string; income_type: string }>(
+      `select amount_usd::text, metadata->>'incomeType' as income_type
+       from hb_internal_ledger
+       where user_id = $1 and reference_id = $2 and wallet_type = 'income'
+         and direction = 'debit' and metadata->>'type' = $3
+       order by created_at`,
+      [withdrawal.user_id, withdrawal.id, WITHDRAWAL_FROM_INCOME]
     );
-    await createLedgerProof(client, "hb_internal_ledger", refundRows.rows[0]?.id || null);
+    let refundLedgerId: string | null = null;
+    for (const reserved of reservedRows.rows) {
+      const refundRows = await client.query<{ id: string }>(
+        `insert into hb_internal_ledger (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
+         values ($1,'income','credit',$2,'withdrawal',$3,$4,$5::jsonb)
+         on conflict (idempotency_key) do update set idempotency_key = excluded.idempotency_key
+         returning id`,
+        [withdrawal.user_id, reserved.amount_usd, withdrawal.id, `hb:ledger:withdrawal:${withdrawal.id}:refund:${reserved.income_type}`,
+          JSON.stringify({ type: "WITHDRAWAL_FROM_INCOME_REFUND", incomeType: reserved.income_type, reason: parsed.data.reason })]
+      );
+      refundLedgerId ||= refundRows.rows[0]?.id || null;
+      await createLedgerProof(client, "hb_internal_ledger", refundRows.rows[0]?.id || null);
+    }
+    if (reservedRows.rows.length === 0) {
+      const legacyRefundRows = await client.query<{ id: string }>(
+        `insert into hb_internal_ledger (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
+         values ($1,'deposit','credit',$2,'withdrawal',$3,$4,$5::jsonb)
+         on conflict (idempotency_key) do update set idempotency_key = excluded.idempotency_key
+         returning id`,
+        [withdrawal.user_id, withdrawal.amount_usd, withdrawal.id, `hb:ledger:withdrawal:${withdrawal.id}:refund`,
+          JSON.stringify({ type: "withdrawal_refund", legacyDepositReserve: true, reason: parsed.data.reason })]
+      );
+      refundLedgerId = legacyRefundRows.rows[0]?.id || null;
+      await createLedgerProof(client, "hb_internal_ledger", refundLedgerId);
+    }
     await applyHbCoinAdjustment({
       client,
       userId: withdrawal.user_id,
@@ -5947,7 +6087,7 @@ hbRouter.patch("/admin/hb/withdrawals/:id/reject", requireAdmin, asyncHandler(as
        set status = 'rejected', rejected_at = now(), failure_reason = $2, admin_note = $3,
            refund_ledger_entry_id = $4, updated_at = now()
        where id = $1`,
-      [withdrawal.id, parsed.data.reason, parsed.data.adminNote || null, refundRows.rows[0]?.id || null]
+      [withdrawal.id, parsed.data.reason, parsed.data.adminNote || null, refundLedgerId]
     );
     await client.query(
       `insert into hb_withdrawal_audit_logs (withdrawal_id, user_id, admin_email, action, previous_status, next_status, metadata)
@@ -6029,7 +6169,7 @@ hbRouter.patch("/admin/hb/withdrawals/:id/mark-paid", requireAdmin, asyncHandler
     }
     const paidRows = await client.query<{ id: string }>(
       `insert into hb_internal_ledger (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
-       values ($1,'deposit','debit',0,'withdrawal',$2,$3,$4::jsonb)
+       values ($1,'income','debit',0,'withdrawal',$2,$3,$4::jsonb)
        on conflict (idempotency_key) do update set idempotency_key = excluded.idempotency_key
        returning id`,
       [
