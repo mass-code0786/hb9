@@ -4553,6 +4553,30 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
       return;
     }
 
+    const existingOrderRows = await buyQuery<{ id: string; order_number: string; distribution_status: string; package_purchase_id: string }>(
+      `select id, order_number, distribution_status, package_purchase_id
+       from hb_product_orders
+       where buyer_user_id = $1 and idempotency_key = $2
+       limit 1`,
+      [req.hbUser!.userId, idempotencyKey]
+    );
+    const existingOrder = existingOrderRows.rows[0];
+    if (existingOrder) {
+      await buyQuery("commit");
+      inTransaction = false;
+      const wallet = await getWalletSummary(req.hbUser!.userId);
+      ok(res, {
+        order: existingOrder,
+        packagePurchaseId: existingOrder.package_purchase_id,
+        activated: false,
+        idempotent: true,
+        walletBalance: wallet.balances.deposit,
+        mainWalletBalance: wallet.balances.deposit,
+        availableBalance: wallet.availableBalance
+      }, "Product purchase already processed");
+      return;
+    }
+
     const existingPurchaseRows = await buyQuery<{ id: string; package_id: string; amount_usd: string; status: string }>(
       `select id, package_id, amount_usd::text, status
        from hb_package_purchases
@@ -4561,7 +4585,7 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
        limit 1`,
       [req.hbUser!.userId, product.package_id]
     );
-    if (existingPurchaseRows.rows[0]) {
+    if (existingPurchaseRows.rows[0] && Number(product.package_price) !== 4) {
       const existingPurchase = existingPurchaseRows.rows[0];
       await runCompletedPackagePurchasePipeline({
         client,
