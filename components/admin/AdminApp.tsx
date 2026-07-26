@@ -1335,7 +1335,9 @@ function HbFundsManagement({ data, token, query }: { data: Record<string, unknow
   const bulkPackages = [
     { amount: "4", label: "Starter Package ($4)" },
     { amount: "20", label: "Builder Package ($20)" },
-    { amount: "100", label: "Growth Package ($100)" }
+    { amount: "100", label: "Growth Package ($100)" },
+    { amount: "500", label: "Automation Package ($500)" },
+    { amount: "2500", label: "AI Business Package ($2500)" }
   ];
   const filteredHistory = history.filter((row) => !query || JSON.stringify(row).toLowerCase().includes(query.toLowerCase()));
 
