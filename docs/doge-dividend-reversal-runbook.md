@@ -66,7 +66,7 @@ select m.source_action_id,
        d.status,
        d.note,
        d.coin_amount::text as original_doge_credit,
-       latest_package.amount_usd::text as latest_completed_package_usd,
+       d.package_total_usd::text as package_usd,
        (select count(*)
           from hb_dividend_income_ledger x
          where x.source_action_id = m.source_action_id) as source_row_count
@@ -78,20 +78,13 @@ select m.source_action_id,
    and d.status = 'credited'
    and lower(btrim(d.note)) = 'dividend'
    and d.coin_amount = m.expected_amount
-  left join lateral (
-    select p.amount_usd
-      from hb_package_purchases p
-     where p.user_id = m.user_id and p.status = 'completed'
-     order by p.created_at desc, p.id desc
-     limit 1
-  ) latest_package on true
  order by m.user_id;
 ```
 
 Each source action must have `source_row_count = 1`; the sole row must match
-the specified user, DOGE, `credited`, note `Dividend`, and expected amount.
-Every latest completed package must be exactly `500`. A user with a later
-higher completed package is therefore rejected.
+the specified user, DOGE, `credited`, note `Dividend`, expected amount, and
+historical dividend-row `package_total_usd = 500`. Later package purchases are
+not used to validate this historical distribution.
 
 ## 3. Back up PostgreSQL
 
@@ -107,7 +100,7 @@ npm run hb:reverse-doge-dividend -- --manifest ./doge-reversal-manifest.csv
 ```
 
 Dry run uses a repeatable-read, read-only transaction and always rolls it back.
-It prints source action, user, wallet address, latest package, original DOGE
+It prints source action, user, wallet address, historical package amount, original DOGE
 credit, current DOGE balance, deduction 1324, and total deduction 3972.
 
 ## 5. Execute

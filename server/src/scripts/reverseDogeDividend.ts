@@ -44,11 +44,13 @@ type Arguments = {
 
 type Target = ManifestRow & {
   source_row_count: number;
-  pair_match_count: number;
+  actual_user_id: string | null;
+  actual_coin_symbol: string | null;
+  actual_status: string | null;
+  actual_note: string | null;
   original_coin_amount: string | null;
   wallet_address: string | null;
-  package_amount: string | null;
-  package_purchase_id: string | null;
+  package_usd: string | null;
   current_balance: string;
   reversal_ledger_id: string | null;
 };
@@ -158,41 +160,25 @@ async function readTargets(client: PoolClient, manifest: ManifestRow[]): Promise
             (select count(*)::int
                from hb_dividend_income_ledger all_source
               where all_source.source_action_id = m.source_action_id) as source_row_count,
-            (select count(*)::int
-               from hb_dividend_income_ledger exact_pair
-              where exact_pair.source_action_id = m.source_action_id
-                and exact_pair.user_id = m.user_id
-                and exact_pair.coin_symbol = 'DOGE'
-                and exact_pair.status = 'credited'
-                and lower(btrim(exact_pair.note)) = 'dividend'
-                and exact_pair.coin_amount = m.expected_original_coin_amount) as pair_match_count,
-            matched.coin_amount::text as original_coin_amount,
+            source_row.user_id::text as actual_user_id,
+            source_row.coin_symbol as actual_coin_symbol,
+            source_row.status as actual_status,
+            source_row.note as actual_note,
+            source_row.coin_amount::text as original_coin_amount,
+            source_row.package_total_usd::text as package_usd,
             coalesce(nullif(u.wallet_address, ''), nullif(u.hb9_wallet_address, ''),
                      nullif(u.usdt_bep20_address, '')) as wallet_address,
-            latest_package.amount_usd::text as package_amount,
-            latest_package.id::text as package_purchase_id,
             coalesce(b.balance, 0)::text as current_balance,
             r.id::text as reversal_ledger_id
        from manifest m
        left join hb_users u on u.id = m.user_id
        left join lateral (
-         select d.coin_amount
+         select d.user_id, d.coin_symbol, d.status, d.note,
+                d.coin_amount, d.package_total_usd
            from hb_dividend_income_ledger d
           where d.source_action_id = m.source_action_id
-            and d.user_id = m.user_id
-            and d.coin_symbol = 'DOGE'
-            and d.status = 'credited'
-            and lower(btrim(d.note)) = 'dividend'
-            and d.coin_amount = m.expected_original_coin_amount
           limit 1
-       ) matched on true
-       left join lateral (
-         select p.id, p.amount_usd
-           from hb_package_purchases p
-          where p.user_id = m.user_id and p.status = 'completed'
-          order by p.created_at desc, p.id desc
-          limit 1
-       ) latest_package on true
+       ) source_row on true
        left join hb_coin_balances b
          on b.user_id = m.user_id and b.coin_symbol = 'DOGE'
        left join hb_coin_balance_ledger r
@@ -213,18 +199,42 @@ function validateTargets(targets: Target[]) {
   if (new Set(targets.map((row) => row.source_action_id)).size !== REQUIRED_ROWS) {
     throw new Error("Database targets do not contain exactly 3 distinct source actions.");
   }
-  const invalid = targets.filter(
-    (row) =>
-      row.source_row_count !== 1 ||
-      row.pair_match_count !== 1 ||
-      canonicalDecimal(row.original_coin_amount) !== canonicalDecimal(row.expected_original_coin_amount) ||
-      canonicalDecimal(row.package_amount) !== REQUIRED_PACKAGE
-  );
-  if (invalid.length) {
-    throw new Error(
-      "Source action, user, credited DOGE row, Dividend note, or latest completed $500 package mismatch: " +
-      invalid.map((row) => `${row.source_action_id}/${row.user_id}`).join(", ")
-    );
+  const failures: string[] = [];
+  const decimalMatches = (actual: string | null, expected: string) => {
+    try {
+      return actual !== null && canonicalDecimal(actual) === canonicalDecimal(expected);
+    } catch {
+      return false;
+    }
+  };
+  for (const row of targets) {
+    const prefix = `${row.source_action_id}/${row.user_id}`;
+    if (row.source_row_count !== 1) {
+      failures.push(`${prefix}: source_row_count expected 1, got ${row.source_row_count}`);
+    }
+    if (row.actual_user_id !== row.user_id) {
+      failures.push(`${prefix}: user_id expected ${row.user_id}, got ${row.actual_user_id ?? "null"}`);
+    }
+    if (row.actual_coin_symbol !== COIN) {
+      failures.push(`${prefix}: coin_symbol expected DOGE, got ${row.actual_coin_symbol ?? "null"}`);
+    }
+    if (row.actual_status !== "credited") {
+      failures.push(`${prefix}: status expected credited, got ${row.actual_status ?? "null"}`);
+    }
+    if (row.actual_note?.trim() !== "Dividend") {
+      failures.push(`${prefix}: note expected Dividend, got ${JSON.stringify(row.actual_note)}`);
+    }
+    if (!decimalMatches(row.original_coin_amount, row.expected_original_coin_amount)) {
+      failures.push(
+        `${prefix}: coin_amount expected ${row.expected_original_coin_amount}, got ${row.original_coin_amount ?? "null"}`
+      );
+    }
+    if (!decimalMatches(row.package_usd, REQUIRED_PACKAGE)) {
+      failures.push(`${prefix}: package_usd expected 500, got ${row.package_usd ?? "null"}`);
+    }
+  }
+  if (failures.length) {
+    throw new Error(`DOGE reversal validation failed:\n- ${failures.join("\n- ")}`);
   }
   const insufficient = targets.filter((row) => Number(row.current_balance) < Number(DEDUCTION));
   if (insufficient.length) {
@@ -239,7 +249,7 @@ function printReport(targets: Target[]) {
     source_action_id: row.source_action_id,
     user_id: row.user_id,
     wallet_address: row.wallet_address || "(not set)",
-    latest_package_USD: row.package_amount,
+    package_USD: row.package_usd,
     original_DOGE_credit: row.original_coin_amount,
     current_DOGE_balance: row.current_balance,
     deduction_DOGE: DEDUCTION,
