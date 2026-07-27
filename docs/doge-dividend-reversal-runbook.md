@@ -1,186 +1,157 @@
-# One-time $500 Business Package DOGE dividend reversal
+# One-time DOGE dividend reversal
 
-This runbook debits exactly 1324 DOGE from each of the three users in one exact
-incorrect `$500 Business Package` bulk distribution. The original distribution
-credited 1327.31132499 DOGE per user. Original credit, dividend, and other
-ledger records remain untouched.
+This operation is pinned to three reviewed production
+`source_action_id`/`user_id` pairs. It deducts exactly 1324 DOGE from each user
+(3972 DOGE total) without changing any original credit or dividend row.
 
-The batch identifier used by the application is
-`hb:funds:bulk:<SOURCE_ACTION_ID>`. Per-user dividend rows point to the
-individual `hb_admin_balance_actions.id` values within that exact batch.
+## 1. Create the reviewed manifest
 
-## 1. Find and confirm the exact incorrect distribution
+Create an untracked file such as `doge-reversal-manifest.csv` containing exactly:
 
-Use the local display timestamp only to find candidates. This query does not
-authorize a reversal:
-
-```sql
-select split_part(a.idempotency_key, ':', 4) as source_action_id,
-       min(a.created_at at time zone 'Asia/Kolkata') as created_at_local,
-       min(source_coin.metadata->>'packageName') as package_name,
-       min(source_coin.metadata->>'packageAmount') as package_amount,
-       a.coin_symbol,
-       a.amount::text as distributed_doge_per_user,
-       a.note,
-       count(distinct a.user_id) as receiver_count
-  from hb_admin_balance_actions a
-  join hb_coin_balance_ledger source_coin on source_coin.id = a.ledger_entry_id
- where a.type = 'bulk_distribution'
-   and a.coin_symbol = 'DOGE'
-   and a.amount = 1327.31132499::numeric
-   and lower(btrim(a.note)) = 'dividend'
-   and source_coin.metadata->>'targetMode' = 'package'
-   and source_coin.metadata->>'packageAmount' = '500'
-   and a.created_at >= ('2026-07-27 14:23:59'::timestamp - interval '5 minutes')
-                         at time zone 'Asia/Kolkata'
-   and a.created_at <= ('2026-07-27 14:23:59'::timestamp + interval '5 minutes')
-                         at time zone 'Asia/Kolkata'
- group by split_part(a.idempotency_key, ':', 4),
-          a.coin_symbol, a.amount, a.note
- order by min(a.created_at);
+```csv
+ebb6da48-ffc2-4ca7-9261-d78794a3f459,6158ae4c-f2fc-4306-8744-b6908fa95533,1327.31132499
+8c1a45b7-0350-4e7c-b832-b4c163d90b83,88eb56d7-6263-45c0-aa92-c7d039ee0e92,1327.31132499
+ca07e8c0-8e66-4716-b0c8-9ba843a1884b,96818662-0fa5-4164-a298-8c38f72d3df6,1427.67036250
 ```
 
-Copy the single reviewed `source_action_id`, then confirm it by exact identifier
-with no date filter:
+The columns are:
+
+```text
+source_action_id,user_id,expected_original_coin_amount
+```
+
+JSON is also accepted as an array (or an object with a `rows` array):
+
+```json
+[
+  {
+    "source_action_id": "ebb6da48-ffc2-4ca7-9261-d78794a3f459",
+    "user_id": "6158ae4c-f2fc-4306-8744-b6908fa95533",
+    "expected_original_coin_amount": "1327.31132499"
+  },
+  {
+    "source_action_id": "8c1a45b7-0350-4e7c-b832-b4c163d90b83",
+    "user_id": "88eb56d7-6263-45c0-aa92-c7d039ee0e92",
+    "expected_original_coin_amount": "1327.31132499"
+  },
+  {
+    "source_action_id": "ca07e8c0-8e66-4716-b0c8-9ba843a1884b",
+    "user_id": "96818662-0fa5-4164-a298-8c38f72d3df6",
+    "expected_original_coin_amount": "1427.67036250"
+  }
+]
+```
+
+The script rejects any manifest that is not exactly equal to these confirmed
+rows. It also requires three distinct users and three distinct source actions.
+
+## 2. Confirm the source rows
+
+This exact-pair query must return three rows:
 
 ```sql
-with exact_batch as (
-  select a.id,
-         a.user_id,
-         a.ledger_entry_id,
-         a.coin_symbol,
-         a.amount,
-         a.note,
-         a.created_at,
-         source_coin.metadata
-    from hb_admin_balance_actions a
-    join hb_coin_balance_ledger source_coin on source_coin.id = a.ledger_entry_id
-   where a.idempotency_key =
-         'hb:funds:bulk:<INCORRECT_SOURCE_ACTION_ID>:' || a.user_id::text
+with manifest(source_action_id, user_id, expected_amount) as (
+  values
+    ('ebb6da48-ffc2-4ca7-9261-d78794a3f459'::uuid,
+     '6158ae4c-f2fc-4306-8744-b6908fa95533'::uuid, 1327.31132499::numeric),
+    ('8c1a45b7-0350-4e7c-b832-b4c163d90b83'::uuid,
+     '88eb56d7-6263-45c0-aa92-c7d039ee0e92'::uuid, 1327.31132499::numeric),
+    ('ca07e8c0-8e66-4716-b0c8-9ba843a1884b'::uuid,
+     '96818662-0fa5-4164-a298-8c38f72d3df6'::uuid, 1427.67036250::numeric)
 )
-select 'hb:funds:bulk:<INCORRECT_SOURCE_ACTION_ID>' as distribution_identifier,
-       min(metadata->>'packageName') as package_name,
-       min(metadata->>'packageAmount') as package_amount,
-       min(coin_symbol) as coin_symbol,
-       min(amount)::text as distributed_doge_per_user,
-       min(note) as note,
-       count(distinct user_id) as receiver_count,
-       min(created_at at time zone 'Asia/Kolkata') as created_at_local
-  from exact_batch;
-```
-
-Proceed only when the result is Business Package, `500`, DOGE,
-`1327.31132499`, Dividend, and exactly `3` receivers.
-
-Derive and review the exact three users and their latest completed packages:
-
-```sql
-select a.user_id,
-       a.id as admin_action_id,
+select m.source_action_id,
+       m.user_id,
        d.id as dividend_ledger_id,
-       d.coin_amount::text as original_doge_credited,
-       latest_package.id as latest_completed_package_purchase_id,
-       latest_package.amount_usd::text as latest_completed_package_usd
-  from hb_admin_balance_actions a
-  join hb_dividend_income_ledger d
-    on d.source_action_id = a.id
+       d.coin_symbol,
+       d.status,
+       d.note,
+       d.coin_amount::text as original_doge_credit,
+       latest_package.amount_usd::text as latest_completed_package_usd,
+       (select count(*)
+          from hb_dividend_income_ledger x
+         where x.source_action_id = m.source_action_id) as source_row_count
+  from manifest m
+  left join hb_dividend_income_ledger d
+    on d.source_action_id = m.source_action_id
+   and d.user_id = m.user_id
    and d.coin_symbol = 'DOGE'
    and d.status = 'credited'
-  join lateral (
-    select p.id, p.amount_usd
+   and lower(btrim(d.note)) = 'dividend'
+   and d.coin_amount = m.expected_amount
+  left join lateral (
+    select p.amount_usd
       from hb_package_purchases p
-     where p.user_id = a.user_id and p.status = 'completed'
+     where p.user_id = m.user_id and p.status = 'completed'
      order by p.created_at desc, p.id desc
      limit 1
   ) latest_package on true
- where a.idempotency_key =
-       'hb:funds:bulk:<INCORRECT_SOURCE_ACTION_ID>:' || a.user_id::text
- order by a.user_id;
+ order by m.user_id;
 ```
 
-The query must return exactly three rows, each with original credit
-`1327.31132499` and latest completed package `500`. Save those three reviewed
-user UUIDs, one per line, as `expected-doge-users.txt`. Keep production user
-data outside version control. A user whose latest completed package is not
-exactly `500` is rejected; this excludes a user who subsequently completed a
-higher package.
+Each source action must have `source_row_count = 1`; the sole row must match
+the specified user, DOGE, `credited`, note `Dividend`, and expected amount.
+Every latest completed package must be exactly `500`. A user with a later
+higher completed package is therefore rejected.
 
-## 2. Back up PostgreSQL
+## 3. Back up PostgreSQL
 
 ```bash
 pg_dump --format=custom --no-owner --no-privileges --file="hb9-pre-doge-reversal-$(date +%Y%m%d-%H%M%S).dump" "$DATABASE_URL"
 pg_restore --list hb9-pre-doge-reversal-YYYYMMDD-HHMMSS.dump > /dev/null
 ```
 
-## 3. Dry run
-
-Dry run uses a repeatable-read, read-only transaction and always rolls it back:
+## 4. Dry run
 
 ```bash
-npm run hb:reverse-doge-dividend -- --source-action-id <INCORRECT_SOURCE_ACTION_ID> --expected-count 3 --expected-user-ids-file ./expected-doge-users.txt
+npm run hb:reverse-doge-dividend -- --manifest ./doge-reversal-manifest.csv
 ```
 
-It must report the exact three user IDs, latest completed package `500`,
-current DOGE balance, original credit `1327.31132499`, deduction `1324` per
-user, and total deduction `3972`.
+Dry run uses a repeatable-read, read-only transaction and always rolls it back.
+It prints source action, user, wallet address, latest package, original DOGE
+credit, current DOGE balance, deduction 1324, and total deduction 3972.
 
-## 4. Execute
-
-Execute is rejected unless `--expected-count` is exactly `3`, the exact
-three-user allowlist matches, and an operator manually confirms in an
-interactive terminal:
+## 5. Execute
 
 ```bash
-npm run hb:reverse-doge-dividend -- --source-action-id <INCORRECT_SOURCE_ACTION_ID> --execute --expected-count 3 --expected-user-ids-file ./expected-doge-users.txt
+npm run hb:reverse-doge-dividend -- --manifest ./doge-reversal-manifest.csv --execute
 ```
 
-Before asking for confirmation, the script prints the final three-user list
-with `user_id`, wallet address, package amount, current DOGE balance, original
-DOGE credited, and the 1324 DOGE deduction. It then requires the operator to
-type this exact phrase:
+The script first performs and prints the read-only preflight. It then requires
+an interactive operator to type exactly:
 
 ```text
-EXECUTE <INCORRECT_SOURCE_ACTION_ID> 3 USERS 3972 DOGE
+EXECUTE 3 USERS 3 ACTIONS 3972 DOGE
 ```
 
-Piped/non-interactive execution is rejected. After confirmation, the script
-starts a serializable transaction and derives and validates the exact batch,
-three users, allowlist, latest package, and balances again. Any drift from the
-confirmed list aborts the transaction.
+Non-interactive execution is rejected. After confirmation, one serializable
+transaction locks all three user balances, revalidates the manifest and
+database rows, creates any missing reversal ledger entries, updates balances,
+creates ledger proofs, and commits. Any mismatch or balance below 1324 aborts
+the entire transaction.
 
-The operation uses a serializable transaction, locks the exact distribution and
-affected DOGE balances, and aborts the entire transaction if any not-yet-
-reversed user has less than 1324 DOGE. Each debit uses:
+Each reversal has this deterministic key:
 
 ```text
 doge-dividend-reversal:<SOURCE_ACTION_ID>:<USER_ID>:1324
 ```
 
-## 5. Verify after execution
+Re-running cannot insert a duplicate key or deduct a second time.
+
+## 6. Verify after execution
 
 ```sql
-with affected as (
-  select a.user_id,
-         d.coin_amount as original_doge_credited,
-         latest_package.amount_usd as latest_completed_package_usd
-    from hb_admin_balance_actions a
-    join hb_dividend_income_ledger d
-      on d.source_action_id = a.id
-     and d.coin_symbol = 'DOGE'
-     and d.status = 'credited'
-    join lateral (
-      select p.amount_usd
-        from hb_package_purchases p
-       where p.user_id = a.user_id and p.status = 'completed'
-       order by p.created_at desc, p.id desc
-       limit 1
-    ) latest_package on true
-   where a.idempotency_key =
-         'hb:funds:bulk:<INCORRECT_SOURCE_ACTION_ID>:' || a.user_id::text
+with manifest(source_action_id, user_id, expected_amount) as (
+  values
+    ('ebb6da48-ffc2-4ca7-9261-d78794a3f459'::uuid,
+     '6158ae4c-f2fc-4306-8744-b6908fa95533'::uuid, 1327.31132499::numeric),
+    ('8c1a45b7-0350-4e7c-b832-b4c163d90b83'::uuid,
+     '88eb56d7-6263-45c0-aa92-c7d039ee0e92'::uuid, 1327.31132499::numeric),
+    ('ca07e8c0-8e66-4716-b0c8-9ba843a1884b'::uuid,
+     '96818662-0fa5-4164-a298-8c38f72d3df6'::uuid, 1427.67036250::numeric)
 )
-select a.user_id,
-       a.latest_completed_package_usd::text,
-       a.original_doge_credited::text,
+select m.source_action_id,
+       m.user_id,
+       m.expected_amount::text as original_doge_credit,
        b.balance::text as current_doge_balance,
        r.id as reversal_ledger_id,
        r.amount::text as reversed_doge,
@@ -190,39 +161,48 @@ select a.user_id,
        r.idempotency_key,
        r.metadata,
        r.created_at
-  from affected a
+  from manifest m
   left join hb_coin_balances b
-    on b.user_id = a.user_id and b.coin_symbol = 'DOGE'
+    on b.user_id = m.user_id and b.coin_symbol = 'DOGE'
   left join hb_coin_balance_ledger r
     on r.idempotency_key =
-       'doge-dividend-reversal:<INCORRECT_SOURCE_ACTION_ID>:' ||
-       a.user_id::text || ':1324'
- order by a.user_id;
+       'doge-dividend-reversal:' || m.source_action_id::text || ':' ||
+       m.user_id::text || ':1324'
+ order by m.user_id;
 ```
 
-Verification must return exactly three users, all package `500`, each with one
-`1324` DOGE debit. The reversal total must be exactly `3972`:
+Aggregate verification:
 
 ```sql
-select count(*) as reversal_count, sum(amount)::text as total_reversed_doge
-  from hb_coin_balance_ledger
- where idempotency_key like
-       'doge-dividend-reversal:<INCORRECT_SOURCE_ACTION_ID>:%:1324';
+with expected_keys(idempotency_key) as (
+  values
+    ('doge-dividend-reversal:ebb6da48-ffc2-4ca7-9261-d78794a3f459:6158ae4c-f2fc-4306-8744-b6908fa95533:1324'),
+    ('doge-dividend-reversal:8c1a45b7-0350-4e7c-b832-b4c163d90b83:88eb56d7-6263-45c0-aa92-c7d039ee0e92:1324'),
+    ('doge-dividend-reversal:ca07e8c0-8e66-4716-b0c8-9ba843a1884b:96818662-0fa5-4164-a298-8c38f72d3df6:1324')
+)
+select count(r.id) as reversal_count,
+       coalesce(sum(r.amount), 0)::text as total_reversed_doge,
+       count(*) filter (where r.id is null) as missing_reversals
+  from expected_keys e
+  left join hb_coin_balance_ledger r on r.idempotency_key = e.idempotency_key;
 ```
+
+Expected result: `reversal_count = 3`, `total_reversed_doge = 3972`, and
+`missing_reversals = 0`.
 
 ## Rollback and recovery
 
-Any error before commit automatically rolls back the complete operation. After
-commit, never delete or edit the source or reversal ledgers. Recovery requires
-a separately reviewed compensating transaction: create one idempotent 1324
-DOGE credit per verified reversal, update `hb_coin_balances` through the same
-locked balance pipeline, and create ledger proofs. Use:
+Any error before commit automatically rolls back all three users. After commit,
+never delete or edit original or reversal ledger rows. Recovery must be a
+separately reviewed compensating serializable transaction derived only from the
+three exact reversal keys above. Create one 1324 DOGE credit per reversal,
+update the locked coin balance through the normal pipeline, and create proofs.
+
+Use recovery keys:
 
 ```text
 doge-dividend-reversal-recovery:<SOURCE_ACTION_ID>:<USER_ID>:1324
 ```
 
-The recovery allowlist must be derived from the three verified reversal rows,
-not from a broad package, DOGE, or date query. If integrity is uncertain, stop
-writes and restore the pre-execution dump to an isolated database for
-validation before considering any production restore.
+If integrity is uncertain, stop writes and restore the pre-execution dump to an
+isolated database for validation before considering any production restore.
