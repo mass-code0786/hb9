@@ -101,6 +101,12 @@ function validateExactConfirmedManifest(rows: ManifestRow[]) {
   if (new Set(rows.map((row) => row.source_action_id)).size !== REQUIRED_ROWS) {
     throw new Error("Manifest must contain exactly 3 distinct source_action_id values.");
   }
+  if (rows.some((row) => row.source_action_id.split("-")[0]?.length !== 8)) {
+    throw new Error("Every source_action_id must contain exactly 8 characters before the first hyphen.");
+  }
+  if (!rows.some((row) => row.source_action_id === "ebb6da48-ffc2-4ca7-9261-d78794a3f459")) {
+    throw new Error("Confirmed source_action_id ebb6da48-ffc2-4ca7-9261-d78794a3f459 is missing.");
+  }
   const actual = [...rows.map(manifestKey)].sort();
   const confirmed = [...CONFIRMED_MANIFEST.map(manifestKey)].sort();
   if (actual.some((key, index) => key !== confirmed[index])) {
@@ -124,7 +130,7 @@ async function loadManifest(file: string): Promise<ManifestRow[]> {
       .map((line) => line.trim())
       .filter((line) => line && !line.startsWith("#"))
       .map((line) => {
-        const fields = line.split(",").map((field) => field.trim());
+        const fields = line.split(",").map((field) => field.replace(/\r/g, "").trim());
         if (fields.length !== 3) throw new Error(`Manifest line must have exactly 3 comma-separated fields: ${line}`);
         return {
           source_action_id: fields[0],
@@ -143,52 +149,86 @@ function reversalKey(row: ManifestRow) {
 }
 
 async function readTargets(client: PoolClient, manifest: ManifestRow[]): Promise<Target[]> {
-  const result = await client.query<Target>(
-    `with manifest as (
-       select source_action_id::uuid,
-              user_id::uuid,
-              expected_original_coin_amount::numeric
-         from jsonb_to_recordset($1::jsonb) as x(
-           source_action_id text,
-           user_id text,
-           expected_original_coin_amount text
-         )
-     )
-     select m.source_action_id::text,
-            m.user_id::text,
-            m.expected_original_coin_amount::text,
-            (select count(*)::int
-               from hb_dividend_income_ledger all_source
-              where all_source.source_action_id = m.source_action_id) as source_row_count,
-            source_row.user_id::text as actual_user_id,
-            source_row.coin_symbol as actual_coin_symbol,
-            source_row.status as actual_status,
-            source_row.note as actual_note,
-            source_row.coin_amount::text as original_coin_amount,
-            source_row.package_total_usd::text as package_usd,
-            coalesce(nullif(u.wallet_address, ''), nullif(u.hb9_wallet_address, ''),
-                     nullif(u.usdt_bep20_address, '')) as wallet_address,
-            coalesce(b.balance, 0)::text as current_balance,
-            r.id::text as reversal_ledger_id
-       from manifest m
-       left join hb_users u on u.id = m.user_id
-       left join lateral (
-         select d.user_id, d.coin_symbol, d.status, d.note,
-                d.coin_amount, d.package_total_usd
-           from hb_dividend_income_ledger d
-          where d.source_action_id = m.source_action_id
-          limit 1
-       ) source_row on true
-       left join hb_coin_balances b
-         on b.user_id = m.user_id and b.coin_symbol = 'DOGE'
-       left join hb_coin_balance_ledger r
-         on r.idempotency_key =
-            'doge-dividend-reversal:' || m.source_action_id::text || ':' ||
-            m.user_id::text || ':1324'
-      order by m.user_id`,
-    [JSON.stringify(manifest)]
-  );
-  return result.rows;
+  const targets: Target[] = [];
+  for (const manifestRow of manifest) {
+    const dividendRows = await client.query<{
+      source_action_id: string;
+      user_id: string;
+      coin_symbol: string;
+      status: string;
+      note: string | null;
+      coin_amount: string;
+      package_usd: string;
+    }>(
+      `select source_action_id::text,
+              user_id::text,
+              coin_symbol,
+              status,
+              note,
+              coin_amount::text,
+              package_total_usd::text as package_usd
+         from hb_dividend_income_ledger
+        where source_action_id = $1::uuid
+          and user_id = $2::uuid`,
+      [manifestRow.source_action_id, manifestRow.user_id]
+    );
+    console.log("DOGE_REVERSAL_MANIFEST_LOOKUP", {
+      parsed_source_action_id: manifestRow.source_action_id,
+      parsed_user_id: manifestRow.user_id,
+      parsed_original_amount: manifestRow.expected_original_coin_amount,
+      exact_sql_row_count: dividendRows.rowCount
+    });
+
+    const sourceCountRows = await client.query<{ count: number }>(
+      `select count(*)::int as count
+         from hb_dividend_income_ledger
+        where source_action_id = $1::uuid`,
+      [manifestRow.source_action_id]
+    );
+    const dividend = dividendRows.rows[0];
+    let walletAddress: string | null = null;
+    let currentBalance = "0";
+    let reversalLedgerId: string | null = null;
+    if (dividendRows.rowCount === 1 && dividend) {
+      const walletRows = await client.query<{ wallet_address: string | null }>(
+        `select coalesce(nullif(wallet_address, ''), nullif(hb9_wallet_address, ''),
+                         nullif(usdt_bep20_address, '')) as wallet_address
+           from hb_users
+          where id = $1::uuid`,
+        [manifestRow.user_id]
+      );
+      const balanceRows = await client.query<{ balance: string }>(
+        `select balance::text
+           from hb_coin_balances
+          where user_id = $1::uuid and coin_symbol = 'DOGE'`,
+        [manifestRow.user_id]
+      );
+      const reversalRows = await client.query<{ id: string }>(
+        `select id::text
+           from hb_coin_balance_ledger
+          where idempotency_key = $1
+          limit 1`,
+        [reversalKey(manifestRow)]
+      );
+      walletAddress = walletRows.rows[0]?.wallet_address ?? null;
+      currentBalance = balanceRows.rows[0]?.balance ?? "0";
+      reversalLedgerId = reversalRows.rows[0]?.id ?? null;
+    }
+    targets.push({
+      ...manifestRow,
+      source_row_count: sourceCountRows.rows[0]?.count ?? 0,
+      actual_user_id: dividend?.user_id ?? null,
+      actual_coin_symbol: dividend?.coin_symbol ?? null,
+      actual_status: dividend?.status ?? null,
+      actual_note: dividend?.note ?? null,
+      original_coin_amount: dividend?.coin_amount ?? null,
+      package_usd: dividend?.package_usd ?? null,
+      wallet_address: walletAddress,
+      current_balance: currentBalance,
+      reversal_ledger_id: reversalLedgerId
+    });
+  }
+  return targets.sort((left, right) => left.user_id.localeCompare(right.user_id));
 }
 
 function validateTargets(targets: Target[]) {
