@@ -14,6 +14,7 @@
     "api:check": "npm run api:build",
     "api:start": "node server/dist/index.js",
     "hb:verify-schema": "tsx server/src/scripts/verifyHbSchema.ts",
+    "hb:reverse-doge-dividend": "tsx server/src/scripts/reverseDogeDividend.ts",
     "deploy:bsc-mainnet": "npm --prefix contracts run deploy:bsc-mainnet",
     "deploy:check:bsc-mainnet": "npm --prefix contracts run deploy:check:bsc-mainnet",
     "verify:bsc-mainnet": "npm --prefix contracts run verify:bsc-mainnet",
