@@ -60,6 +60,13 @@ type Event = {
 };
 
 type Allocation = { clean: bigint; misrouted: bigint };
+type MisroutedLot = {
+  source_ledger_id: string;
+  source_reference_type: string;
+  original_amount: bigint;
+  remaining_amount: bigint;
+};
+type DebitAllocation = Allocation & { misroutedLots: Array<{ source_ledger_id: string; amount: bigint }> };
 type Classified = {
   kind: "misrouted_credit" | "clean_credit" | "package_debit" | "withdrawal_debit" | "reversal_credit" | "unresolved";
   reason: string;
@@ -82,7 +89,7 @@ type ChronologyRow = {
   clean_after: string;
   misrouted_after: string;
 };
-type UserSummary = {
+export type HistoricalWalletUserSummary = {
   user_id: string;
   total_proven_misrouted: string;
   total_clean_main_credits: string;
@@ -99,6 +106,12 @@ type UserSummary = {
   combined_after: string;
   status: "SAFE" | "PARTIAL" | "UNRESOLVED";
   unresolved_reason: string | null;
+  source_allocations: Array<{
+    source_ledger_id: string;
+    source_reference_type: string;
+    source_original_amount: string;
+    correction_amount: string;
+  }>;
 };
 
 function units(value: string | null | undefined) {
@@ -292,7 +305,7 @@ async function loadIncomeBalances(client: PoolClient, userIds: string[]) {
   );
 }
 
-async function buildReport(client: PoolClient) {
+export async function buildHistoricalWalletChronologyReport(client: PoolClient) {
   const candidates = (await loadCandidates(client)).rows;
   const userIds = [...new Set(candidates.map((row) => row.user_id))].sort();
   if (userIds.length === 0) throw new Error("No proven historical misrouted income rows were found.");
@@ -305,14 +318,16 @@ async function buildReport(client: PoolClient) {
   }
   for (const row of eventResult.rows) eventsByUser.set(row.user_id, [...(eventsByUser.get(row.user_id) || []), row]);
   const incomeByUser = new Map(incomeResult.rows.map((row) => [row.user_id, units(row.balance)]));
-  const users: UserSummary[] = [];
+  const users: HistoricalWalletUserSummary[] = [];
   const chronology: Record<string, ChronologyRow[]> = {};
 
   for (const userId of userIds) {
     const userCandidates = candidatesByUser.get(userId) || [];
     const events = eventsByUser.get(userId) || [];
     const state: Allocation = { clean: 0n, misrouted: 0n };
-    const debitAllocations = new Map<string, Allocation[]>();
+    const debitAllocations = new Map<string, DebitAllocation[]>();
+    const misroutedLots: MisroutedLot[] = [];
+    const lotsById = new Map<string, MisroutedLot>();
     const unresolved = new Set<string>();
     const invalidIncomeProofs = candidates.filter((candidate) => candidate.user_id === userId && !candidate.proof_valid);
     for (const candidate of invalidIncomeProofs) {
@@ -333,14 +348,36 @@ async function buildReport(client: PoolClient) {
     for (const { event, classified } of classifiedEvents) {
       const amount = units(event.amount_usd);
       const before = { ...state };
-      if (classified.kind === "misrouted_credit") state.misrouted += amount;
+      if (classified.kind === "misrouted_credit") {
+        state.misrouted += amount;
+        const lot: MisroutedLot = {
+          source_ledger_id: event.id,
+          source_reference_type: event.reference_type,
+          original_amount: amount,
+          remaining_amount: amount
+        };
+        misroutedLots.push(lot);
+        lotsById.set(lot.source_ledger_id, lot);
+      }
       else if (classified.kind === "clean_credit") {
         state.clean += amount;
         cleanCredits += amount;
       } else if (classified.kind === "package_debit" || classified.kind === "withdrawal_debit") {
         const result = consume(amount, classified.kind === "package_debit" ? "clean" : "misrouted", state);
+        let lotAmount = result.allocation.misrouted;
+        const allocatedLots: DebitAllocation["misroutedLots"] = [];
+        for (const lot of misroutedLots) {
+          if (lotAmount === 0n) break;
+          const taken = lot.remaining_amount < lotAmount ? lot.remaining_amount : lotAmount;
+          if (taken > 0n) {
+            lot.remaining_amount -= taken;
+            lotAmount -= taken;
+            allocatedLots.push({ source_ledger_id: lot.source_ledger_id, amount: taken });
+          }
+        }
+        if (lotAmount !== 0n) unresolved.add(`ledger ${event.id} misrouted lot allocation is short by ${usd(lotAmount)}`);
         const key = eventKey(event);
-        debitAllocations.set(key, [...(debitAllocations.get(key) || []), result.allocation]);
+        debitAllocations.set(key, [...(debitAllocations.get(key) || []), { ...result.allocation, misroutedLots: allocatedLots }]);
         consumedMisrouted += result.allocation.misrouted;
         if (classified.kind === "package_debit") packageDebits += amount;
         else withdrawalDebits += amount;
@@ -354,6 +391,11 @@ async function buildReport(client: PoolClient) {
           state.clean += original.clean;
           state.misrouted += original.misrouted;
           consumedMisrouted -= original.misrouted;
+          for (const restored of original.misroutedLots) {
+            const lot = lotsById.get(restored.source_ledger_id);
+            if (!lot) unresolved.add(`ledger ${event.id} reversal references missing source lot ${restored.source_ledger_id}`);
+            else lot.remaining_amount += restored.amount;
+          }
         }
       } else unresolved.add(`ledger ${event.id}: ${classified.reason}`);
       rows.push({
@@ -379,7 +421,19 @@ async function buildReport(client: PoolClient) {
     const projectedIncome = currentIncome + safeRemaining;
     const combinedBefore = currentMain + currentIncome;
     const combinedAfter = projectedMain + projectedIncome;
-    const status: UserSummary["status"] = unresolved.size > 0 ? "UNRESOLVED" : consumedMisrouted > 0n ? "PARTIAL" : "SAFE";
+    const status: HistoricalWalletUserSummary["status"] = unresolved.size > 0 ? "UNRESOLVED" : consumedMisrouted > 0n ? "PARTIAL" : "SAFE";
+    const sourceAllocations = status === "UNRESOLVED" ? [] : misroutedLots
+      .filter((lot) => lot.remaining_amount > 0n)
+      .map((lot) => ({
+        source_ledger_id: lot.source_ledger_id,
+        source_reference_type: lot.source_reference_type,
+        source_original_amount: usd(lot.original_amount),
+        correction_amount: usd(lot.remaining_amount)
+      }));
+    const allocatedTotal = sourceAllocations.reduce((sum, allocation) => sum + units(allocation.correction_amount), 0n);
+    if (allocatedTotal !== safeRemaining) {
+      throw new Error(`Source allocation total ${usd(allocatedTotal)} does not match safe remaining ${usd(safeRemaining)} for user ${userId}.`);
+    }
     users.push({
       user_id: userId,
       total_proven_misrouted: usd(proven),
@@ -396,12 +450,13 @@ async function buildReport(client: PoolClient) {
       combined_before: usd(combinedBefore),
       combined_after: usd(combinedAfter),
       status,
-      unresolved_reason: [...unresolved].join("; ") || null
+      unresolved_reason: [...unresolved].join("; ") || null,
+      source_allocations: sourceAllocations
     });
     chronology[userId] = rows;
   }
 
-  const sum = (field: keyof UserSummary) => users.reduce((total, row) => total + units(String(row[field])), 0n);
+  const sum = (field: keyof HistoricalWalletUserSummary) => users.reduce((total, row) => total + units(String(row[field])), 0n);
   const summary = {
     affected_users: users.length,
     total_proven_misrouted: usd(sum("total_proven_misrouted")),
@@ -425,7 +480,7 @@ async function main() {
   try {
     await client.query("begin isolation level repeatable read read only");
     try {
-      const report = await buildReport(client);
+      const report = await buildHistoricalWalletChronologyReport(client);
       console.log("HISTORICAL_WALLET_CHRONOLOGY_SUMMARY");
       console.table([report.summary]);
       console.log("HISTORICAL_WALLET_CHRONOLOGY_USERS");
@@ -444,7 +499,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-}).finally(async () => pool?.end());
+if (/reportHistoricalWalletChronology\.(?:ts|js)$/.test(String(process.argv[1] || "").replace(/\\/g, "/"))) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }).finally(async () => pool?.end());
+}

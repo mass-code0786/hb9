@@ -2,305 +2,190 @@ import { createInterface } from "node:readline/promises";
 import type { PoolClient } from "pg";
 import { pool } from "../db/pool.js";
 import { createLedgerProof } from "../services/halalBusiness/hbLedgerProofService.js";
+import {
+  buildHistoricalWalletChronologyReport,
+  type HistoricalWalletUserSummary
+} from "./reportHistoricalWalletChronology.js";
 
-const ALLOWED_INCOME_TYPES = [
-  "referral_income",
-  "level_income",
-  "salary_income",
-  "single_leg_income",
-  "dividend_income",
-  "admin_income"
-] as const;
 const CORRECTION_TYPE = "historical_wallet_reclassification";
-const DECIMAL = /^-?\d+(?:\.\d+)?$/;
+const SCALE = 100000000n;
+const APPROVED_SNAPSHOT = {
+  safeUsers: 10,
+  partialUsers: 13,
+  unresolvedUsers: 9,
+  totalProven: "1651.88",
+  totalMovable: "417.7968185",
+  totalConsumed: "1123.9231815",
+  totalUnresolvedHold: "110.16"
+} as const;
 
 type Arguments = {
   execute: boolean;
-  expectedRows?: number;
-  expectedHistoricalTotal?: string;
-  expectedMovableTotal?: string;
-  expectedUsedTotal?: string;
+  expectedSafe?: number;
+  expectedPartial?: number;
+  expectedUnresolved?: number;
+  expectedMovable?: string;
+  expectedConsumed?: string;
+  expectedUnresolvedHold?: string;
 };
-type Summary = { reference_type: string; row_count: number; total_usd: string; affected_users: number };
-type Sample = {
-  id: string; user_id: string; wallet_type: string; direction: string; amount_usd: string;
-  reference_type: string; reference_id: string; idempotency_key: string; created_at: string;
-};
-type UserReport = {
-  user_id: string;
-  historical_misrouted_income: string;
-  current_main_wallet: string;
-  movable_amount: string;
-  used_amount: string;
-  projected_main_wallet: string;
-  projected_income_wallet: string;
-  combined_wallet_before: string;
-  combined_wallet_after: string;
-};
-type Totals = {
-  row_count: number;
-  affected_users: number;
-  total_historical_misrouted_income: string;
-  total_movable_amount: string;
-  total_already_used_amount: string;
-  users_with_partially_used_income: number;
-  users_with_fully_movable_income: number;
-  negative_main_users: number;
-};
-type Inventory = { direction: string; reference_type: string; row_count: number; total_usd: string; affected_users: number };
+type ChronologyReport = Awaited<ReturnType<typeof buildHistoricalWalletChronologyReport>>;
 
-function canonicalDecimal(value: unknown) {
+function units(value: unknown) {
   const text = String(value ?? "").trim();
-  if (!DECIMAL.test(text)) throw new Error(`Expected a non-negative decimal, received: ${text}`);
-  const [whole, fraction = ""] = text.split(".");
-  const normalized = fraction.replace(/0+$/, "");
-  return normalized ? `${whole}.${normalized}` : whole;
+  if (!/^-?\d+(?:\.\d+)?$/.test(text)) throw new Error(`Invalid USD value: ${text}`);
+  const negative = text.startsWith("-");
+  const unsigned = negative ? text.slice(1) : text;
+  const [whole, fraction = ""] = unsigned.split(".");
+  if (fraction.length > 8) throw new Error(`USD value exceeds 8 decimal places: ${text}`);
+  const result = BigInt(whole) * SCALE + BigInt(fraction.padEnd(8, "0"));
+  return negative ? -result : result;
 }
 
-function toUsdUnits(value: unknown) {
-  const canonical = canonicalDecimal(value);
-  const [whole, fraction = ""] = canonical.split(".");
-  return BigInt(whole) * 100000000n + BigInt(fraction.padEnd(8, "0"));
+function usd(value: bigint) {
+  const negative = value < 0n;
+  const absolute = negative ? -value : value;
+  const whole = absolute / SCALE;
+  const fraction = (absolute % SCALE).toString().padStart(8, "0").replace(/0+$/, "");
+  return `${negative ? "-" : ""}${whole}${fraction ? `.${fraction}` : ""}`;
 }
 
-function fromUsdUnits(value: bigint) {
-  const whole = value / 100000000n;
-  const fraction = (value % 100000000n).toString().padStart(8, "0").replace(/0+$/, "");
-  return fraction ? `${whole}.${fraction}` : whole.toString();
+function argument(argv: string[], name: string) {
+  const index = argv.indexOf(name);
+  return index >= 0 ? argv[index + 1] : undefined;
+}
+
+function exactCount(value: string | undefined, name: string) {
+  if (!value || !/^\d+$/.test(value)) throw new Error(`${name} requires a non-negative integer.`);
+  return Number(value);
+}
+
+function exactUsd(value: string | undefined, name: string) {
+  if (!value) throw new Error(`${name} requires an exact dry-run USD total.`);
+  return usd(units(value));
 }
 
 function parseArguments(argv: string[]): Arguments {
   const execute = argv.includes("--execute");
-  const rowsIndex = argv.indexOf("--expect-rows");
-  const historicalIndex = argv.indexOf("--expect-historical-total");
-  const movableIndex = argv.indexOf("--expect-movable-total");
-  const usedIndex = argv.indexOf("--expect-used-total");
-  const rowsText = rowsIndex >= 0 ? argv[rowsIndex + 1] : undefined;
-  const historicalText = historicalIndex >= 0 ? argv[historicalIndex + 1] : undefined;
-  const movableText = movableIndex >= 0 ? argv[movableIndex + 1] : undefined;
-  const usedText = usedIndex >= 0 ? argv[usedIndex + 1] : undefined;
-  if (!execute) return { execute: false };
-  if (!rowsText || !/^\d+$/.test(rowsText) || !historicalText || !movableText || !usedText) {
-    throw new Error(
-      "Execution requires --expect-rows, --expect-historical-total, --expect-movable-total, and --expect-used-total from the dry run."
-    );
+  if (!execute) {
+    if (argv.length > 0) throw new Error("Dry run accepts no arguments. Use --execute only with every required expectation.");
+    return { execute: false };
+  }
+  const allowed = new Set([
+    "--execute", "--expect-safe", "--expect-partial", "--expect-unresolved",
+    "--expect-movable", "--expect-consumed", "--expect-unresolved-hold"
+  ]);
+  for (let index = 0; index < argv.length; index += 1) {
+    const item = argv[index];
+    if (!allowed.has(item)) throw new Error(`Unknown execution argument: ${item}`);
+    if (item !== "--execute") index += 1;
   }
   return {
     execute,
-    expectedRows: Number(rowsText),
-    expectedHistoricalTotal: canonicalDecimal(historicalText),
-    expectedMovableTotal: canonicalDecimal(movableText),
-    expectedUsedTotal: canonicalDecimal(usedText)
+    expectedSafe: exactCount(argument(argv, "--expect-safe"), "--expect-safe"),
+    expectedPartial: exactCount(argument(argv, "--expect-partial"), "--expect-partial"),
+    expectedUnresolved: exactCount(argument(argv, "--expect-unresolved"), "--expect-unresolved"),
+    expectedMovable: exactUsd(argument(argv, "--expect-movable"), "--expect-movable"),
+    expectedConsumed: exactUsd(argument(argv, "--expect-consumed"), "--expect-consumed"),
+    expectedUnresolvedHold: exactUsd(argument(argv, "--expect-unresolved-hold"), "--expect-unresolved-hold")
   };
 }
 
-const targetCte = `
-  with candidates as (
-    select l.*
-    from hb_internal_ledger l
-    join hb_income_ledger i
-      on i.id = l.reference_id
-     and i.earner_user_id = l.user_id
-     and i.status = 'credited'
-     and i.income_type = l.reference_type
-    where l.wallet_type = 'deposit'
-      and l.direction = 'credit'
-      and l.reference_type = any($1::text[])
-      and not exists (
-        select 1 from hb_internal_ledger correction
-        where correction.idempotency_key = 'hb:historical-wallet-routing:' || l.id::text || ':main_debit'
-      )
-      and not exists (
-        select 1 from hb_internal_ledger correction
-        where correction.idempotency_key = 'hb:historical-wallet-routing:' || l.id::text || ':income_credit'
-      )
-      and not exists (
-        select 1 from hb_audit_logs audit
-        where audit.action = 'historical_wallet_reclassification_consumed'
-          and audit.entity_type = 'hb_internal_ledger'
-          and audit.entity_id = l.id
-      )
-  )`;
-
-async function readReport(client: PoolClient) {
-  const inventory = await client.query<Inventory>(
-    `select direction, reference_type, count(*)::int as row_count,
-            coalesce(sum(amount_usd),0)::text as total_usd,
-            count(distinct user_id)::int as affected_users
-     from hb_internal_ledger
-     where wallet_type = 'deposit'
-     group by direction, reference_type
-     order by direction, reference_type`
-  );
-  const summary = await client.query<Summary>(
-    `${targetCte}
-     select reference_type, count(*)::int as row_count, coalesce(sum(amount_usd),0)::text as total_usd,
-            count(distinct user_id)::int as affected_users
-     from candidates group by reference_type order by reference_type`,
-    [[...ALLOWED_INCOME_TYPES]]
-  );
-  const userReport = await client.query<UserReport>(
-    `${targetCte}, historical as (
-       select user_id, sum(amount_usd) as historical_misrouted_income
-       from candidates group by user_id
-     ), balances as (
-       select h.user_id, h.historical_misrouted_income,
-              coalesce(sum(case when l.wallet_type = 'deposit' and l.direction = 'credit' then l.amount_usd
-                                when l.wallet_type = 'deposit' then -l.amount_usd else 0 end),0) as current_main_wallet,
-              coalesce(sum(case when l.wallet_type = 'income' and l.direction = 'credit' then l.amount_usd
-                                when l.wallet_type = 'income' then -l.amount_usd else 0 end),0) as current_income_wallet
-       from historical h left join hb_internal_ledger l on l.user_id = h.user_id
-       group by h.user_id, h.historical_misrouted_income
-     ), amounts as (
-       select *, greatest(least(historical_misrouted_income, current_main_wallet),0) as movable_amount
-       from balances
-     )
-     select user_id::text, historical_misrouted_income::text, current_main_wallet::text,
-            movable_amount::text, (historical_misrouted_income - movable_amount)::text as used_amount,
-            (current_main_wallet - movable_amount)::text as projected_main_wallet,
-            (current_income_wallet + movable_amount)::text as projected_income_wallet,
-            (current_main_wallet + current_income_wallet)::text as combined_wallet_before,
-            (current_main_wallet + current_income_wallet)::text as combined_wallet_after
-     from amounts order by user_id`,
-    [[...ALLOWED_INCOME_TYPES]]
-  );
-  const totals = await client.query<Totals>(
-    `${targetCte}, historical as (
-       select user_id, sum(amount_usd) as historical_misrouted_income
-       from candidates group by user_id
-     ), balances as (
-       select h.user_id, h.historical_misrouted_income,
-              coalesce(sum(case when l.wallet_type = 'deposit' and l.direction = 'credit' then l.amount_usd
-                                when l.wallet_type = 'deposit' then -l.amount_usd else 0 end),0) as current_main_wallet
-       from historical h left join hb_internal_ledger l on l.user_id = h.user_id
-       group by h.user_id, h.historical_misrouted_income
-     ), amounts as (
-       select *, greatest(least(historical_misrouted_income, current_main_wallet),0) as movable_amount
-       from balances
-     )
-     select (select count(*) from candidates)::int as row_count,
-            count(*)::int as affected_users,
-            coalesce(sum(historical_misrouted_income),0)::text as total_historical_misrouted_income,
-            coalesce(sum(movable_amount),0)::text as total_movable_amount,
-            coalesce(sum(historical_misrouted_income - movable_amount),0)::text as total_already_used_amount,
-            count(*) filter (where movable_amount < historical_misrouted_income)::int as users_with_partially_used_income,
-            count(*) filter (where movable_amount = historical_misrouted_income)::int as users_with_fully_movable_income,
-            count(*) filter (where current_main_wallet < 0)::int as negative_main_users
-     from amounts`,
-    [[...ALLOWED_INCOME_TYPES]]
-  );
-  const samples = await client.query<Sample>(
-    `${targetCte}
-     select id::text, user_id::text, wallet_type, direction, amount_usd::text, reference_type,
-            reference_id::text, idempotency_key, created_at::text
-     from candidates order by created_at, id limit 25`,
-    [[...ALLOWED_INCOME_TYPES]]
-  );
-  return {
-    inventory: inventory.rows,
-    summary: summary.rows,
-    users: userReport.rows,
-    totals: totals.rows[0] || {
-      row_count: 0, affected_users: 0, total_historical_misrouted_income: "0", total_movable_amount: "0",
-      total_already_used_amount: "0", users_with_partially_used_income: 0, users_with_fully_movable_income: 0,
-      negative_main_users: 0
-    },
-    samples: samples.rows
-  };
+function eligibleUsers(report: ChronologyReport) {
+  return report.users.filter((user) => user.status === "SAFE" || user.status === "PARTIAL");
 }
 
-function printReport(report: Awaited<ReturnType<typeof readReport>>) {
-  console.log("HISTORICAL_WALLET_ROUTING_ALLOWLIST", [...ALLOWED_INCOME_TYPES]);
-  console.log("ALL_DEPOSIT_WALLET_LEDGER_INVENTORY");
-  console.table(report.inventory);
-  console.log("PROVEN_TARGETS_BY_REFERENCE_TYPE");
-  console.table(report.summary);
-  console.log("TOTALS", report.totals);
-  console.log("PER_USER_SAFE_RECLASSIFICATION");
-  console.table(report.users);
-  console.table(report.samples);
-  console.log("EXCLUDED: deposit, package_purchase, withdrawal, coin_conversion, recharge_credit, company, dev_test_balance, and every non-allowlisted/unproven row.");
-}
-
-function validateExpected(report: Awaited<ReturnType<typeof readReport>>, args: Arguments) {
-  if (report.totals.negative_main_users > 0) {
-    throw new Error(`Correction blocked: ${report.totals.negative_main_users} user(s) would have a negative Main Wallet.`);
+function assertConservation(report: ChronologyReport) {
+  if (!report.summary.conservation_ok || units(report.summary.combined_before) !== units(report.summary.combined_after)) {
+    throw new Error("Chronology report failed its global conservation check.");
   }
-  if (args.expectedRows !== report.totals.row_count) {
-    throw new Error(`Row count changed: expected ${args.expectedRows}, found ${report.totals.row_count}.`);
-  }
-  if (canonicalDecimal(args.expectedHistoricalTotal) !== canonicalDecimal(report.totals.total_historical_misrouted_income)) {
-    throw new Error(`Historical total changed: expected ${args.expectedHistoricalTotal}, found ${report.totals.total_historical_misrouted_income}.`);
-  }
-  if (canonicalDecimal(args.expectedMovableTotal) !== canonicalDecimal(report.totals.total_movable_amount)) {
-    throw new Error(`Movable total changed: expected ${args.expectedMovableTotal}, found ${report.totals.total_movable_amount}.`);
-  }
-  if (canonicalDecimal(args.expectedUsedTotal) !== canonicalDecimal(report.totals.total_already_used_amount)) {
-    throw new Error(`Used total changed: expected ${args.expectedUsedTotal}, found ${report.totals.total_already_used_amount}.`);
-  }
-}
-
-async function verifyConservation(client: PoolClient, userIds: string[], before: Map<string, string>) {
-  if (userIds.length === 0) return;
-  const rows = await client.query<{ user_id: string; combined_balance: string }>(
-    `select user_id::text,
-            coalesce(sum(case when direction = 'credit' then amount_usd else -amount_usd end),0)::text as combined_balance
-     from hb_internal_ledger
-     where user_id = any($1::uuid[]) and wallet_type in ('deposit','income')
-     group by user_id`,
-    [userIds]
-  );
-  for (const row of rows.rows) {
-    if (canonicalDecimal(row.combined_balance) !== canonicalDecimal(before.get(row.user_id) || "0")) {
-      throw new Error(`Combined wallet balance changed for user ${row.user_id}.`);
+  for (const user of report.users) {
+    if (units(user.combined_before) !== units(user.combined_after)) {
+      throw new Error(`Chronology report failed conservation for user ${user.user_id}.`);
+    }
+    if (user.status !== "UNRESOLVED" && units(user.projected_main_after) < 0n) {
+      throw new Error(`Chronology projection makes Main Wallet negative for user ${user.user_id}.`);
+    }
+    const allocated = user.source_allocations.reduce((sum, row) => sum + units(row.correction_amount), 0n);
+    if (allocated !== units(user.remaining_reclassifiable)) {
+      throw new Error(`Source allocations do not equal remaining reclassifiable for user ${user.user_id}.`);
+    }
+    if (user.status === "UNRESOLVED" && (allocated !== 0n || units(user.remaining_reclassifiable) !== 0n)) {
+      throw new Error(`Unresolved user ${user.user_id} has a non-zero correction allocation.`);
     }
   }
 }
 
-async function verifyProjectedBalances(client: PoolClient, projected: UserReport[]) {
-  if (projected.length === 0) return;
-  const expected = new Map(projected.map((row) => [row.user_id, row]));
-  const rows = await client.query<{ user_id: string; main_wallet: string; income_wallet: string }>(
-    `select user_id::text,
-            coalesce(sum(case when wallet_type='deposit' and direction='credit' then amount_usd
-                              when wallet_type='deposit' then -amount_usd else 0 end),0)::text as main_wallet,
-            coalesce(sum(case when wallet_type='income' and direction='credit' then amount_usd
-                              when wallet_type='income' then -amount_usd else 0 end),0)::text as income_wallet
-     from hb_internal_ledger where user_id = any($1::uuid[]) group by user_id`,
-    [[...expected.keys()]]
-  );
-  for (const row of rows.rows) {
-    const projection = expected.get(row.user_id);
-    if (!projection) throw new Error(`Unexpected corrected user ${row.user_id}.`);
-    if (toUsdUnits(row.main_wallet) < 0n) throw new Error(`Correction made Main Wallet negative for user ${row.user_id}.`);
-    if (canonicalDecimal(row.main_wallet) !== canonicalDecimal(projection.projected_main_wallet)) {
-      throw new Error(`Projected Main Wallet mismatch for user ${row.user_id}.`);
-    }
-    if (canonicalDecimal(row.income_wallet) !== canonicalDecimal(projection.projected_income_wallet)) {
-      throw new Error(`Projected Income Wallet mismatch for user ${row.user_id}.`);
-    }
-    expected.delete(row.user_id);
+function assertApprovedSnapshot(report: ChronologyReport) {
+  assertConservation(report);
+  const summary = report.summary;
+  const drift = [
+    ["safe users", summary.safe_users, APPROVED_SNAPSHOT.safeUsers],
+    ["partial users", summary.partial_users, APPROVED_SNAPSHOT.partialUsers],
+    ["unresolved users", summary.unresolved_users, APPROVED_SNAPSHOT.unresolvedUsers],
+    ["total proven", usd(units(summary.total_proven_misrouted)), APPROVED_SNAPSHOT.totalProven],
+    ["total movable", usd(units(summary.total_safely_reclassifiable)), APPROVED_SNAPSHOT.totalMovable],
+    ["total consumed", usd(units(summary.total_consumed_misrouted)), APPROVED_SNAPSHOT.totalConsumed],
+    ["unresolved hold", usd(units(summary.total_unresolved_safety_hold)), APPROVED_SNAPSHOT.totalUnresolvedHold]
+  ].filter(([, actual, expected]) => actual !== expected);
+  if (drift.length > 0) {
+    throw new Error(`PRODUCTION SNAPSHOT DRIFT — correction blocked:\n${drift.map(([name, actual, expected]) => `- ${name}: expected ${expected}, found ${actual}`).join("\n")}`);
   }
-  if (expected.size > 0) throw new Error(`Missing post-correction balances for ${expected.size} user(s).`);
 }
 
-async function requireConfirmation(rows: number, historicalTotal: string, movableTotal: string, usedTotal: string) {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("--execute requires an interactive terminal.");
-  const expected = `RECLASSIFY ${rows} ROWS MOVE ${canonicalDecimal(movableTotal)} USD USE ${canonicalDecimal(usedTotal)} USD OF ${canonicalDecimal(historicalTotal)} USD`;
-  const prompt = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const answer = await prompt.question(`Type exactly "${expected}" to execute: `);
-    if (answer.trim() !== expected) throw new Error("Confirmation did not match; transaction was not started.");
-  } finally {
-    prompt.close();
+function validateExpected(report: ChronologyReport, args: Arguments) {
+  assertApprovedSnapshot(report);
+  const summary = report.summary;
+  const checks: Array<[string, unknown, unknown]> = [
+    ["safe users", summary.safe_users, args.expectedSafe],
+    ["partial users", summary.partial_users, args.expectedPartial],
+    ["unresolved users", summary.unresolved_users, args.expectedUnresolved],
+    ["movable total", usd(units(summary.total_safely_reclassifiable)), args.expectedMovable],
+    ["consumed total", usd(units(summary.total_consumed_misrouted)), args.expectedConsumed],
+    ["unresolved hold", usd(units(summary.total_unresolved_safety_hold)), args.expectedUnresolvedHold]
+  ];
+  const mismatches = checks.filter(([, actual, expected]) => actual !== expected);
+  if (mismatches.length > 0) {
+    throw new Error(`Execution expectations do not match the dry run:\n${mismatches.map(([name, actual, expected]) => `- ${name}: expected ${expected}, found ${actual}`).join("\n")}`);
   }
+}
+
+function printReport(report: ChronologyReport) {
+  const eligible = eligibleUsers(report);
+  console.log("CHRONOLOGY_ELIGIBLE_USERS");
+  console.table(eligible.map((user) => ({
+    user_id: user.user_id,
+    status: user.status,
+    proven_misrouted: user.total_proven_misrouted,
+    consumed_misrouted: user.consumed_misrouted,
+    remaining_reclassifiable: user.remaining_reclassifiable,
+    current_main: user.current_main_wallet,
+    current_income: user.current_income_wallet,
+    projected_main_after: user.projected_main_after,
+    projected_income_after: user.projected_income_after,
+    combined_before: user.combined_before,
+    combined_after: user.combined_after
+  })));
+  console.log("EXACT_SOURCE_ROW_ALLOCATIONS");
+  console.table(eligible.flatMap((user) => user.source_allocations.map((allocation) => ({
+    user_id: user.user_id, status: user.status, ...allocation
+  }))));
+  console.log("UNRESOLVED_USERS_EXCLUDED");
+  console.table(report.users.filter((user) => user.status === "UNRESOLVED").map((user) => ({
+    user_id: user.user_id,
+    unresolved_reason: user.unresolved_reason,
+    held_amount: user.calculated_remaining_before_safety_hold,
+    correction_amount: "0"
+  })));
+  console.log("CHRONOLOGY_GLOBAL_SUMMARY");
+  console.table([report.summary]);
 }
 
 async function dryRun(client: PoolClient) {
   await client.query("begin isolation level repeatable read read only");
   try {
-    const report = await readReport(client);
+    const report = await buildHistoricalWalletChronologyReport(client);
     printReport(report);
+    assertApprovedSnapshot(report);
     await client.query("rollback");
     console.log("DRY RUN ONLY: read-only transaction rolled back; no data was modified.");
     return report;
@@ -310,85 +195,105 @@ async function dryRun(client: PoolClient) {
   }
 }
 
+async function requireConfirmation(report: ChronologyReport) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("--execute requires an interactive terminal.");
+  const summary = report.summary;
+  const expected = `RECLASSIFY CHRONOLOGY SAFE ${summary.safe_users} PARTIAL ${summary.partial_users} UNRESOLVED ${summary.unresolved_users} MOVE ${usd(units(summary.total_safely_reclassifiable))} CONSUMED ${usd(units(summary.total_consumed_misrouted))} HOLD ${usd(units(summary.total_unresolved_safety_hold))}`;
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await prompt.question(`Type exactly "${expected}" to execute: `);
+    if (answer.trim() !== expected) throw new Error("Confirmation did not match; transaction was not started.");
+  } finally {
+    prompt.close();
+  }
+}
+
+async function balanceRows(client: PoolClient, userIds: string[]) {
+  const result = await client.query<{ user_id: string; main: string; income: string; combined: string }>(
+    `select users.user_id::text,
+            coalesce(sum(case when l.wallet_type='deposit' and l.direction='credit' then l.amount_usd when l.wallet_type='deposit' then -l.amount_usd else 0 end),0)::text as main,
+            coalesce(sum(case when l.wallet_type='income' and l.direction='credit' then l.amount_usd when l.wallet_type='income' then -l.amount_usd else 0 end),0)::text as income,
+            coalesce(sum(case when l.direction='credit' then l.amount_usd else -l.amount_usd end),0)::text as combined
+     from unnest($1::uuid[]) users(user_id)
+     left join hb_internal_ledger l on l.user_id=users.user_id and l.wallet_type in ('deposit','income')
+     group by users.user_id`,
+    [userIds]
+  );
+  return new Map(result.rows.map((row) => [row.user_id, row]));
+}
+
 async function execute(client: PoolClient, args: Arguments) {
   await client.query("begin isolation level serializable");
   try {
-    await client.query("select pg_advisory_xact_lock(hashtext('hb:historical-wallet-routing:v1'))");
-    const report = await readReport(client);
+    await client.query("select pg_advisory_xact_lock(hashtext('hb:historical-wallet-routing:chronology:v2'))");
+    let report = await buildHistoricalWalletChronologyReport(client);
+    const initialUserIds = report.users.map((user) => user.user_id).sort();
+    for (const userId of initialUserIds) await client.query("select pg_advisory_xact_lock(hashtext($1))", [userId]);
+    report = await buildHistoricalWalletChronologyReport(client);
     printReport(report);
     validateExpected(report, args);
-    const targets = await client.query<Sample>(
-      `${targetCte} select id::text, user_id::text, wallet_type, direction, amount_usd::text,
-       reference_type, reference_id::text, idempotency_key, created_at::text
-       from candidates order by user_id, created_at, id for update`,
-      [[...ALLOWED_INCOME_TYPES]]
-    );
-    const userIds = [...new Set(targets.rows.map((row) => row.user_id))];
-    const beforeRows = await client.query<{ user_id: string; combined_balance: string }>(
-      `select user_id::text, coalesce(sum(case when direction='credit' then amount_usd else -amount_usd end),0)::text as combined_balance
-       from hb_internal_ledger where user_id = any($1::uuid[]) and wallet_type in ('deposit','income') group by user_id`,
-      [userIds]
-    );
-    const before = new Map(beforeRows.rows.map((row) => [row.user_id, row.combined_balance]));
-    const movableByUser = new Map(report.users.map((row) => [row.user_id, toUsdUnits(row.movable_amount)]));
-    for (const row of targets.rows) {
-      const sourceAmount = toUsdUnits(row.amount_usd);
-      const remainingMovable = movableByUser.get(row.user_id) || 0n;
-      const movableAmount = sourceAmount < remainingMovable ? sourceAmount : remainingMovable;
-      const usedAmount = sourceAmount - movableAmount;
-      movableByUser.set(row.user_id, remainingMovable - movableAmount);
-      const metadata = JSON.stringify({
-        source: CORRECTION_TYPE,
-        originalLedgerId: row.id,
-        originalReferenceType: row.reference_type,
-        originalAmountUsd: fromUsdUnits(sourceAmount),
-        movableAmountUsd: fromUsdUnits(movableAmount),
-        usedAmountUsd: fromUsdUnits(usedAmount)
-      });
-      if (movableAmount > 0n) {
-        const amount = fromUsdUnits(movableAmount);
+    const eligible = eligibleUsers(report);
+    const eligibleIds = eligible.map((user) => user.user_id);
+    const before = await balanceRows(client, eligibleIds);
+
+    for (const user of eligible) {
+      for (const allocation of user.source_allocations) {
+        const source = await client.query<{ amount_usd: string }>(
+          `select amount_usd::text from hb_internal_ledger
+           where id=$1 and user_id=$2 and wallet_type='deposit' and direction='credit' for update`,
+          [allocation.source_ledger_id, user.user_id]
+        );
+        if (!source.rows[0] || units(allocation.correction_amount) > units(source.rows[0].amount_usd)) {
+          throw new Error(`Invalid source allocation ${allocation.source_ledger_id} for user ${user.user_id}.`);
+        }
+        const metadata = JSON.stringify({
+          source: CORRECTION_TYPE,
+          accountingRule: "chronology_v2",
+          chronologyStatus: user.status,
+          originalLedgerId: allocation.source_ledger_id,
+          originalReferenceType: allocation.source_reference_type,
+          originalAmountUsd: allocation.source_original_amount,
+          correctionAmountUsd: allocation.correction_amount
+        });
         const debit = await client.query<{ id: string }>(
           `insert into hb_internal_ledger
-            (user_id,wallet_type,direction,amount_usd,reference_type,reference_id,idempotency_key,metadata,created_at)
-           values ($1,'deposit','debit',$2,$3,$4,$5,$6::jsonb,now()) on conflict (idempotency_key) do nothing returning id`,
-          [row.user_id, amount, CORRECTION_TYPE, row.id, `hb:historical-wallet-routing:${row.id}:main_debit`, metadata]
+            (user_id,wallet_type,direction,amount_usd,reference_type,reference_id,idempotency_key,metadata)
+           values ($1,'deposit','debit',$2,$3,$4,$5,$6::jsonb)
+           on conflict (idempotency_key) do nothing returning id`,
+          [user.user_id, allocation.correction_amount, CORRECTION_TYPE, allocation.source_ledger_id,
+            `hb:historical-wallet-routing:chronology:v2:${allocation.source_ledger_id}:main_debit`, metadata]
         );
         const credit = await client.query<{ id: string }>(
           `insert into hb_internal_ledger
-            (user_id,wallet_type,direction,amount_usd,reference_type,reference_id,idempotency_key,metadata,created_at)
-           values ($1,'income','credit',$2,$3,$4,$5,$6::jsonb,now()) on conflict (idempotency_key) do nothing returning id`,
-          [row.user_id, amount, CORRECTION_TYPE, row.id, `hb:historical-wallet-routing:${row.id}:income_credit`, metadata]
+            (user_id,wallet_type,direction,amount_usd,reference_type,reference_id,idempotency_key,metadata)
+           values ($1,'income','credit',$2,$3,$4,$5,$6::jsonb)
+           on conflict (idempotency_key) do nothing returning id`,
+          [user.user_id, allocation.correction_amount, CORRECTION_TYPE, allocation.source_ledger_id,
+            `hb:historical-wallet-routing:chronology:v2:${allocation.source_ledger_id}:income_credit`, metadata]
         );
-        if (!debit.rows[0]?.id || !credit.rows[0]?.id) throw new Error(`Correction pair was not created atomically for ${row.id}.`);
+        if (!debit.rows[0]?.id || !credit.rows[0]?.id) {
+          throw new Error(`Correction pair already exists or was not created atomically for source ${allocation.source_ledger_id}.`);
+        }
         await createLedgerProof(client, "hb_internal_ledger", debit.rows[0].id);
         await createLedgerProof(client, "hb_internal_ledger", credit.rows[0].id);
       }
-      if (usedAmount > 0n) {
-        const consumed = await client.query<{ id: string }>(
-          `insert into hb_audit_logs (user_id,action,entity_type,entity_id,metadata)
-           select $1,'historical_wallet_reclassification_consumed','hb_internal_ledger',$2,$3::jsonb
-           where not exists (
-             select 1 from hb_audit_logs
-             where action = 'historical_wallet_reclassification_consumed'
-               and entity_type = 'hb_internal_ledger' and entity_id = $2
-           ) returning id`,
-          [row.user_id, row.id, metadata]
-        );
-        if (!consumed.rows[0]?.id) throw new Error(`Consumed-income audit marker was not created for ${row.id}.`);
-      }
     }
-    for (const [userId, remaining] of movableByUser) {
-      if (remaining !== 0n) throw new Error(`Movable allocation did not balance for user ${userId}.`);
+
+    const after = await balanceRows(client, eligibleIds);
+    for (const user of eligible) {
+      const beforeRow = before.get(user.user_id);
+      const afterRow = after.get(user.user_id);
+      if (!beforeRow || !afterRow) throw new Error(`Missing balance verification for user ${user.user_id}.`);
+      if (units(afterRow.main) < 0n) throw new Error(`Main Wallet became negative for user ${user.user_id}.`);
+      if (units(afterRow.main) !== units(user.projected_main_after)) throw new Error(`Main projection mismatch for user ${user.user_id}.`);
+      if (units(afterRow.income) !== units(user.projected_income_after)) throw new Error(`Income projection mismatch for user ${user.user_id}.`);
+      if (units(beforeRow.combined) !== units(afterRow.combined)) throw new Error(`Combined wallet changed for user ${user.user_id}.`);
     }
-    await verifyConservation(client, userIds, before);
-    await verifyProjectedBalances(client, report.users);
-    const remaining = await readReport(client);
-    if (remaining.totals.row_count !== 0) throw new Error(`${remaining.totals.row_count} target row(s) remain uncorrected.`);
+    const globalBefore = [...before.values()].reduce((sum, row) => sum + units(row.combined), 0n);
+    const globalAfter = [...after.values()].reduce((sum, row) => sum + units(row.combined), 0n);
+    if (globalBefore !== globalAfter) throw new Error("Global combined wallet total changed.");
     await client.query("commit");
-    console.log(
-      `EXECUTED: ${targets.rowCount} historical row(s); ${report.totals.total_movable_amount} USD moved and ` +
-      `${report.totals.total_already_used_amount} USD recorded as already used.`
-    );
+    console.log(`EXECUTED: chronology safely reclassified ${report.summary.total_safely_reclassifiable} USD.`);
   } catch (error) {
     await client.query("rollback");
     throw error;
@@ -403,12 +308,7 @@ async function main() {
     const report = await dryRun(client);
     if (args.execute) {
       validateExpected(report, args);
-      await requireConfirmation(
-        report.totals.row_count,
-        report.totals.total_historical_misrouted_income,
-        report.totals.total_movable_amount,
-        report.totals.total_already_used_amount
-      );
+      await requireConfirmation(report);
       await execute(client, args);
     }
   } finally {
