@@ -210,7 +210,7 @@ export async function applyIncomeCap(input: {
       const internalLedgerRows = await client.query<{ id: string }>(
         `insert into hb_internal_ledger
           (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
-         values ($1,'deposit','credit',$2,$3,$4,$5,$6::jsonb)
+         values ($1,'income','credit',$2,$3,$4,$5,$6::jsonb)
          returning id`,
         [
           userId,

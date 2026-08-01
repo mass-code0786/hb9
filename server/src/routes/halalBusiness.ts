@@ -1561,6 +1561,55 @@ async function getBalance(userId: string, walletType: "deposit" | "income" = "de
   return rows[0]?.balance || "0";
 }
 
+async function creditAdminIncomeWallet(input: {
+  client: PoolClient;
+  userId: string;
+  amountUsd: string;
+  idempotencyKey: string;
+  adminId: string;
+  note: string;
+  metadata?: Record<string, unknown>;
+}) {
+  const incomeRows = await input.client.query<{ id: string }>(
+    `insert into hb_income_ledger
+      (earner_user_id, source_user_id, income_type, amount_usd, status, idempotency_key, metadata)
+     values ($1,$1,'admin_income',$2,'credited',$3,$4::jsonb)
+     on conflict (idempotency_key) do nothing
+     returning id`,
+    [input.userId, input.amountUsd, `${input.idempotencyKey}:income`, JSON.stringify({ admin: input.adminId, note: input.note, ...(input.metadata || {}) })]
+  );
+  let incomeLedgerId = incomeRows.rows[0]?.id || null;
+  if (!incomeLedgerId) {
+    const existingRows = await input.client.query<{ id: string }>(
+      "select id from hb_income_ledger where idempotency_key = $1 limit 1",
+      [`${input.idempotencyKey}:income`]
+    );
+    incomeLedgerId = existingRows.rows[0]?.id || null;
+  }
+  if (!incomeLedgerId) throw new Error("Admin income ledger could not be created.");
+
+  const walletRows = await input.client.query<{ id: string }>(
+    `insert into hb_internal_ledger
+      (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
+     values ($1,'income','credit',$2,'admin_income',$3,$4,$5::jsonb)
+     on conflict (idempotency_key) do nothing
+     returning id`,
+    [input.userId, input.amountUsd, incomeLedgerId, `${input.idempotencyKey}:income_wallet`, JSON.stringify({ admin: input.adminId, note: input.note, incomeType: "admin_income", ...(input.metadata || {}) })]
+  );
+  let walletLedgerId = walletRows.rows[0]?.id || null;
+  if (!walletLedgerId) {
+    const existingRows = await input.client.query<{ id: string }>(
+      "select id from hb_internal_ledger where idempotency_key = $1 limit 1",
+      [`${input.idempotencyKey}:income_wallet`]
+    );
+    walletLedgerId = existingRows.rows[0]?.id || null;
+  }
+  if (!walletLedgerId) throw new Error("Admin income wallet credit could not be created.");
+  await createLedgerProof(input.client, "hb_income_ledger", incomeLedgerId);
+  await createLedgerProof(input.client, "hb_internal_ledger", walletLedgerId);
+  return { incomeLedgerId, walletLedgerId };
+}
+
 type WithdrawableIncomeAllocation = { incomeType: string; available: string };
 
 async function getWithdrawableIncomeAllocations(client: PoolClient, userId: string): Promise<WithdrawableIncomeAllocation[]> {
@@ -2646,7 +2695,7 @@ hbRouter.post("/hb/dev/test-balance", requireHbUser, asyncHandler(async (req, re
   const idempotencyKey = `hb:dev:test-balance:${req.hbUser!.userId}:${crypto.randomUUID()}`;
   const rows = await query(
     `insert into hb_internal_ledger (user_id, wallet_type, direction, amount_usd, reference_type, reference_id, idempotency_key, metadata)
-     values ($1,'deposit','credit',$2,'dev_test_balance',null,$3,$4::jsonb)
+     values ($1,'income','credit',$2,'dev_test_balance',null,$3,$4::jsonb)
      returning id, amount_usd`,
     [
       req.hbUser!.userId,
@@ -4576,42 +4625,6 @@ hbRouter.post("/hb/products/:id/buy", requireHbUser, asyncHandler(async (req, re
         mainWalletBalance: wallet.balances.deposit,
         availableBalance: wallet.availableBalance
       }, "Product purchase already processed");
-      return;
-    }
-
-    const existingPurchaseRows = await buyQuery<{ id: string; package_id: string; amount_usd: string; status: string }>(
-      `select id, package_id, amount_usd::text, status
-       from hb_package_purchases
-       where user_id = $1 and package_id = $2 and status = 'completed'
-       order by created_at desc
-       limit 1`,
-      [req.hbUser!.userId, product.package_id]
-    );
-    if (existingPurchaseRows.rows[0] && Number(product.package_price) !== 4) {
-      const existingPurchase = existingPurchaseRows.rows[0];
-      await runCompletedPackagePurchasePipeline({
-        client,
-        purchaseId: existingPurchase.id,
-        buyerUserId: req.hbUser!.userId,
-        packageId: existingPurchase.package_id,
-        amountUsd: existingPurchase.amount_usd
-      });
-      await buyQuery(
-        "update hb_product_orders set distribution_status = 'completed', updated_at = now() where buyer_user_id = $1 and package_purchase_id = $2",
-        [req.hbUser!.userId, existingPurchase.id]
-      );
-      await buyQuery("commit");
-      inTransaction = false;
-      const wallet = await getWalletSummary(req.hbUser!.userId);
-      ok(res, {
-        order: { id: existingPurchase.id, order_number: "EXISTING-PACKAGE", distribution_status: "completed" },
-        packagePurchaseId: existingPurchase.id,
-        activated: user.status === "active",
-        idempotent: true,
-        walletBalance: wallet.balances.deposit,
-        mainWalletBalance: wallet.balances.deposit,
-        availableBalance: wallet.availableBalance
-      }, "Package already purchased");
       return;
     }
 
@@ -6961,6 +6974,16 @@ hbRouter.post("/admin/hb/funds/transfer", requireAdmin, asyncHandler(async (req,
       metadata: { action: "transfer", role: "receiver", senderUserId: parsed.data.senderUserId }
     });
     if (!senderLedgerId || !receiverLedgerId) throw new Error("Duplicate fund transfer ledger request.");
+    const receiverUsdPrice = await getHbCoinPrice(parsed.data.coinSymbol);
+    await creditAdminIncomeWallet({
+      client,
+      userId: parsed.data.receiverUserId,
+      amountUsd: decimalString(Number(parsed.data.amount) * receiverUsdPrice, 18),
+      idempotencyKey: `${idempotencyKey}:receiver`,
+      adminId: adminEmail,
+      note: parsed.data.note,
+      metadata: { action: "transfer", coinSymbol: parsed.data.coinSymbol, coinAmount: parsed.data.amount, senderUserId: parsed.data.senderUserId }
+    });
     const senderProof = await createLedgerProof(client, "hb_coin_balance_ledger", senderLedgerId);
     const receiverProof = await createLedgerProof(client, "hb_coin_balance_ledger", receiverLedgerId);
     const senderAfter = await readCoinBalance(client, parsed.data.senderUserId, parsed.data.coinSymbol);
@@ -7035,25 +7058,7 @@ async function adminFundAction(req: Request, res: Response, direction: "credit" 
     let ledgerId: string | null = null;
     let actionLedgerId: string | null = null;
     let proof: unknown = null;
-    if (direction === "credit" && parsed.data.incomeType === "admin_income" && parsed.data.coinSymbol === "USDT") {
-      const incomeRows = await client.query<{ id: string }>(
-        `insert into hb_income_ledger
-          (earner_user_id, source_user_id, income_type, amount_usd, status, idempotency_key, metadata)
-         values ($1,$1,'admin_income',$2,'credited',$3,$4::jsonb)
-         on conflict (idempotency_key) do nothing
-         returning id`,
-        [parsed.data.userId, parsed.data.amount, `${idempotencyKey}:income`, JSON.stringify({ note: parsed.data.note, admin: adminEmail, reference })]
-      );
-      ledgerId = incomeRows.rows[0]?.id || null;
-      if (!ledgerId) {
-        const existingIncomeRows = await client.query<{ id: string }>("select id from hb_income_ledger where idempotency_key = $1 limit 1", [`${idempotencyKey}:income`]);
-        ledgerId = existingIncomeRows.rows[0]?.id || null;
-      }
-      if (!ledgerId) throw new Error("Duplicate admin income ledger request.");
-      await applyIncomeCap({ client, userId: parsed.data.userId, incomeLedgerId: ledgerId, incomeAmount: String(parsed.data.amount), incomeType: "admin_income", metadata: { admin: adminEmail, note: parsed.data.note } });
-      proof = await createLedgerProof(client, "hb_income_ledger", ledgerId);
-    } else {
-      ledgerId = await applyHbCoinAdjustment({
+    ledgerId = await applyHbCoinAdjustment({
         client,
         userId: parsed.data.userId,
         coinSymbol: parsed.data.coinSymbol,
@@ -7066,9 +7071,20 @@ async function adminFundAction(req: Request, res: Response, direction: "credit" 
         idempotencyKey,
         metadata: { action: type, beforeBalance: before }
       });
-      if (!ledgerId) throw new Error("Duplicate fund action ledger request.");
-      actionLedgerId = ledgerId;
-      proof = await createLedgerProof(client, "hb_coin_balance_ledger", ledgerId);
+    if (!ledgerId) throw new Error("Duplicate fund action ledger request.");
+    actionLedgerId = ledgerId;
+    proof = await createLedgerProof(client, "hb_coin_balance_ledger", ledgerId);
+    if (direction === "credit") {
+      const coinUsdPrice = await getHbCoinPrice(parsed.data.coinSymbol);
+      await creditAdminIncomeWallet({
+        client,
+        userId: parsed.data.userId,
+        amountUsd: decimalString(Number(parsed.data.amount) * coinUsdPrice, 18),
+        idempotencyKey,
+        adminId: adminEmail,
+        note: parsed.data.note,
+        metadata: { action: type, coinSymbol: parsed.data.coinSymbol, coinAmount: parsed.data.amount, reference }
+      });
     }
     const after = await readCoinBalance(client, parsed.data.userId, parsed.data.coinSymbol);
     const actionRows = await client.query(
@@ -7360,7 +7376,7 @@ async function adminBulkDistribution(req: Request, res: Response, forcePreview =
         incomeLedgerId,
         incomeAmount: decimalString(dividendCandidateUsd, 18),
         incomeType: "dividend_income",
-        creditWallet: false,
+        creditWallet: true,
         metadata: { batchKey: rootKey, coinSymbol, requestedAmount: parsed.data.amount }
       });
       const dailyCappedUsd = Number(dailyCapResult.creditedAmount || 0);
