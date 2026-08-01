@@ -276,22 +276,6 @@ function onchainPurchaseReady(config: HbOnchainPackageConfig, packageConfig: Onc
   return Boolean(packageContractId && config.packageManagerAddress && config.usdtBep20Address);
 }
 
-function isPurchasedStatusActive(status?: string | null) {
-  return Boolean(status && !/fail|cancel|reject|expire/i.test(status));
-}
-
-function isPackageAlreadyActive(product: HbProduct, purchases: HbPurchase[], orders: HbOrder[]) {
-  const amount = Number(product.package_price);
-  const packageName = (product.package_name || product.title || "").toLowerCase();
-  return purchases.some((item) => {
-    const itemAmount = Number(item.amount_usd);
-    return isPurchasedStatusActive(item.status) && (itemAmount === amount || item.package_name?.toLowerCase() === packageName);
-  }) || orders.some((item) => {
-    const itemAmount = Number(item.amount_usd || item.package_price);
-    return isPurchasedStatusActive(item.payment_status) && isPurchasedStatusActive(item.activation_status) && (itemAmount === amount || item.package_name?.toLowerCase() === packageName);
-  });
-}
-
 function packageProductFromPackage(pkg: HbPackage, fallbackProduct?: HbProduct): HbProduct {
   const amount = Number(pkg.amount_usd);
   const defaultProduct = buildDefaultHbPackageProducts().find((item) => Number(item.package_price) === amount);
@@ -1010,20 +994,10 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       setBuyLoadingProductId("");
       return;
     }
-    if (isPackageAlreadyActive(product, purchases, orders)) {
-      setError("");
-      setNotice("Package already active.");
-      setBuyLoadingProductId("");
-      return;
-    }
     setError("");
     setNotice("");
     try {
       const freshProduct = await resolveFreshProductForBuy(product).catch(() => product);
-      if (isPackageAlreadyActive(freshProduct, purchases, orders)) {
-        setNotice("Package already active.");
-        return;
-      }
       if (!freshProduct.active || freshProduct.stock <= 0) {
         setError(HB_PACKAGE_INACTIVE);
         return;
