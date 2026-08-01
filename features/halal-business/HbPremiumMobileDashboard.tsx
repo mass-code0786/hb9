@@ -363,6 +363,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
     depositAddress: "",
     deposits: [] as HbDeposit[],
     balances: { deposit: "0", income: "0" },
+    withdrawableIncome: "0",
     pendingWithdrawals: { total: "0", count: 0 },
     verifiedDeposits: { total: "0", count: 0 },
     pendingDeposits: { total: "0", count: 0 }
@@ -545,6 +546,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       depositAddress: wallet.depositAddress,
       deposits: wallet.deposits,
       balances: wallet.balances,
+      withdrawableIncome: wallet.withdrawableIncome,
       pendingWithdrawals: wallet.pendingWithdrawals,
       verifiedDeposits: wallet.verifiedDeposits,
       pendingDeposits: wallet.pendingDeposits
@@ -582,6 +584,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         depositAddress: getHbDevWallet(),
         deposits: [],
         balances: { deposit: "0", income: "0" },
+        withdrawableIncome: "0",
         pendingWithdrawals: { total: "0", count: 0 },
         verifiedDeposits: { total: "0", count: 0 },
         pendingDeposits: { total: "0", count: 0 }
@@ -669,6 +672,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         depositAddress: "",
         deposits: [],
         balances: { deposit: "0", income: "0" },
+        withdrawableIncome: "0",
         pendingWithdrawals: { total: "0", count: 0 },
         verifiedDeposits: { total: "0", count: 0 },
         pendingDeposits: { total: "0", count: 0 }
@@ -747,6 +751,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         depositAddress: wallet.depositAddress,
         deposits: wallet.deposits,
         balances: wallet.balances,
+        withdrawableIncome: wallet.withdrawableIncome,
         pendingWithdrawals: wallet.pendingWithdrawals,
         verifiedDeposits: wallet.verifiedDeposits,
         pendingDeposits: wallet.pendingDeposits
@@ -913,8 +918,8 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
       setError("Invalid BEP20 wallet address");
       return;
     }
-    if (Number(walletData.balances.deposit || 0) + Number.EPSILON < amountUsd) {
-      setError("Insufficient USDT balance");
+    if (Number(walletData.withdrawableIncome || 0) + Number.EPSILON < amountUsd) {
+      setError("Insufficient withdrawable income");
       return;
     }
     setWalletActionBusy("withdraw");
@@ -1167,7 +1172,7 @@ export function HbPremiumMobileDashboard({ devMode = false }: { devMode?: boolea
         {!loading && activeTab === "packages" ? <AllPackagesScreen products={completePackageProducts} buyLoadingProductId={buyLoadingProductId} onBuy={openBuyFlow} onBack={() => setActiveTab("home")} /> : null}
         {!loading && activeTab === "team" ? <TeamScreen user={dashboardUser} summary={referralSummary} /> : null}
         {!loading && activeTab === "income" ? <IncomeScreen income={income} singleLegReserve={singleLegReserve} singleLegProgress={singleLegProgress} summary={incomeSummary} dividendSummary={dividendSummary} availableBalance={availableBalanceUsd} totalWithdrawn={withdrawals.filter((item) => item.status === "paid").reduce((sum, item) => sum + Number(item.amount_usd || 0), 0)} /> : null}
-        {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} deposits={walletData.deposits} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={treasuryDepositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} depositPaymentStatus={depositPaymentStatus} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} onRefresh={() => token ? refresh(token) : Promise.resolve()} onInstruction={playAssistant} onModalChange={setActiveWalletModal} onResetDepositStatus={() => setDepositPaymentStatus("idle")} /> : null}
+        {!loading && activeTab === "wallet" ? <WalletScreen walletBalance={totalBalance} balances={walletData.balances} withdrawableBalance={walletData.withdrawableIncome} deposits={walletData.deposits} withdrawals={withdrawals} activity={walletActivity} boundWallet={boundWallet} depositAddress={treasuryDepositAddress} coins={coins} convertingCoin={convertingCoin} walletActionBusy={walletActionBusy} depositPaymentStatus={depositPaymentStatus} onConvert={convertCoin} onDeposit={submitDeposit} onWithdraw={submitWithdrawal} onRefresh={() => token ? refresh(token) : Promise.resolve()} onInstruction={playAssistant} onModalChange={setActiveWalletModal} onResetDepositStatus={() => setDepositPaymentStatus("idle")} /> : null}
       </div>
 
       {activeWalletModal !== "deposit" && !purchaseReview ? <BottomNavigation activeTab={activeTab} onChange={handleTabChange} /> : null}
@@ -1794,7 +1799,7 @@ function StatusBadgeMini({ status }: { status: "Completed" | "In Progress" | "Pe
   return <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${cls}`}>{status}</span>;
 }
 
-function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity, boundWallet, depositAddress, coins, convertingCoin, walletActionBusy, depositPaymentStatus, onConvert, onDeposit, onWithdraw, onRefresh, onInstruction, onModalChange, onResetDepositStatus }: { walletBalance: number; balances: { deposit: string; income: string }; deposits: HbDeposit[]; withdrawals: HbWithdrawal[]; activity: HbWalletActivity[]; boundWallet: string; depositAddress: string; coins: HbCoinBalance[]; convertingCoin: string; walletActionBusy: string; depositPaymentStatus: DepositPaymentStatus; onConvert: (coinSymbol: string, usdValue?: number) => void; onDeposit: (amountUsd: number) => Promise<HbDeposit | null>; onWithdraw: (amountUsd: number, walletAddress: string) => Promise<void>; onRefresh: () => Promise<void>; onInstruction: (script: HB9VoiceScript) => void; onModalChange: (modal: "deposit" | "withdraw" | null) => void; onResetDepositStatus: () => void }) {
+function WalletScreen({ walletBalance, balances, withdrawableBalance, deposits, withdrawals, activity, boundWallet, depositAddress, coins, convertingCoin, walletActionBusy, depositPaymentStatus, onConvert, onDeposit, onWithdraw, onRefresh, onInstruction, onModalChange, onResetDepositStatus }: { walletBalance: number; balances: { deposit: string; income: string }; withdrawableBalance: string; deposits: HbDeposit[]; withdrawals: HbWithdrawal[]; activity: HbWalletActivity[]; boundWallet: string; depositAddress: string; coins: HbCoinBalance[]; convertingCoin: string; walletActionBusy: string; depositPaymentStatus: DepositPaymentStatus; onConvert: (coinSymbol: string, usdValue?: number) => void; onDeposit: (amountUsd: number) => Promise<HbDeposit | null>; onWithdraw: (amountUsd: number, walletAddress: string) => Promise<void>; onRefresh: () => Promise<void>; onInstruction: (script: HB9VoiceScript) => void; onModalChange: (modal: "deposit" | "withdraw" | null) => void; onResetDepositStatus: () => void }) {
   const [walletModal, setWalletModal] = useState<"deposit" | "withdraw" | null>(null);
   const [depositAmount, setDepositAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -1882,7 +1887,7 @@ function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity
           <InfoLine label="Minimum withdrawal" value={`$${HB_WITHDRAWAL_MIN_USD}`} />
           <InfoLine label="Withdrawal charge" value="10%" />
           <InfoLine label="Network" value="BSC Mainnet" />
-          <InfoLine label="Available USDT" value={money(balances.deposit)} />
+          <InfoLine label="Available USDT" value={money(withdrawableBalance)} />
           <label className="mt-3 block text-xs font-bold text-sky-100/62">Amount</label>
           <input className="mt-1 w-full rounded-2xl border border-cyan-200/12 bg-[#020817] px-3 py-3 text-sm font-bold outline-none focus:border-cyan-300/45" inputMode="decimal" value={withdrawAmount} onChange={(event) => setWithdrawAmount(event.target.value)} placeholder="10.00" />
           <label className="mt-3 block text-xs font-bold text-sky-100/62">BEP20 wallet address</label>
@@ -1892,8 +1897,8 @@ function WalletScreen({ walletBalance, balances, deposits, withdrawals, activity
             <InfoLine label="You receive" value={money(withdrawNet)} />
           </div>
           {withdrawValue > 0 && withdrawValue < HB_WITHDRAWAL_MIN_USD ? <p className="mt-2 text-xs font-semibold text-red-200">{HB_WITHDRAWAL_MIN_ERROR}</p> : null}
-          {withdrawValue > Number(balances.deposit || 0) ? <p className="mt-2 text-xs font-semibold text-red-200">Insufficient USDT balance</p> : null}
-          <button className="hb-interactive hb-glow-cyan mt-4 w-full rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-black text-[#031326] disabled:cursor-not-allowed disabled:opacity-50" disabled={walletActionBusy === "withdraw" || withdrawValue < HB_WITHDRAWAL_MIN_USD || withdrawValue > Number(balances.deposit || 0)} onClick={async () => { await onWithdraw(withdrawValue, withdrawWallet); setWalletModal(null); }} type="button">{walletActionBusy === "withdraw" ? "Sending..." : "Withdraw Now"}</button>
+          {withdrawValue > Number(withdrawableBalance || 0) ? <p className="mt-2 text-xs font-semibold text-red-200">Insufficient withdrawable income</p> : null}
+          <button className="hb-interactive hb-glow-cyan mt-4 w-full rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-black text-[#031326] disabled:cursor-not-allowed disabled:opacity-50" disabled={walletActionBusy === "withdraw" || withdrawValue < HB_WITHDRAWAL_MIN_USD || withdrawValue > Number(withdrawableBalance || 0)} onClick={async () => { await onWithdraw(withdrawValue, withdrawWallet); setWalletModal(null); }} type="button">{walletActionBusy === "withdraw" ? "Sending..." : "Withdraw Now"}</button>
         </WalletActionModal>
       ) : null}
     </div>
